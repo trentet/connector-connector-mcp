@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "defaults": { "ifExisting": "skip" },
+  "connectors": [
+    {
+      "id": "cc-selftest",
+      "name": "cc-selftest",
+      "description": "Throwaway connector used by cc's own add/verify/remove exit test. Safe to delete.",
+      "url": { "type": "literal", "value": "https://vault.trentt.me/mcp" },
+      "urlByPlatform": {
+        "chatgpt": { "type": "template", "template": "https://vault.trentt.me/mcp?token={{bearerToken}}", "variables": { "bearerToken": { "type": "envFile", "paths": ["D:/GDrive/HELM/DEV-PROJECTS/Connectors/Vault MCP Connector/Repos/vault-mcp/.env"], "key": "VAULT_MCP_BEARER_TOKEN" } } },
+        "grok": { "type": "template", "template": "https://vault.trentt.me/mcp?token={{bearerToken}}", "variables": { "bearerToken": { "type": "envFile", "paths": ["D:/GDrive/HELM/DEV-PROJECTS/Connectors/Vault MCP Connector/Repos/vault-mcp/.env"], "key": "VAULT_MCP_BEARER_TOKEN" } } }
+      },
+      "auth": { "mode": "header", "headerName": "x-api-key", "headerValue": { "type": "envFile", "paths": ["D:/GDrive/HELM/DEV-PROJECTS/Connectors/Vault MCP Connector/Repos/vault-mcp/.env"], "key": "VAULT_MCP_BEARER_TOKEN" } },
+      "platforms": ["claude", "chatgpt", "grok"]
+    }
+  ]
+}
