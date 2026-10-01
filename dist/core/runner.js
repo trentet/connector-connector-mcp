@@ -54,7 +54,13 @@ async function resolveConnector(c, platform, red, deps) {
 function describe(c, rc, red) {
     if (!rc)
         return `${c.name}: ok`;
-    const hdr = rc.headerValue ? `, header ${c.auth.headerName}=<resolved ${rc.headerValue.length} chars>` : "";
-    return red.redact(`${c.name}: url=${rc.url}${hdr}`);
+    let target = "<unparseable url>";
+    try {
+        const u = new URL(rc.url);
+        target = `${u.origin}${u.pathname}${u.search ? "?<query redacted>" : ""}`;
+    }
+    catch { /* keep placeholder */ }
+    const hdr = rc.headerValue ? `, header ${c.auth.headerName} set (${rc.headerValue.length} chars)` : "";
+    return red.redact(`${c.name}: url=${target}${hdr}`);
 }
 //# sourceMappingURL=runner.js.map

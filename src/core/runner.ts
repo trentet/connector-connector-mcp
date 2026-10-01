@@ -54,6 +54,8 @@ async function resolveConnector(c: ConnectorDef, platform: Platform, red: Redact
 
 function describe(c: ConnectorDef, rc: ResolvedConnector | undefined, red: Redactor): string {
   if (!rc) return `${c.name}: ok`;
-  const hdr = rc.headerValue ? `, header ${c.auth.headerName}=<resolved ${rc.headerValue.length} chars>` : "";
-  return red.redact(`${c.name}: url=${rc.url}${hdr}`);
+  let target = "<unparseable url>";
+  try { const u = new URL(rc.url); target = `${u.origin}${u.pathname}${u.search ? "?<query redacted>" : ""}`; } catch { /* keep placeholder */ }
+  const hdr = rc.headerValue ? `, header ${c.auth.headerName} set (${rc.headerValue.length} chars)` : "";
+  return red.redact(`${c.name}: url=${target}${hdr}`);
 }

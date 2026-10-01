@@ -11,7 +11,7 @@ export class Redactor {
         for (const s of [...this.secrets].sort((a, b) => b.length - a.length))
             out = out.split(s).join("<REDACTED>");
         out = out.replace(/([?&](?:token|shell_secret|api_key|apikey|key|secret|code|state)=)[^&\s"'<>]+/gi, "$1<REDACTED>");
-        out = out.replace(/(x-api-key\s*[:=]\s*)[^\s"',]+/gi, "$1<REDACTED>");
+        out = out.replace(/(x-api-key\s*[:=]\s*)[^\s"',()]+/gi, "$1<REDACTED>");
         return out;
     }
 }
