@@ -5,8 +5,8 @@
  */
 const BASE_URL = () => process.env.BW_SERVE_URL || "http://127.0.0.1:8087";
 
-async function bwFetch(path: string): Promise<unknown> {
-  const res = await fetch(`${BASE_URL()}${path}`, { headers: { "Content-Type": "application/json" } });
+async function bwFetch(path: string, method = "GET"): Promise<unknown> {
+  const res = await fetch(`${BASE_URL()}${path}`, { method, headers: { "Content-Type": "application/json" } });
   const body = (await res.json().catch(() => null)) as { success?: boolean; message?: string; data?: unknown } | null;
   if (!res.ok || body?.success === false) throw new Error(`bw serve error: ${body?.message || "HTTP " + res.status}`);
   return body?.data ?? body;
@@ -22,4 +22,24 @@ export async function getCredential(label: string): Promise<VaultCredential | un
   if (matches.length > 1) throw new Error(`vault label "${label}" is ambiguous (${matches.length} entries)`);
   const item = (await bwFetch(`/object/item/${matches[0].id}`)) as { login?: { username?: string | null; password?: string | null } };
   return { username: item.login?.username ?? undefined, password: item.login?.password ?? undefined };
+}
+
+/** Poll the vault until an entry with this label appears (operator submits it via a vault_request_secret link). */
+export async function waitForCredential(label: string, timeoutMs: number, pollMs = 3000): Promise<VaultCredential | undefined> {
+  const end = Date.now() + timeoutMs;
+  while (Date.now() < end) {
+    const c = await getCredential(label);
+    if (c && (c.password || c.username)) return c;
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+  return undefined;
+}
+
+/** Delete a one-time entry (e.g. an SMS code) after use. */
+export async function deleteCredential(label: string): Promise<boolean> {
+  const list = (await bwFetch("/list/object/items")) as { data?: { id: string; name: string }[] } | { id: string; name: string }[];
+  const items = Array.isArray(list) ? list : (list?.data ?? []);
+  let n = 0;
+  for (const i of items.filter((x) => x.name === label)) { await bwFetch(`/object/item/${i.id}`, "DELETE"); n++; }
+  return n > 0;
 }

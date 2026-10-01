@@ -1,7 +1,7 @@
 // Exploratory: log in to ChatGPT via "Continue with Google" using the vault Google credential (in-process).
 // Snapshots every step (redacted). STOPS at any Google challenge (2FA/passkey/verify) and reports; never tries to bypass.
 import { openSession, snapshot } from "../../dist/browser/chrome.js";
-import { getCredential } from "../../dist/core/vaultClient.js";
+import { getCredential, waitForCredential, deleteCredential } from "../../dist/core/vaultClient.js";
 import { Redactor } from "../../dist/core/redact.js";
 
 const label = "Google Account (trenterrolthomas@gmail.com)";
@@ -39,9 +39,28 @@ try {
       await note("after google password+next", page);
     }
   }
-  await page.waitForTimeout(4000);
+  // OpenAI SMS challenge: wait for the operator to submit the code into the vault (one-time entry), enter it, delete it.
+  if (/mfa-challenge/.test(page.url()) || (await page.locator('input[name=code]').count())) {
+    out.push({ note: "SMS challenge reached; waiting up to 10 min for vault entry 'ChatGPT SMS code'" });
+    const c = await waitForCredential("ChatGPT SMS code", 10 * 60 * 1000);
+    if (!c) throw new Error("timed out waiting for vault entry 'ChatGPT SMS code'");
+    const code = (c.password || c.username || "").replace(/\D/g, "");
+    red.add(code);
+    await page.locator('input[name=code]').fill(code);
+    await page.getByRole("button", { name: /^continue$/i }).click();
+    await deleteCredential("ChatGPT SMS code").catch(() => {});
+    await page.waitForTimeout(7000);
+    await note("after SMS code", page);
+  }
+  await page.waitForTimeout(3000);
   const finalPage = s.context.pages().find((p) => /chatgpt\.com/.test(p.url())) ?? page;
   await note("final", finalPage);
+  if (/chatgpt\.com/.test(finalPage.url())) {
+    await finalPage.goto("https://chatgpt.com/plugins", { waitUntil: "domcontentloaded" });
+    await finalPage.waitForTimeout(4000);
+    const hits = await finalPage.evaluate(() => [...document.querySelectorAll("button,a,[role=button],[role=menuitem]")].map((e) => (e.getAttribute("aria-label") || e.innerText || "").trim().replace(/\s+/g, " ").slice(0, 60)).filter((t) => /plugin|connector|custom|create|add|developer|mcp|settings|apps/i.test(t)).slice(0, 25));
+    out.push({ step: "plugins page (filtered controls only)", url: finalPage.url(), hits });
+  }
 } catch (e) { out.push({ error: R(String(e.message).split("\n")[0]) }); }
 finally { await s.close(); }
 console.log(R(JSON.stringify(out, null, 1)));
