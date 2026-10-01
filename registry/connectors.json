@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "defaults": { "ifExisting": "skip" },
+  "connectors": [
+    {
+      "id": "helm-drive",
+      "name": "HELM Drive MCP Connector",
+      "description": "Private HELM Drive MCP endpoint",
+      "url": { "type": "fileRegex", "path": "D:/GDrive/HELM/DEV-PROJECTS/Connectors/HELM Drive MCP Connector/Repos/TT-MCP/connector-info.txt", "pattern": "https://mcp\\.trentt\\.me/mcp\\?token=[^\\s\"'<>]+" },
+      "auth": { "mode": "none" },
+      "platforms": ["claude", "chatgpt", "grok"]
+    },
+    {
+      "id": "helm-shell",
+      "name": "HELM Shell",
+      "description": "Private HELM Shell MCP endpoint",
+      "url": {
+        "type": "template", "template": "https://shell.trentt.me/mcp?shell_secret={{shellSecret}}",
+        "variables": { "shellSecret": { "type": "envFile", "paths": ["D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"], "key": "SHELL_MCP_SHELL_SECRET" } }
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template", "template": "https://shell.trentt.me/mcp?shell_secret={{shellSecret}}&token={{bearerToken}}",
+          "variables": {
+            "shellSecret": { "type": "envFile", "paths": ["D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"], "key": "SHELL_MCP_SHELL_SECRET" },
+            "bearerToken": { "type": "envFile", "paths": ["D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"], "key": "SHELL_MCP_BEARER_TOKEN" }
+          }
+        }
+      },
+      "auth": { "mode": "header", "headerName": "x-api-key", "headerValue": { "type": "envFile", "paths": ["D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"], "key": "SHELL_MCP_BEARER_TOKEN" } },
+      "platforms": ["claude", "chatgpt", "grok"]
+    },
+    {
+      "id": "vault-mcp",
+      "name": "Vault MCP",
+      "description": "Private HELM credential-reference MCP endpoint",
+      "url": { "type": "literal", "value": "https://vault.trentt.me/mcp" },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template", "template": "https://vault.trentt.me/mcp?token={{bearerToken}}",
+          "variables": { "bearerToken": { "type": "envFile", "paths": ["D:/GDrive/HELM/DEV-PROJECTS/Connectors/Vault MCP Connector/Repos/vault-mcp/.env"], "key": "VAULT_MCP_BEARER_TOKEN" } }
+        }
+      },
+      "auth": { "mode": "header", "headerName": "x-api-key", "headerValue": { "type": "envFile", "paths": ["D:/GDrive/HELM/DEV-PROJECTS/Connectors/Vault MCP Connector/Repos/vault-mcp/.env"], "key": "VAULT_MCP_BEARER_TOKEN" } },
+      "platforms": ["claude", "chatgpt", "grok"]
+    }
+  ]
+}

@@ -4,7 +4,12 @@
   "private": true,
   "type": "module",
   "description": "Add, remove, update, list and verify MCP connectors on claude.ai, ChatGPT and Grok.",
-  "dependencies": {
-    "patchright": "^1.55.0"
-  }
+  "bin": { "cc": "bin/cc.mjs" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": { "patchright": "^1.55.0" },
+  "devDependencies": { "@types/node": "^22.0.0", "typescript": "^5.6.0", "vitest": "^2.1.0" }
 }
