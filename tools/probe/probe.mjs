@@ -1,7 +1,7 @@
 // P0 probe: read-only inspection of each platform's connector UI over CDP.
 // Opens ONE new tab, visits each page, records redacted structure + screenshot, closes its own tab.
 // Never submits a form. Becomes `cc probe` in P2.
-import { chromium } from "patchright";
+import { openSession } from "../../dist/browser/chrome.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -17,9 +17,8 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const redact = (s) => String(s ?? "").replace(/([?&](token|shell_secret|key|code|state)=)[^&\s"]+/gi, "$1<REDACTED>");
 
-const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-const ctx = browser.contexts()[0];
-const page = await ctx.newPage();
+const sess = await openSession({ port });
+const page = sess.page;
 const results = {};
 try {
   for (const [name, url] of Object.entries(targets)) {
@@ -49,8 +48,7 @@ try {
     results[name] = r;
   }
 } finally {
-  await page.close().catch(() => {});
-  await browser.close().catch(() => {}); // disconnects CDP only; Chrome stays running
+  await sess.close(); // never closes the last tab (a zero-tab Chrome exits)
 }
 fs.writeFileSync(path.join(outDir, "probe.json"), JSON.stringify(results, null, 2));
 console.log(JSON.stringify({ outDir, results }, null, 2));
