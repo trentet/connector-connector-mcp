@@ -151,7 +151,11 @@ export function claudeAdapter(): PlatformAdapter {
       const s = await ctx.session();
       const page = s.page;
       const r = sel.remove;
-      const g = async <T>(label: string, fn: () => Promise<T>): Promise<T> => guarded(s, "claude-remove-" + label, ctx.redact, fn);
+      const g = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
+        const res = await guarded(s, "claude-remove-" + label, ctx.redact, fn);
+        if (process.env.CC_DEBUG) console.error(`[debug remove after ${label}] ` + JSON.stringify(await page.evaluate(() => ({ url: location.pathname.replace(/[0-9a-f-]{36}/, "<id>"), dialogs: [...document.querySelectorAll("[role=dialog],[role=alertdialog]")].map((d) => ({ role: d.getAttribute("role"), text: (d as HTMLElement).innerText.replace(/[\uE000-\uF8FF]/g, "").replace(/\s+/g, " ").slice(0, 300), buttons: [...d.querySelectorAll("button")].map((b) => b.innerText.trim().replace(/\s+/g, " ")) })) })).then((x) => JSON.parse(ctx.redact(JSON.stringify(x)))).catch((e) => ({ err: String(e) }))));
+        return res;
+      };
       await g("open-detail", async () => {
         await page.goto(sel.listUrl, { waitUntil: "domcontentloaded" });
         await page.waitForSelector(sel.listRow, { timeout: 20000 });
