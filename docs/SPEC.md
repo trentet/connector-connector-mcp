@@ -44,7 +44,11 @@ Failure => screenshot to `artifacts/` (redacted), non-zero exit, structured erro
   `x-api-key`. Never navigate via Settings. Port logic from the existing Claude registrar, strip all hardcoding.
 - ChatGPT: noauth tokenized URL or OAuth (no custom headers). Port from helm-local chatgpt registrar.
 - Grok: grok.com/connectors -> New Connector -> Custom -> server URL -> auth (per xAI docs dated
-  2026-07-17, from the 2026-09-20 fetch). Accepted auth modes UNKNOWN: Phase 0 live probe decides.
+  2026-07-17, from the 2026-09-20 fetch). LIVE PROBE 2026-10-01: login works from the vault entry via
+  accounts.x.ai/sign-in -> "Login with email" -> email -> password (no 2FA seen). The New Connector > Custom
+  form has ONLY Name + Server URL (placeholder https://mcp.example.com/sse) + Cancel/Add Connector: NO header
+  or auth field. So Grok, like ChatGPT, takes auth only via the URL (tokenized URL) or whatever OAuth the server
+  triggers after Add. OPEN: whether Grok accepts Streamable HTTP (/mcp) or needs SSE: settled by the P3 exit test.
   Research note: Drive THREADS/ "RESEARCH -- Grok custom MCP connector".
 - Browser: attach to a normally launched Chrome over CDP with a dedicated persistent profile; never
   launchPersistentContext; one clean tab per run; quote paths with spaces; never via helm-workflow-runner.

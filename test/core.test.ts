@@ -43,17 +43,18 @@ describe("secret sources", () => {
 
 describe("registry", () => {
   it("the shipped registry is valid", () => { expect(loadRegistry(registryPath).connectors.length).toBeGreaterThan(0); });
-  it("rejects bad ids, dup ids, header auth without value, chatgpt+header without tokenized URL", () => {
+  it("rejects bad ids, dup ids, header auth without value, chatgpt/grok+header without tokenized URL", () => {
     const bad = { version: 1, connectors: [
       { id: "Bad_ID", name: "x", url: { type: "literal", value: "https://a" }, auth: { mode: "none" }, platforms: ["claude"] },
-      { id: "dup", name: "x", url: { type: "literal", value: "https://a" }, auth: { mode: "header", headerName: "x-api-key" }, platforms: ["claude", "chatgpt"] },
+      { id: "dup", name: "x", url: { type: "literal", value: "https://a" }, auth: { mode: "header", headerName: "x-api-key" }, platforms: ["claude", "chatgpt", "grok"] },
       { id: "dup", name: "x", url: { type: "literal", value: "https://a" }, auth: { mode: "none" }, platforms: ["nope"] },
     ] };
     const { errors } = validateRegistry(bad);
     expect(errors.join("\n")).toMatch(/kebab-case/);
     expect(errors.join("\n")).toMatch(/duplicate id/);
     expect(errors.join("\n")).toMatch(/headerValue/);
-    expect(errors.join("\n")).toMatch(/ChatGPT cannot send custom headers/);
+    expect(errors.join("\n")).toMatch(/chatgpt cannot send custom headers/);
+    expect(errors.join("\n")).toMatch(/grok cannot send custom headers/);
     expect(errors.join("\n")).toMatch(/platforms must be/);
   });
 });

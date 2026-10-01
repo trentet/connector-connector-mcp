@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { PLATFORMS, type ConnectorDef, type Registry, type Source } from "./types.js";
+import { HEADERLESS_PLATFORMS, PLATFORMS, type ConnectorDef, type Registry, type Source } from "./types.js";
 
 const SOURCE_TYPES = ["literal", "env", "envFile", "fileRegex", "vault", "template"];
 
@@ -24,7 +24,7 @@ export function validateRegistry(r: unknown): { registry?: Registry; errors: str
     if (!c.auth || !["header", "oauth", "none"].includes(c.auth.mode)) errors.push(`${w}: auth.mode invalid`);
     if (c.auth?.mode === "header" && !c.auth.headerName) errors.push(`${w}: header auth needs headerName`);
     if (c.auth?.mode === "header" && !c.auth.headerValue) errors.push(`${w}: header auth needs headerValue source`);
-    if (c.auth?.mode === "header" && c.platforms?.includes("chatgpt") && !c.urlByPlatform?.chatgpt) errors.push(`${w}: ChatGPT cannot send custom headers; provide urlByPlatform.chatgpt (tokenized URL) or drop chatgpt from platforms`);
+    if (c.auth?.mode === "header") for (const hp of HEADERLESS_PLATFORMS) if (c.platforms?.includes(hp) && !c.urlByPlatform?.[hp]) errors.push(`${w}: ${hp} cannot send custom headers; provide urlByPlatform.${hp} (tokenized URL) or drop ${hp} from platforms`);
     for (const [pl, src] of Object.entries(c.urlByPlatform ?? {})) {
       if (!PLATFORMS.includes(pl as never)) errors.push(`${w}: urlByPlatform has unknown platform ${pl}`);
       checkSource(src, `${w}.urlByPlatform.${pl}`, errors);

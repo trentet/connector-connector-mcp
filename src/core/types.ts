@@ -1,5 +1,7 @@
 export type Platform = "claude" | "chatgpt" | "grok";
 export const PLATFORMS: Platform[] = ["claude", "chatgpt", "grok"];
+/** Platforms whose add-connector UI has no custom-header field (verified by live probe 2026-10-01 for grok); auth must ride in the URL. */
+export const HEADERLESS_PLATFORMS: Platform[] = ["chatgpt", "grok"];
 export type Op = "add" | "remove" | "update" | "list" | "verify" | "probe";
 
 /** A source describes HOW to obtain a string at run time. Values are never stored in the registry. */
