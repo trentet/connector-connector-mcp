@@ -8,6 +8,8 @@ import type { AdapterContext, AdapterOutcome, PlatformAdapter, ResolvedConnector
 const sel = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "claude.json"), "utf8"));
 const rx = (p: string) => new RegExp(p, "i");
 
+export class DuplicateUrlError extends Error {}
+
 export interface Row { name: string; custom: boolean; connected: boolean }
 
 /** Parse the connector table text ("Name Web [Custom] Connected|Connect"). */
@@ -67,6 +69,11 @@ async function doAdd(ctx: AdapterContext, c: ResolvedConnector): Promise<void> {
   await g("continue", async () => {
     await domClick(page.getByRole("button", { name: rx(a.continueButton) }).first());
     await sleep(2500);
+  });
+  await g("check-duplicate-url", async () => {
+    // claude.ai refuses a second connector with the same URL ("already exists in your organization").
+    const body = (await page.evaluate(() => document.body.innerText)).toLowerCase();
+    if (body.includes(a.duplicateUrlText)) throw new DuplicateUrlError(`claude.ai says a connector with this URL already exists in your organization; "${c.name}" was not added. Use the existing connector or give this one a distinct URL.`);
   });
   await g("dismiss-server-warning", async () => {
     // A failed live check overlays the dialog with "Continue anyway"; it would cover the header controls.
@@ -132,7 +139,7 @@ export function claudeAdapter(): PlatformAdapter {
         const rm = await this.remove(ctx, c);
         if (rm.status === "error" || rm.status === "not-implemented") return rm;
       }
-      await doAdd(ctx, c);
+      try { await doAdd(ctx, c); } catch (e) { if (/connector with this URL already exists/.test((e as Error).message)) return { status: "error", detail: (e as Error).message.replace(/^claude-add-check-duplicate-url failed: /, "").replace(/ \(screenshot:.*$/, "") }; throw e; }
       const row = await connectIfNeeded(ctx, c.name);
       if (!row) return { status: "error", detail: `submitted, but "${c.name}" did not appear in the list` };
       return row.connected ? { status: "ok", detail: `"${c.name}" added and Connected` } : { status: "error", detail: `"${c.name}" added but not Connected` };

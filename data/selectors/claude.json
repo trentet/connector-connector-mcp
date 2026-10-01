@@ -2,7 +2,11 @@
   "_note": "Flow + selector map for the claude adapter. Data, not code: fix UI drift here. Regex strings are case-insensitive.",
   "addUrl": "https://claude.ai/customize/connectors?modal=add-custom-connector",
   "listUrl": "https://claude.ai/customize/connectors/yours",
-  "signedOutMarkers": ["continue with google", "log in", "sign in"],
+  "signedOutMarkers": [
+    "continue with google",
+    "log in",
+    "sign in"
+  ],
   "listRow": "tr",
   "add": {
     "dialogHeading": "add custom connector",
@@ -15,6 +19,7 @@
     "headerNameCombobox": "header name",
     "headerValueTextbox": "^(value|header value)$",
     "finalSubmit": "^(add|save)$",
-    "rowConnectButton": "^connect$"
+    "rowConnectButton": "^connect$",
+    "duplicateUrlText": "already exists in your organization"
   }
 }
