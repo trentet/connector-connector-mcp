@@ -71,17 +71,23 @@ export async function guarded<T>(s: BrowserSession, label: string, redact: (x: s
 }
 
 /** Compact, redacted structural snapshot of the visible page (for probing and diagnostics). */
-export async function snapshot(page: Page, redact: (s: string) => string) {
-  const data = await page.evaluate(() => {
+export async function snapshot(page: Page, redact: (s: string) => string, scope?: { containing: string; up?: number }) {
+  const data = await page.evaluate((sc) => {
+    let root: ParentNode = document;
+    if (sc) {
+      let el: Element | null = document.querySelector(sc.containing);
+      for (let i = 0; el && i < (sc.up ?? 5); i++) el = el.parentElement;
+      if (el) root = el;
+    }
     const vis = (e: Element) => { const h = e as HTMLElement; return !!(h.offsetWidth || h.offsetHeight); };
     const lbl = (e: Element) => ((e.getAttribute("aria-label") || e.getAttribute("placeholder") || (e as HTMLElement).innerText || (e as HTMLInputElement).name || "").trim().replace(/\s+/g, " ").slice(0, 70));
     return {
       url: location.href,
       title: document.title,
-      text: document.body.innerText.replace(/\s+/g, " ").slice(0, 700),
-      inputs: [...document.querySelectorAll("input,textarea")].filter(vis).map((e) => ({ type: (e as HTMLInputElement).type, name: (e as HTMLInputElement).name, label: lbl(e), autocomplete: e.getAttribute("autocomplete") })),
-      buttons: [...document.querySelectorAll("button,[role=button],a")].filter(vis).map(lbl).filter(Boolean).slice(0, 30),
+      text: ((root as HTMLElement).innerText ?? document.body.innerText).replace(/\s+/g, " ").slice(0, 700),
+      inputs: [...root.querySelectorAll("input,textarea")].filter(vis).map((e) => ({ type: (e as HTMLInputElement).type, name: (e as HTMLInputElement).name, label: lbl(e), autocomplete: e.getAttribute("autocomplete") })),
+      buttons: [...root.querySelectorAll("button,[role=button],a,[role=radio],[role=tab],select")].filter(vis).map(lbl).filter(Boolean).slice(0, 30),
     };
-  });
+  }, scope);
   return JSON.parse(redact(JSON.stringify(data)));
 }
