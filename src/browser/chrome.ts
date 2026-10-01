@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "patchright";
@@ -18,10 +19,28 @@ export interface BrowserSession {
  * claude.ai's anti-automation sends a persistent-context browser into a challenge/logout loop).
  * Starts the run from ONE clean tab: stale tabs on platform hosts are closed first.
  */
+const DEFAULT_CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+
+async function cdpUp(port: string): Promise<boolean> {
+  try { return (await fetch(`http://127.0.0.1:${port}/json/version`)).ok; } catch { return false; }
+}
+
+/** If nothing listens on the debug port, start a normal (not automation-launched) Chrome with the dedicated profile. */
+export async function ensureChrome(port: string): Promise<void> {
+  if (await cdpUp(port)) return;
+  const exe = process.env.CC_CHROME_PATH ?? DEFAULT_CHROME;
+  const profile = process.env.CC_CHROME_PROFILE;
+  if (!profile) throw new Error(`nothing listens on CDP port ${port} and CC_CHROME_PROFILE is not set; cannot relaunch Chrome`);
+  spawn(exe, [`--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "about:blank"], { detached: true, stdio: "ignore" }).unref();
+  for (let i = 0; i < 30; i++) { if (await cdpUp(port)) return; await new Promise((r) => setTimeout(r, 1000)); }
+  throw new Error(`Chrome did not expose CDP on port ${port} within 30s`);
+}
+
 export async function openSession(opts: { port?: string; artifactsDir?: string } = {}): Promise<BrowserSession> {
   const port = opts.port ?? process.env.CC_DEBUG_PORT ?? "9222";
   const artifactsDir = path.resolve(opts.artifactsDir ?? "artifacts");
   fs.mkdirSync(artifactsDir, { recursive: true });
+  await ensureChrome(port);
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
   const context = browser.contexts()[0];
   if (!context) throw new Error("CDP browser has no default context");
@@ -34,7 +53,9 @@ export async function openSession(opts: { port?: string; artifactsDir?: string }
   return {
     browser, context, page, artifactsDir,
     async close() {
-      await page.close().catch(() => {});
+      // Never close the LAST tab: a Chrome with zero tabs exits, killing the shared logged-in session.
+      if (context.pages().length <= 1) await page.goto("about:blank").catch(() => {});
+      else await page.close().catch(() => {});
       await browser.close().catch(() => {}); // disconnects CDP only; Chrome keeps running
     },
   };
