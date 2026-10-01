@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Page } from "patchright";
 import { domClick, domFill, sleep } from "../browser/dom.js";
-import { guarded } from "../browser/chrome.js";
+import { guarded, snapshot } from "../browser/chrome.js";
 import type { AdapterContext, AdapterOutcome, PlatformAdapter, ResolvedConnector } from "./types.js";
 
 const sel = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "claude.json"), "utf8"));
@@ -50,7 +50,12 @@ async function doAdd(ctx: AdapterContext, c: ResolvedConnector): Promise<void> {
   const s = await ctx.session();
   const page = s.page;
   const a = sel.add;
-  const g = <T>(label: string, fn: () => Promise<T>) => guarded(s, "claude-add-" + label, ctx.redact, fn);
+  const g = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
+    const r = await guarded(s, "claude-add-" + label, ctx.redact, fn);
+    // Opt-in diagnostics (CC_DEBUG=1): redacted, dialog-scoped snapshot after every step, to stderr.
+    if (process.env.CC_DEBUG) console.error(`[debug after ${label}] ` + JSON.stringify(await snapshot(page, ctx.redact, { containing: "[role=dialog]", up: 0 }).catch((e) => ({ snapshotError: String(e) }))));
+    return r;
+  };
 
   await g("open-dialog", async () => {
     await page.goto(sel.addUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
