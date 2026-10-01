@@ -5,6 +5,10 @@ import { loadRegistry } from "../src/core/registry.js";
 import type { PlatformAdapter } from "../src/adapters/types.js";
 
 describe("claude list parsing (rows captured live 2026-10-01)", () => {
+  it("parses the REAL raw innerText (icon-font characters between cells), captured live", () => {
+    expect(parseRow("Gmail\n\t\nWeb\n\t\n\uE03B\nConnected")).toEqual({ name: "Gmail", custom: false, connected: true });
+    expect(parseRow("Figma\n\t\nWeb\n\t\n\uE055\nConnect")).toEqual({ name: "Figma", custom: false, connected: false });
+  });
   it("parses built-in, custom, and not-connected rows; ignores the header", () => {
     expect(parseRow("Connector Type Status")).toBeUndefined();
     expect(parseRow("Gmail Web  Connected")).toEqual({ name: "Gmail", custom: false, connected: true });

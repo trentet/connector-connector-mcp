@@ -12,7 +12,8 @@ export interface Row { name: string; custom: boolean; connected: boolean }
 
 /** Parse the connector table text ("Name Web [Custom] Connected|Connect"). */
 export function parseRow(text: string): Row | undefined {
-  const t = text.trim().replace(/\s+/g, " ");
+  // claude.ai renders icons from a private-use font (U+E000-F8FF) inside the row text; they are not whitespace.
+  const t = text.replace(/[\uE000-\uF8FF\u200B-\u200D\u2060\uFEFF]/g, " ").trim().replace(/\s+/g, " ");
   if (!t || /^connector type status$/i.test(t)) return undefined;
   const m = /^(.*?)\s+Web\b(\s+Custom)?\s*(Connected|Connect)?$/i.exec(t);
   if (!m) return undefined;
