@@ -27,12 +27,21 @@ async function assertSignedIn(page: Page): Promise<void> {
   }
 }
 
+/** The table fills in progressively; wait until the row count is stable, and refuse to report a partial list. */
 async function readRows(ctx: AdapterContext): Promise<Row[]> {
   const s = await ctx.session();
   await s.page.goto(sel.listUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
   await s.page.waitForSelector(sel.listRow, { timeout: 20000 }).catch(() => {});
   await assertSignedIn(s.page);
-  const texts = await s.page.$$eval(sel.listRow, (rs) => rs.map((r) => (r as HTMLElement).innerText));
+  let texts: string[] = [];
+  let stable = 0, last = -1;
+  for (let i = 0; i < 40 && stable < 3; i++) {
+    texts = await s.page.$$eval(sel.listRow, (rs) => rs.map((r) => (r as HTMLElement).innerText));
+    stable = texts.length === last && texts.length > 1 ? stable + 1 : 0;
+    last = texts.length;
+    await sleep(800);
+  }
+  if (stable < 3) throw new Error(`connector list did not finish loading (${texts.length} rows seen); refusing to report a partial list`);
   return texts.map(parseRow).filter((r): r is Row => !!r);
 }
 
