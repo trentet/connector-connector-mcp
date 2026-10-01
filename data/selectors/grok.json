@@ -1,0 +1,12 @@
+{
+  "_note": "Selector/flow map for the grok adapter. Data, not code: fix UI drift here.",
+  "signInUrl": "https://accounts.x.ai/sign-in?redirect=grok-com&email=true",
+  "connectorsUrl": "https://grok.com/connectors",
+  "login": {
+    "rejectCookies": { "role": "button", "name": "reject all" },
+    "emailInput": "input[name=email]",
+    "next": { "role": "button", "name": "^next$" },
+    "passwordInput": "input[type=password]",
+    "submit": { "role": "button", "name": "^(sign in|log in|login|next|continue)$" }
+  }
+}
