@@ -67,7 +67,9 @@ describe("runner", () => {
     expect(res.ok).toBe(true);
     expect(res.items.filter((i) => i.status === "dry-run").length).toBe(9);
     for (const leak of [SECRET, "shellSecretValue99", "vaultTok-ABCDEF", "driveTokenXYZ789"]) expect(text).not.toContain(leak);
-    expect(text).toContain("<REDACTED>");
+    expect(text).toContain("<query redacted>");
+    expect(text).toMatch(/header x-api-key set \(\d+ chars\)/);
+    expect(text).toContain("https://shell.trentt.me/mcp"); // host and path stay visible
   });
   it("unknown connector and disabled platform are reported, not thrown", async () => {
     const res = await run(rewritten, { op: "verify", connectors: ["nope"], platforms: ["claude"] }, { deps });
