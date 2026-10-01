@@ -83,6 +83,10 @@ OPEN:
    deployment-secrets, "Google Account (trenterrolthomas@gmail.com)", KnottyAI-PC. No Grok entry. Operator
    to create one (or name an existing label). Also confirm whether claude.ai and ChatGPT logins use the
    Google account entry or separate entries.
+   RESOLVED part (2026-10-01): claude.ai and ChatGPT logins use the vault entry
+   "Google Account (trenterrolthomas@gmail.com)". Operator has several Gmail accounts, so adapters must
+   verify the signed-in account after login and fail on mismatch. Grok: submission link minted via
+   vault_request_secret, label "Grok (grok.com email login)", awaiting operator submit (not yet in vault_list_refs).
 2. Diff of the three vendored Claude registrars and ChatGPT registrar internals still to be read (P0/P3).
 
 ## 7. TO-DO (operator-mandated, do not drop)
