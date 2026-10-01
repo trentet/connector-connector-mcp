@@ -170,8 +170,13 @@ export function claudeAdapter(): PlatformAdapter {
       await g("open-menu", async () => { await page.locator("main").getByRole("button", { name: rx(r.moreButton) }).first().click(); await sleep(800); });
       await g("click-remove", async () => { await page.getByRole("menuitem", { name: rx(r.removeMenuItem) }).first().click(); await sleep(1200); });
       await g("confirm", async () => {
-        const confirm = page.getByRole("dialog").getByRole("button", { name: rx(r.confirmButton) }).last();
-        if (await confirm.count()) { await domClick(confirm); await sleep(2500); }
+        // Remove opens an ALERTDIALOG ("Remove <name>? ..." with Cancel / Remove), not a plain dialog.
+        const dlg = page.getByRole("alertdialog").or(page.getByRole("dialog")).last();
+        await dlg.waitFor({ timeout: 8000 });
+        const text = (await dlg.innerText()).replace(/[\uE000-\uF8FF]/g, " ");
+        if (!text.includes(c.name)) throw new Error(`confirmation dialog does not mention "${c.name}"; not confirming`);
+        await domClick(dlg.getByRole("button", { name: rx(r.confirmButton) }).last());
+        await sleep(2500);
       });
       const gone = !(await find(ctx, c.name));
       return gone ? { status: "ok", detail: `"${c.name}" removed` } : { status: "error", detail: `clicked Remove but "${c.name}" is still listed` };
