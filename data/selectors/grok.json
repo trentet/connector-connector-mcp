@@ -3,10 +3,29 @@
   "signInUrl": "https://accounts.x.ai/sign-in?redirect=grok-com&email=true",
   "connectorsUrl": "https://grok.com/connectors",
   "login": {
-    "rejectCookies": { "role": "button", "name": "reject all" },
+    "rejectCookies": {
+      "role": "button",
+      "name": "reject all"
+    },
     "emailInput": "input[name=email]",
-    "next": { "role": "button", "name": "^next$" },
+    "next": {
+      "role": "button",
+      "name": "^next$"
+    },
     "passwordInput": "input[type=password]",
-    "submit": { "role": "button", "name": "^(sign in|log in|login|next|continue)$" }
+    "submit": {
+      "role": "button",
+      "name": "^(sign in|log in|login|next|continue)$"
+    }
+  },
+  "loginVaultLabel": "Grok (grok.com email login)",
+  "expectedAccountHint": null,
+  "add": {
+    "newConnectorButton": "new connector",
+    "customTile": "^custom",
+    "namePlaceholder": "My Connector",
+    "urlPlaceholder": "mcp.example.com",
+    "submitButton": "^add connector$",
+    "dialogMarkerInput": "input[placeholder=\"My Connector\"]"
   }
 }
