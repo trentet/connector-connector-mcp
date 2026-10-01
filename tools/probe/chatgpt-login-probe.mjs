@@ -41,8 +41,8 @@ try {
   }
   // OpenAI SMS challenge: wait for the operator to submit the code into the vault (one-time entry), enter it, delete it.
   if (/mfa-challenge/.test(page.url()) || (await page.locator('input[name=code]').count())) {
-    out.push({ note: "SMS challenge reached; waiting up to 10 min for vault entry 'ChatGPT SMS code'" });
-    const c = await waitForCredential("ChatGPT SMS code", 10 * 60 * 1000);
+    out.push({ note: "SMS challenge reached; waiting up to 14 min for vault entry 'ChatGPT SMS code'" });
+    const c = await waitForCredential("ChatGPT SMS code", 14 * 60 * 1000);
     if (!c) throw new Error("timed out waiting for vault entry 'ChatGPT SMS code'");
     const code = (c.password || c.username || "").replace(/\D/g, "");
     red.add(code);
