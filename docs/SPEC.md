@@ -1,6 +1,6 @@
-# SPEC -- connector-connector-mcp v0.1 (DRAFT, awaiting operator approval)
+# SPEC -- connector-connector-mcp v0.2 (APPROVED 2026-10-01)
 
-Status: draft. No code is built until the operator approves this plan.
+Status: plan approved by operator 2026-10-01. Language: TypeScript. Server hostname: cc.trentt.me.
 Owner decision (operator, 2026-10-01): ONE universal tool registers ANY connector on ANY platform
 (claude.ai, ChatGPT, Grok). Connector repos hold NO registration scripts.
 
@@ -73,8 +73,22 @@ P5 Seed + parity. Seed HELM Drive, HELM Shell, Vault MCP, helm-audio-mcp, patchr
 P6 Retire old copies (vault-mcp, helm-terminal-mcp, helm-audio-mcp Claude registrars; helm-local test copy;
    helm-local ChatGPT registrar). Only after P5 parity and explicit operator go-ahead.
 
-## 6. Open items
-1. Grok account/credential and plan tier (admin provisioning applies to Business/Enterprise).
-2. Hostname for the server (e.g. connectors.trentt.me) and test env name.
-3. Language: TypeScript (matches other connectors) -- recommended.
-4. Diff of the three vendored Claude registrars and ChatGPT registrar internals still to be read.
+## 6. Decisions and open items
+Decided (2026-10-01): plan approved; TypeScript; hostname cc.trentt.me; Grok plan is standard $30 (not
+Business/Enterprise, so no admin provisioning expected; confirm in P0 probe).
+Grok login: operator uses grok.com EMAIL login, NOT "Sign in with Google", even though the address is a
+Gmail. The Grok adapter must use the email/password path.
+OPEN:
+1. Vault entry for the grok.com email login. `vault_list_refs` (2026-10-01) shows only: DSM-*, DSM-Connect-
+   deployment-secrets, "Google Account (trenterrolthomas@gmail.com)", KnottyAI-PC. No Grok entry. Operator
+   to create one (or name an existing label). Also confirm whether claude.ai and ChatGPT logins use the
+   Google account entry or separate entries.
+2. Diff of the three vendored Claude registrars and ChatGPT registrar internals still to be read (P0/P3).
+
+## 7. TO-DO (operator-mandated, do not drop)
+FINAL STEP (P6): once cc is built, deployed, and verified on claude.ai, ChatGPT AND Grok with parity for
+every seeded connector, CLEAN UP the old per-repo registration scripts so cc is the single source of truth:
+vault-mcp, helm-terminal-mcp, helm-audio-mcp scripts/register-connector/ (and D:\GDrive\...\Repos copies),
+helm-local\register-test-connector, helm-local\backups\register-connector-accommodation-edit-20260928,
+helm-local\chatgpt-register-connectors. Find stragglers with `cc audit --scan`. Add docs/ADOPTION.md
+snippet to each connector repo. Confirm with operator before deleting.
