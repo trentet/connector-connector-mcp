@@ -21,5 +21,10 @@
     "finalSubmit": "^(add|save)$",
     "rowConnectButton": "^connect$",
     "duplicateUrlText": "already exists in your organization"
+  },
+  "remove": {
+    "moreButton": "more|options|menu|actions",
+    "removeMenuItem": "^remove$",
+    "confirmButton": "^(remove|delete|confirm|yes)"
   }
 }

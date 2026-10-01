@@ -148,7 +148,29 @@ export function claudeAdapter(): PlatformAdapter {
     async remove(ctx, c): Promise<AdapterOutcome> {
       const row = await find(ctx, c.name);
       if (!row) return { status: "skipped", detail: `"${c.name}" not registered` };
-      return { status: "not-implemented", detail: "claude remove flow not yet mapped (needs a live probe on a throwaway connector)" };
+      const s = await ctx.session();
+      const page = s.page;
+      const r = sel.remove;
+      const g = async <T>(label: string, fn: () => Promise<T>): Promise<T> => guarded(s, "claude-remove-" + label, ctx.redact, fn);
+      await g("open-detail", async () => {
+        await page.goto(sel.listUrl, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector(sel.listRow, { timeout: 20000 });
+        const tr = page.locator(sel.listRow, { hasText: c.name }).first();
+        await tr.click();
+        await page.waitForURL(/\/yours\/id\//, { timeout: 15000 });
+        await sleep(1500);
+        // guard against clicking the wrong connector's detail page
+        const heading = (await page.locator("main").innerText()).replace(/[\uE000-\uF8FF]/g, " ");
+        if (!heading.includes(c.name)) throw new Error(`opened a detail page that does not mention "${c.name}"`);
+      });
+      await g("open-menu", async () => { await page.locator("main").getByRole("button", { name: rx(r.moreButton) }).first().click(); await sleep(800); });
+      await g("click-remove", async () => { await page.getByRole("menuitem", { name: rx(r.removeMenuItem) }).first().click(); await sleep(1200); });
+      await g("confirm", async () => {
+        const confirm = page.getByRole("dialog").getByRole("button", { name: rx(r.confirmButton) }).last();
+        if (await confirm.count()) { await domClick(confirm); await sleep(2500); }
+      });
+      const gone = !(await find(ctx, c.name));
+      return gone ? { status: "ok", detail: `"${c.name}" removed` } : { status: "error", detail: `clicked Remove but "${c.name}" is still listed` };
     },
   };
 }
