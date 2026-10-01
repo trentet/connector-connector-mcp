@@ -1,5 +1,6 @@
 import path from "node:path";
 import { loadRegistry } from "./core/registry.js";
+import { ADAPTERS } from "./adapters/index.js";
 import { run } from "./core/runner.js";
 import { PLATFORMS, type Op, type Platform } from "./core/types.js";
 
@@ -25,7 +26,7 @@ export async function main(argv: string[]): Promise<number> {
     else ids.push(a);
   }
   const reg = loadRegistry(registryPath);
-  const res = await run(reg, { op, connectors: ids.length ? ids : op === "list" || op === "probe" ? ["*"] : [], platforms, dryRun, ifExisting });
+  const res = await run(reg, { op, connectors: ids.length ? ids : op === "list" || op === "probe" ? ["*"] : [], platforms, dryRun, ifExisting }, { adapters: ADAPTERS });
   if (json) console.log(JSON.stringify(res, null, 2));
   else for (const i of res.items) console.log(`${i.status.padEnd(15)} ${i.op} ${i.connector} @ ${i.platform}${i.detail ? " - " + i.detail : ""}`);
   return res.ok ? 0 : 1;

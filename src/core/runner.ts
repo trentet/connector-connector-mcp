@@ -1,3 +1,4 @@
+import type { BrowserSession } from "../browser/chrome.js";
 import { notImplementedAdapter, type PlatformAdapter, type ResolvedConnector } from "../adapters/types.js";
 import { Redactor } from "./redact.js";
 import { resolve, defaultDeps, type ResolveDeps } from "./secrets.js";
@@ -6,6 +7,8 @@ import type { ConnectorDef, ItemResult, Platform, Registry, RunRequest, RunResul
 export interface RunnerOptions {
   adapters?: Partial<Record<Platform, PlatformAdapter>>;
   deps?: ResolveDeps;
+  /** Opens the browser session adapters share; defaults to attaching to the debug Chrome. */
+  sessionFactory?: () => Promise<BrowserSession>;
 }
 
 /** The single code path used by BOTH the CLI and the MCP server. Knows ops and platforms, never a specific connector. */
@@ -14,9 +17,32 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
   const deps = opts.deps ?? defaultDeps;
   const adapter = (p: Platform) => opts.adapters?.[p] ?? notImplementedAdapter(p);
   const items: ItemResult[] = [];
+  let sess: BrowserSession | undefined;
+  const getSession = async () => (sess ??= await (opts.sessionFactory ?? (async () => (await import("../browser/chrome.js")).openSession()))());
+  try {
+    await runItems();
+  } finally {
+    await sess?.close();
+  }
+  return { ok: items.every((i) => i.status !== "error"), items };
 
+  async function runItems(): Promise<void> {
   const wanted = req.connectors.includes("*") ? reg.connectors : req.connectors.map((id) => reg.connectors.find((c) => c.id === id) ?? id);
   const needsConnector = req.op !== "list" && req.op !== "probe";
+
+  if (!needsConnector) {
+    for (const platform of req.platforms) {
+      const base = { connector: "*", platform, op: req.op } as const;
+      try {
+        if (req.dryRun) { items.push({ ...base, status: "dry-run", detail: "would " + req.op }); continue; }
+        const ctx = { platform, redact: (x: string) => red.redact(x), session: getSession };
+        const a = adapter(platform);
+        const out = req.op === "list" ? { status: "ok" as const, detail: (await a.list(ctx)).names.join(", ") } : await a.probe(ctx);
+        items.push({ ...base, status: out.status, detail: out.detail ? red.redact(out.detail) : undefined });
+      } catch (e) { items.push({ ...base, status: "error", detail: red.redact((e as Error).message) }); }
+    }
+    return;
+  }
 
   for (const c of wanted) {
     if (typeof c === "string") { for (const p of req.platforms) items.push({ connector: c, platform: p, op: req.op, status: "error", detail: "unknown connector id" }); continue; }
@@ -26,7 +52,7 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
       try {
         const rc = needsConnector ? await resolveConnector(c, platform, red, deps) : undefined;
         if (req.dryRun) { items.push({ ...base, status: "dry-run", detail: describe(c, rc, red) }); continue; }
-        const ctx = { platform, redact: (s: string) => red.redact(s) };
+        const ctx = { platform, redact: (s: string) => red.redact(s), session: getSession };
         const a = adapter(platform);
         const ifx = req.ifExisting ?? reg.defaults?.ifExisting ?? "skip";
         const out =
@@ -42,14 +68,14 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
       }
     }
   }
-  return { ok: items.every((i) => i.status !== "error"), items };
+  }
 }
 
 async function resolveConnector(c: ConnectorDef, platform: Platform, red: Redactor, deps: ResolveDeps): Promise<ResolvedConnector> {
   const url = await resolve(c.urlByPlatform?.[platform] ?? c.url, red, deps);
   red.add(url.includes("?") ? url.slice(url.indexOf("?") + 1) : undefined);
   const headerValue = c.auth.mode === "header" && c.auth.headerValue ? await resolve(c.auth.headerValue, red, deps) : undefined;
-  return { def: c, url, headerValue };
+  return { def: c, name: c.nameByPlatform?.[platform] ?? c.name, url, headerValue };
 }
 
 function describe(c: ConnectorDef, rc: ResolvedConnector | undefined, red: Redactor): string {

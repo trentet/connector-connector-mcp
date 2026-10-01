@@ -1,0 +1,20 @@
+{
+  "_note": "Flow + selector map for the claude adapter. Data, not code: fix UI drift here. Regex strings are case-insensitive.",
+  "addUrl": "https://claude.ai/customize/connectors?modal=add-custom-connector",
+  "listUrl": "https://claude.ai/customize/connectors/yours",
+  "signedOutMarkers": ["continue with google", "log in", "sign in"],
+  "listRow": "tr",
+  "add": {
+    "dialogHeading": "add custom connector",
+    "namePlaceholder": "^name$",
+    "urlPlaceholder": "mcp server url",
+    "continueButton": "^continue$",
+    "serverWarningContinue": "continue anyway",
+    "noSignInRadio": "no sign-in",
+    "addHeaderText": "add header",
+    "headerNameCombobox": "header name",
+    "headerValueTextbox": "^(value|header value)$",
+    "finalSubmit": "^(add|save)$",
+    "rowConnectButton": "^connect$"
+  }
+}

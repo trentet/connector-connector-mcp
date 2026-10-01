@@ -16,6 +16,8 @@ export type Source =
 export interface ConnectorDef {
   id: string;
   name: string;
+  /** Display name differs on some platforms (verified: claude.ai calls the Drive connector by a shorter name). */
+  nameByPlatform?: Partial<Record<Platform, string>>;
   description?: string;
   /** Default server URL. May be a template that embeds a secret (tokenized URL). */
   url: Source;

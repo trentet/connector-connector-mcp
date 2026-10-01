@@ -20,7 +20,10 @@
         "claude",
         "chatgpt",
         "grok"
-      ]
+      ],
+      "nameByPlatform": {
+        "claude": "HELM Drive Connector"
+      }
     },
     {
       "id": "helm-shell",

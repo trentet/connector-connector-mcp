@@ -1,8 +1,11 @@
+import type { BrowserSession } from "../browser/chrome.js";
 import type { ConnectorDef, Platform } from "../core/types.js";
 
 /** Fully resolved connector, built in-process by the runner. Never serialized into output. */
 export interface ResolvedConnector {
   def: ConnectorDef;
+  /** Name as the platform shows it. */
+  name: string;
   url: string;
   headerValue?: string;
 }
@@ -10,9 +13,11 @@ export interface ResolvedConnector {
 export interface AdapterContext {
   platform: Platform;
   redact: (s: string) => string;
+  /** Lazily opens (once per run) the shared browser session. */
+  session: () => Promise<BrowserSession>;
 }
 
-export interface AdapterOutcome { status: "ok" | "skipped" | "not-implemented"; detail?: string }
+export interface AdapterOutcome { status: "ok" | "skipped" | "not-implemented" | "error"; detail?: string }
 
 /** One adapter per platform. All browser work lives behind this interface. */
 export interface PlatformAdapter {
