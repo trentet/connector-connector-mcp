@@ -22,7 +22,8 @@
         "grok"
       ],
       "nameByPlatform": {
-        "claude": "HELM Drive Connector"
+        "claude": "HELM Drive Connector",
+        "grok": "HELMMCP"
       }
     },
     {
