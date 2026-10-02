@@ -9,7 +9,7 @@ import { PLATFORMS } from "../src/core/types.js";
 
 const SECRET = "s3cr3t-TOKEN-value-123456";
 const files: Record<string, string> = {
-  "/e/.env": `# c\nSHELL_MCP_SHELL_SECRET="shellSecretValue99"\nSHELL_MCP_BEARER_TOKEN=${SECRET}\nVAULT_MCP_BEARER_TOKEN='vaultTok-ABCDEF'\nHELM_MCP_BEARER_TOKEN=audioTok-0123456789\nPATCHRIGHT_MCP_BEARER_TOKEN=patchTok-9876543210\n`,
+  "/e/.env": `# c\nSHELL_MCP_SHELL_SECRET="shellSecretValue99"\nSHELL_MCP_BEARER_TOKEN=${SECRET}\nVAULT_MCP_BEARER_TOKEN='vaultTok-ABCDEF'\nHELM_MCP_BEARER_TOKEN=audioTok-0123456789\nCC_MCP_BEARER_TOKEN=ccTok-aaaaaaaaaa\nPATCHRIGHT_MCP_BEARER_TOKEN=patchTok-9876543210\n`,
   "/info.txt": `url: https://mcp.trentt.me/mcp?token=driveTokenXYZ789 end`,
 };
 const deps: ResolveDeps = {
@@ -61,12 +61,12 @@ describe("registry", () => {
 
 describe("runner", () => {
   const reg = loadRegistry(registryPath);
-  const rewritten = JSON.parse(JSON.stringify(reg).replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env", "/e/.env").replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/Vault MCP Connector/Repos/vault-mcp/.env", "/e/.env").replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/HELM Drive MCP Connector/Repos/TT-MCP/connector-info.txt", "/info.txt").replaceAll("C:/Users/Trent/AppData/Local/HELM/helm-audio-mcp/production/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/helm-audio-mcp/test/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/patchright-mcp/production/secrets/connector.env", "/e/.env"));
+  const rewritten = JSON.parse(JSON.stringify(reg).replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env", "/e/.env").replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/Vault MCP Connector/Repos/vault-mcp/.env", "/e/.env").replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/HELM Drive MCP Connector/Repos/TT-MCP/connector-info.txt", "/info.txt").replaceAll("C:/Users/Trent/AppData/Local/HELM/helm-audio-mcp/production/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/helm-audio-mcp/test/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/patchright-mcp/production/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/connector-connector-mcp/production/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/connector-connector-mcp/test/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/tt-mcp/test/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/patchright-mcp/test/secrets/connector.env", "/e/.env"));
   it("dry-run resolves every seeded connector on every platform with ZERO secret leakage", async () => {
     const res = await run(rewritten, { op: "add", connectors: ["*"], platforms: PLATFORMS, dryRun: true }, { deps });
     const text = JSON.stringify(res);
     expect(res.ok).toBe(true);
-    expect(res.items.filter((i) => i.status === "dry-run").length).toBe(13); // vault-mcp is claude-only; audio + patchright add 3 each; the test-tier connector is excluded from "*"
+    expect(res.items.filter((i) => i.status === "dry-run").length).toBe(16); // vault-mcp is claude-only; drive, shell, audio, patchright, cc add 3 each; test-tier connectors are excluded from "*"
     expect(res.items.filter((i) => i.status === "skipped").length).toBe(2); // vault-mcp @ chatgpt, grok
     for (const leak of [SECRET, "shellSecretValue99", "vaultTok-ABCDEF", "driveTokenXYZ789", "audioTok-0123456789", "patchTok-9876543210"]) expect(text).not.toContain(leak);
     expect(text).toContain("<query redacted>");
@@ -90,7 +90,7 @@ describe("runner", () => {
 
 describe("test tier", () => {
   const reg = loadRegistry(registryPath);
-  const rewritten = JSON.parse(JSON.stringify(reg).replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env", "/e/.env").replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/Vault MCP Connector/Repos/vault-mcp/.env", "/e/.env").replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/HELM Drive MCP Connector/Repos/TT-MCP/connector-info.txt", "/info.txt").replaceAll("C:/Users/Trent/AppData/Local/HELM/helm-audio-mcp/production/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/helm-audio-mcp/test/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/patchright-mcp/production/secrets/connector.env", "/e/.env"));
+  const rewritten = JSON.parse(JSON.stringify(reg).replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env", "/e/.env").replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/Vault MCP Connector/Repos/vault-mcp/.env", "/e/.env").replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/HELM Drive MCP Connector/Repos/TT-MCP/connector-info.txt", "/info.txt").replaceAll("C:/Users/Trent/AppData/Local/HELM/helm-audio-mcp/production/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/helm-audio-mcp/test/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/patchright-mcp/production/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/connector-connector-mcp/production/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/connector-connector-mcp/test/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/tt-mcp/test/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/patchright-mcp/test/secrets/connector.env", "/e/.env"));
   const tests = rewritten.connectors.filter((c: { tier?: string }) => c.tier === "test").map((c: { id: string }) => c.id);
   it("there is at least one test-tier connector and it is excluded from '*' by default", async () => {
     expect(tests.length).toBeGreaterThan(0);
@@ -106,16 +106,28 @@ describe("test tier", () => {
 });
 
 describe("universality", () => {
-  it("no seeded connector id/name/host/env var appears in src/", () => {
+  it("no connector's id/name/host/env var appears in src/ (cc's OWN identity is allowed only under src/server/)", () => {
     const reg = loadRegistry(registryPath);
-    const terms = new Set<string>();
-    for (const c of reg.connectors) { terms.add(c.id); terms.add(c.name); }
-    const blob = JSON.stringify(reg);
-    for (const m of blob.matchAll(/https?:\/\/([a-z0-9.-]+\.trentt\.me)/gi)) terms.add(m[1]);
-    for (const m of blob.matchAll(/"key":"([A-Z0-9_]+)"/g)) terms.add(m[1]);
+    const isSelf = (id: string) => id.startsWith("connector-connector");
+    const termsFor = (cs: typeof reg.connectors) => {
+      const terms = new Set<string>();
+      for (const c of cs) { terms.add(c.id); terms.add(c.name); }
+      const blob = JSON.stringify(cs);
+      for (const m of blob.matchAll(/https?:\/\/([a-z0-9.-]+\.trentt\.me)/gi)) terms.add(m[1]);
+      for (const m of blob.matchAll(/"key":"([A-Z0-9_]+)"/g)) terms.add(m[1]);
+      return terms;
+    };
+    const others = termsFor(reg.connectors.filter((c) => !isSelf(c.id)));
+    const self = termsFor(reg.connectors.filter((c) => isSelf(c.id)));
+    for (const t of others) self.delete(t); // a term shared with another connector stays forbidden everywhere
     const walk = (d: string): string[] => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
     const offenders: string[] = [];
-    for (const f of walk("src")) { const t = fs.readFileSync(f, "utf8").toLowerCase(); for (const term of terms) if (t.includes(term.toLowerCase())) offenders.push(`${f}: ${term}`); }
+    for (const f of walk("src")) {
+      const t = fs.readFileSync(f, "utf8").toLowerCase();
+      const rel = f.replace(/\\/g, "/");
+      for (const term of others) if (t.includes(term.toLowerCase())) offenders.push(`${rel}: ${term}`);
+      if (!rel.startsWith("src/server/")) for (const term of self) if (t.includes(term.toLowerCase())) offenders.push(`${rel}: ${term} (cc's own identity outside src/server/)`);
+    }
     expect(offenders).toEqual([]);
   });
 });

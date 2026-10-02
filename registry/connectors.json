@@ -284,6 +284,221 @@
         "grok"
       ],
       "tier": "test"
+    },
+    {
+      "id": "connector-connector",
+      "name": "Connector Connector",
+      "description": "cc: add, remove, update, list and verify MCP connectors on claude.ai, ChatGPT and Grok",
+      "url": {
+        "type": "literal",
+        "value": "https://cc.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://cc.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/connector-connector-mcp/production/secrets/connector.env"
+              ],
+              "key": "CC_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://cc.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/connector-connector-mcp/production/secrets/connector.env"
+              ],
+              "key": "CC_MCP_BEARER_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/connector-connector-mcp/production/secrets/connector.env"
+          ],
+          "key": "CC_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ]
+    },
+    {
+      "id": "connector-connector-test",
+      "name": "Connector Connector TEST",
+      "description": "TEST environment of cc (on demand)",
+      "url": {
+        "type": "literal",
+        "value": "https://cc-test.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://cc-test.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/connector-connector-mcp/test/secrets/connector.env"
+              ],
+              "key": "CC_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://cc-test.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/connector-connector-mcp/test/secrets/connector.env"
+              ],
+              "key": "CC_MCP_BEARER_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/connector-connector-mcp/test/secrets/connector.env"
+          ],
+          "key": "CC_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ],
+      "tier": "test"
+    },
+    {
+      "id": "helm-drive-mcp-test",
+      "name": "HELM Drive Connector TEST",
+      "description": "TEST environment of the HELM Drive connector (mcp-test.trentt.me, on demand)",
+      "url": {
+        "type": "literal",
+        "value": "https://mcp-test.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://mcp-test.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/tt-mcp/test/secrets/connector.env"
+              ],
+              "key": "HELM_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://mcp-test.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/tt-mcp/test/secrets/connector.env"
+              ],
+              "key": "HELM_MCP_BEARER_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/tt-mcp/test/secrets/connector.env"
+          ],
+          "key": "HELM_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ],
+      "tier": "test"
+    },
+    {
+      "id": "patchright-mcp-test",
+      "name": "Patchright MCP TEST",
+      "description": "TEST environment of patchright-mcp (on demand)",
+      "url": {
+        "type": "literal",
+        "value": "https://patchright-test.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://patchright-test.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/patchright-mcp/test/secrets/connector.env"
+              ],
+              "key": "PATCHRIGHT_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://patchright-test.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/patchright-mcp/test/secrets/connector.env"
+              ],
+              "key": "PATCHRIGHT_MCP_BEARER_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/patchright-mcp/test/secrets/connector.env"
+          ],
+          "key": "PATCHRIGHT_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ],
+      "tier": "test"
     }
   ]
 }
