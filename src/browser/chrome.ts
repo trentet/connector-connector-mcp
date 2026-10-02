@@ -53,7 +53,8 @@ export async function ensureChrome(port: string): Promise<void> {
   throw new Error(`Chrome did not expose CDP on port ${port} within 30s`);
 }
 
-const isBlank = (url: string) => url === "about:blank" || url === "chrome://newtab/" || url === "";
+/** Tabs that are not someone's work: blank pages and Chrome's own pages (new tab, and the first-run intro/welcome a fresh profile opens). */
+export const isBlank = (url: string) => url === "" || url === "about:blank" || /^chrome(-search|-untrusted)?:\/\//.test(url);
 
 export async function openSession(opts: { port?: string; artifactsDir?: string } = {}): Promise<BrowserSession> {
   const port = opts.port ?? process.env.CC_DEBUG_PORT ?? "9222";
