@@ -1,15 +1,27 @@
 import path from "node:path";
 import { loadRegistry } from "./core/registry.js";
 import { ADAPTERS } from "./adapters/index.js";
+import { audit } from "./audit.js";
 import { run } from "./core/runner.js";
 import { PLATFORMS, type Op, type Platform } from "./core/types.js";
 
 const OPS: Op[] = ["add", "remove", "update", "list", "verify", "probe"];
-const USAGE = `cc <op> [connector-id ...|--all] [--platform claude|chatgpt|grok|all] [--dry-run] [--registry <path>] [--if-existing skip|update|fail] [--json]
+const USAGE = `cc audit --scan <repo-root> [--json]     (find per-repo registration scripts that cc replaces)
+cc <op> [connector-id ...|--all] [--platform claude|chatgpt|grok|all] [--dry-run] [--registry <path>] [--if-existing skip|update|fail] [--json]
 ops: ${OPS.join(", ")}`;
 
 export async function main(argv: string[]): Promise<number> {
   const args = argv.slice();
+  if (args[0] === "audit") {
+    const i = args.indexOf("--scan");
+    const root = i >= 0 ? args[i + 1] : undefined;
+    if (!root) { console.error("usage: cc audit --scan <repo-root> [--json]"); return 2; }
+    const hits = audit(root);
+    if (args.includes("--json")) console.log(JSON.stringify(hits, null, 2));
+    else if (hits.length === 0) console.log(`audit: no registration-script look-alikes under ${root}`);
+    else for (const h of hits) console.log(`${h.file}\n    ${h.reasons.join("; ")}`);
+    return hits.length ? 1 : 0;
+  }
   const op = args.shift() as Op | undefined;
   if (!op || op === ("--help" as never) || !OPS.includes(op)) { console.log(USAGE); return op ? 2 : 0; }
   const ids: string[] = [];
