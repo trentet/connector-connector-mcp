@@ -2,6 +2,7 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { hasHeadroom, headroomLimits } from "./hostload.js";
 
 /**
  * Lane slots: the cross-process cap on concurrent cc browsers, and the owner of each browser's CDP port.
@@ -56,6 +57,39 @@ function tryClaim(dir: string, index: number): string | undefined {
   return undefined;
 }
 
+/** Lanes currently held by live processes, not counting `except`. */
+function activeLanes(dir: string, except: string): number {
+  let n = 0;
+  for (const f of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
+    if (!/^slot-\d+\.lock$/.test(f) || path.join(dir, f) === except) continue;
+    try { const cur = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")) as { pid?: number }; if (typeof cur.pid === "number" && pidAlive(cur.pid)) n++; } catch { n++; /* half-written lock: count it, someone is starting */ }
+  }
+  return n;
+}
+
+const trace = (m: string) => { if (process.env.CC_TRACE) console.error(`[trace] ${m}`); };
+
+/**
+ * Politeness gate: a browser that is NOT the only one running waits until the host has CPU and memory headroom. The first
+ * browser is never held back, and a gate that stays closed for `CC_ADMIT_WAIT_MS` (default 120 s) lets the browser through
+ * anyway: being slow is acceptable, failing is not. On a weak host this makes runs effectively sequential, on a strong host
+ * it lets them overlap, with no configuration. Waiting costs no CPU (sleep and a 0.5 s sample).
+ */
+async function admit(dir: string, lock: string): Promise<void> {
+  if (process.env.CC_ADMIT === "off" || activeLanes(dir, lock) === 0) return;
+  const limits = headroomLimits();
+  const deadline = Date.now() + (Number(process.env.CC_ADMIT_WAIT_MS) || 120_000);
+  let said = false;
+  for (;;) {
+    if (activeLanes(dir, lock) === 0) return; // everyone else finished while we waited
+    const h = await hasHeadroom(limits);
+    if (h.ok) { if (said) trace("host has headroom again; starting browser"); return; }
+    if (Date.now() > deadline) { trace(`host still busy (cpu ${Math.round(h.cpu)}%, free ${h.freeGB.toFixed(1)} GB) after the wait limit; starting browser anyway`); return; }
+    if (!said) { said = true; trace(`waiting for host headroom before starting another browser (cpu ${Math.round(h.cpu)}% of ${limits.maxCpuPercent}%, free ${h.freeGB.toFixed(1)} GB of ${limits.minFreeGB} GB)`); }
+    await sleep(1000);
+  }
+}
+
 const held = new Set<string>();
 let exitHook = false;
 
@@ -77,7 +111,10 @@ export async function acquireLane(opts: { waitMs?: number } = {}): Promise<Lane>
       if (await portInUse(base + i)) { try { fs.rmSync(lock, { force: true }); } catch { /* ignore */ } continue; } // a foreign process owns that port: skip the slot
       held.add(lock);
       let released = false;
-      return { index: i, port: base + i, release() { if (released) return; released = true; held.delete(lock); try { fs.rmSync(lock, { force: true }); } catch { /* best effort */ } } };
+      const lane: Lane = { index: i, port: base + i, release() { if (released) return; released = true; held.delete(lock); try { fs.rmSync(lock, { force: true }); } catch { /* best effort */ } } };
+      try { await admit(dir, lock); } catch (e) { lane.release(); throw e; }
+      return lane;
+
     }
     if (Date.now() > deadline) throw new Error(`all ${max} cc browser lanes are busy (waited ${Math.round(waitMs / 1000)}s); another cc run is using them. Retry shortly, or raise CC_MAX_CONCURRENCY.`);
     await sleep(500);
