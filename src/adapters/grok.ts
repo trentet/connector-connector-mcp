@@ -86,7 +86,38 @@ export function grokAdapter(): PlatformAdapter {
       const names = await readConnected(ctx);
       return names.includes(c.name) ? { status: "ok", detail: `"${c.name}" is in grok.com's Connected list` } : { status: "error", detail: `"${c.name}" is not in grok.com's Connected list (${names.length} connectors listed)` };
     },
-    async remove() { return notMapped("remove"); },
+    async remove(ctx, c): Promise<AdapterOutcome> {
+      if (!(await readConnected(ctx)).includes(c.name)) return { status: "skipped", detail: `"${c.name}" not in Connected list` };
+      const page = await openConnectors(ctx);
+      const s = await ctx.session();
+      const r = sel.remove;
+      const g = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
+        const res = await guarded(s, "grok-remove-" + label, ctx.redact, fn);
+        if (process.env.CC_DEBUG) console.error(`[debug grok remove after ${label}] ` + ctx.redact(await page.evaluate(() => [...document.querySelectorAll("[role=dialog],[role=alertdialog]")].filter((e) => (e as HTMLElement).offsetWidth).map((e) => (e as HTMLElement).innerText.replace(/\s+/g, " ").slice(0, 90)).join(" || ")).catch(() => "?")));
+        return res;
+      };
+      await g("open-detail", async () => {
+        await page.locator("button", { hasText: c.name }).first().click();
+        await page.locator("[role=dialog]", { hasText: c.name }).filter({ has: page.getByRole("button", { name: rx(r.disconnectButton) }) }).last().waitFor({ timeout: 10000 });
+      });
+      await g("disconnect", async () => {
+        const detail = page.locator("[role=dialog]", { hasText: c.name }).filter({ has: page.getByRole("button", { name: rx(r.disconnectButton) }) }).last();
+        await detail.getByRole("button", { name: rx(r.disconnectButton) }).first().click();
+        await sleep(1500);
+      });
+      await g("confirm", async () => {
+        // If a confirmation appears it must name this connector before we confirm.
+        const dlg = page.getByRole("alertdialog").last();
+        if (await dlg.count()) {
+          if (!(await dlg.innerText()).includes(c.name)) throw new Error(`confirmation does not mention "${c.name}"; not confirming`);
+          await dlg.getByRole("button", { name: rx(r.confirmButton) }).last().click();
+          await sleep(2000);
+        }
+      });
+      await sleep(2500);
+      const still = (await readConnected(ctx)).includes(c.name);
+      return still ? { status: "error", detail: `clicked Disconnect but "${c.name}" is still in the Connected list` } : { status: "ok", detail: `"${c.name}" removed` };
+    },
     async update() { return notMapped("update"); },
     async add(ctx, c, ifExisting): Promise<AdapterOutcome> {
       const existing = (await readConnected(ctx)).includes(c.name);

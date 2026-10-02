@@ -31,5 +31,9 @@
   },
   "list": {
     "rowMarkerText": "Added"
+  },
+  "remove": {
+    "disconnectButton": "^disconnect$",
+    "confirmButton": "^(disconnect|remove|delete|confirm|yes)$"
   }
 }
