@@ -18,6 +18,7 @@ try {
     await new Promise((r) => setTimeout(r, 5000));
     out.path = page.url().replace(/^https:\/\/chatgpt\.com/, "").replace(/[0-9a-f]{8}-[0-9a-f-]{27}|[A-Za-z0-9_-]{20,}/g, "<id>").split("?")[0];
     out.main = clean(await page.evaluate(() => (document.querySelector("main")?.innerText ?? "").slice(0, 4000)));
+    out.status = out.main.split("\n").map((l) => l.trim()).filter((l) => /^(connected|connect|reconnect|disconnect)$/i.test(l));
     out.headings = await page.evaluate(() => [...document.querySelectorAll("main h1,main h2,main h3,main [role=tab]")].map((e) => e.innerText.trim()).filter(Boolean).slice(0, 20));
   }
 } catch (e) { out.error = String(e.message).split("\n")[0]; }
