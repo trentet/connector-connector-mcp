@@ -24,6 +24,8 @@ unless someone is actively developing or testing them. `--all` / `"*"` skips the
 cc to bring one up (`cc add helm-audio-mcp-test --platform all`) or take it down (`cc remove helm-audio-mcp-test --platform all`) at will; naming it explicitly always works.
 After a test session ends, remove it again and run `cc list --platform all` to confirm.
 
+Promotion rule (operator, 2026-10-02): test is for development and functionality verification, never a standing parallel deployment. The moment a connector's production tier is deployed and verified working (see the per-platform verified-state definitions below) on every platform it's registered on, its matching test-tier connector comes down as part of that same promotion - this is not optional and not something to wait to be asked about a second time once the operator has set this expectation. Confirmed-live case: fleet-connect-test stayed up through fleet-connect's full deploy-and-verify cycle (needed to prove the server before cutover), then was removed from all 3 platforms the moment fleet-connect (production) verified ok everywhere.
+
 ## What "verified" means per platform
 - **Claude:** the connector row exists and shows Connected.
 - **Grok:** the connector is in the Connected list.
