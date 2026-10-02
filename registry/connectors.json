@@ -230,6 +230,59 @@
         "chatgpt",
         "grok"
       ]
+    },
+    {
+      "id": "helm-audio-mcp-test",
+      "name": "HELM Audio Connector TEST",
+      "description": "TEST environment of the HELM audio connector (audio-test.trentt.me)",
+      "url": {
+        "type": "literal",
+        "value": "https://audio-test.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://audio-test.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-audio-mcp/test/secrets/connector.env"
+              ],
+              "key": "HELM_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://audio-test.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-audio-mcp/test/secrets/connector.env"
+              ],
+              "key": "HELM_MCP_BEARER_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/helm-audio-mcp/test/secrets/connector.env"
+          ],
+          "key": "HELM_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ]
     }
   ]
 }
