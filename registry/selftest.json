@@ -7,7 +7,7 @@
     {
       "id": "cc-selftest",
       "name": "cc-selftest",
-      "description": "Throwaway connector used by cc's own add/verify/remove exit test. Safe to delete.",
+      "description": "Throwaway connector used by cc's own add/verify/remove exit test (Claude: vault server with header; ChatGPT/Grok: Drive server with tokenized URL). Safe to delete.",
       "url": {
         "type": "literal",
         "value": "https://vault.trentt.me/mcp?cc=selftest"
@@ -15,27 +15,23 @@
       "urlByPlatform": {
         "chatgpt": {
           "type": "template",
-          "template": "https://vault.trentt.me/mcp?cc=selftest&token={{bearerToken}}",
+          "template": "{{base}}&cc=selftest",
           "variables": {
-            "bearerToken": {
-              "type": "envFile",
-              "paths": [
-                "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Vault MCP Connector/Repos/vault-mcp/.env"
-              ],
-              "key": "VAULT_MCP_BEARER_TOKEN"
+            "base": {
+              "type": "fileRegex",
+              "path": "D:/GDrive/HELM/DEV-PROJECTS/Connectors/HELM Drive MCP Connector/Repos/TT-MCP/connector-info.txt",
+              "pattern": "https://mcp\\.trentt\\.me/mcp\\?token=[^\\s\"'<>]+"
             }
           }
         },
         "grok": {
           "type": "template",
-          "template": "https://vault.trentt.me/mcp?cc=selftest&token={{bearerToken}}",
+          "template": "{{base}}&cc=selftest",
           "variables": {
-            "bearerToken": {
-              "type": "envFile",
-              "paths": [
-                "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Vault MCP Connector/Repos/vault-mcp/.env"
-              ],
-              "key": "VAULT_MCP_BEARER_TOKEN"
+            "base": {
+              "type": "fileRegex",
+              "path": "D:/GDrive/HELM/DEV-PROJECTS/Connectors/HELM Drive MCP Connector/Repos/TT-MCP/connector-info.txt",
+              "pattern": "https://mcp\\.trentt\\.me/mcp\\?token=[^\\s\"'<>]+"
             }
           }
         }

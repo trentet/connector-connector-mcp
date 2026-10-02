@@ -104,38 +104,10 @@
     {
       "id": "vault-mcp",
       "name": "Vault MCP",
-      "description": "Private HELM credential-reference MCP endpoint",
+      "description": "Private HELM credential-reference MCP endpoint. Claude only: verified 2026-10-02 that this server rejects ?token= in the URL (401) and accepts only the x-api-key header, so it cannot work on header-less platforms (ChatGPT, Grok) until the server accepts a URL token.",
       "url": {
         "type": "literal",
         "value": "https://vault.trentt.me/mcp"
-      },
-      "urlByPlatform": {
-        "chatgpt": {
-          "type": "template",
-          "template": "https://vault.trentt.me/mcp?token={{bearerToken}}",
-          "variables": {
-            "bearerToken": {
-              "type": "envFile",
-              "paths": [
-                "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Vault MCP Connector/Repos/vault-mcp/.env"
-              ],
-              "key": "VAULT_MCP_BEARER_TOKEN"
-            }
-          }
-        },
-        "grok": {
-          "type": "template",
-          "template": "https://vault.trentt.me/mcp?token={{bearerToken}}",
-          "variables": {
-            "bearerToken": {
-              "type": "envFile",
-              "paths": [
-                "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Vault MCP Connector/Repos/vault-mcp/.env"
-              ],
-              "key": "VAULT_MCP_BEARER_TOKEN"
-            }
-          }
-        }
       },
       "auth": {
         "mode": "header",
@@ -149,9 +121,7 @@
         }
       },
       "platforms": [
-        "claude",
-        "chatgpt",
-        "grok"
+        "claude"
       ]
     }
   ]
