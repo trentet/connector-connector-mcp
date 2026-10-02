@@ -107,7 +107,7 @@ Known limit: cc_run over the MCP front door can exceed a client's 60 s timeout o
 
 ### Findings that changed the design
 - ChatGPT and Grok are header-less: header-auth connectors need urlByPlatform (a tokenized URL), and the SERVER must accept ?token=.
-  Servers must accept a ?token= (non-admin only) for these platforms; Vault MCP gained a separate low-privilege query token for this. A connector that cannot accept it stays Claude-only.
+  Servers must accept a ?token= for these platforms. Which value that token carries is each connector's own auth design, not something cc mandates: Vault MCP uses a separate, low-privilege query token distinct from its header token; Fleet Connect (operator decision, 2026-10-02) instead accepts one single token identically via header and query, for now - a tiered model may return later as that project matures. A connector that cannot accept ?token= at all stays Claude-only.
 - claude.ai refuses a second connector with an existing URL ("already exists in your organization").
 - Platforms show different display names for the same connector (nameByPlatform): claude "HELM Drive Connector", chatgpt "HELM Drive MCP Connector", grok "HELMMCP".
 - Rows in claude.ai's list contain icon-font characters; Grok registers asynchronously (poll); ChatGPT's Authentication is a native <select>, Remove is Delete plugin on the plugin page;
