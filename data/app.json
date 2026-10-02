@@ -1,0 +1,4 @@
+{
+  "_note": "Directory name cc uses under the HELM data root (also used by scripts/env.mjs). Kept as data so src/ carries no product-specific names.",
+  "dataDirName": "connector-connector-mcp"
+}

@@ -49,10 +49,11 @@ export function sessionHealthy(cookies: Cookie[], touched: Iterable<string>, spe
  */
 export function masterDir(e = process.env, platform = process.platform, home = os.homedir()): string {
   if (e.CC_BROWSER_MASTER) return e.CC_BROWSER_MASTER;
+  const app = (JSON.parse(fs.readFileSync(path.resolve("data", "app.json"), "utf8")) as { dataDirName: string }).dataDirName;
   const base = e.HELM_DATA_ROOT
-    ?? (platform === "win32" ? path.join(e.LOCALAPPDATA ?? path.join(home, "AppData", "Local"), "HELM", "connector-connector-mcp")
-      : platform === "darwin" ? path.join(home, "Library", "Application Support", "HELM", "connector-connector-mcp")
-      : path.join(e.XDG_DATA_HOME ?? path.join(home, ".local", "share"), "helm", "connector-connector-mcp"));
+    ?? (platform === "win32" ? path.join(e.LOCALAPPDATA ?? path.join(home, "AppData", "Local"), "HELM", app)
+      : platform === "darwin" ? path.join(home, "Library", "Application Support", "HELM", app)
+      : path.join(e.XDG_DATA_HOME ?? path.join(home, ".local", "share"), "helm", app));
   return path.join(base, "browser-master");
 }
 
