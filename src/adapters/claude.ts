@@ -190,7 +190,9 @@ export function claudeAdapter(): PlatformAdapter {
         const heading = (await page.locator("main").innerText()).replace(/[\uE000-\uF8FF]/g, " ");
         // Case/punctuation-insensitive: a connector in an error state can show the server's own name instead of the display name.
         // The row was already picked by exact name above, so this is only a second guard against a mis-click.
-        if (!sameName(heading, c.name)) throw new Error(`opened a detail page that does not mention "${c.name}". Page text: ${heading.replace(/\s+/g, " ").slice(0, 300)}`);
+        // An errored connector's page shows its URL instead of its name (seen live): accept the connector's own host as well (host only, never the query).
+        let host = ""; try { host = new URL(c.url).host.toLowerCase(); } catch { /* keep empty */ }
+        if (!sameName(heading, c.name) && !(host && heading.toLowerCase().includes(host))) throw new Error(`opened a detail page that does not mention "${c.name}". Page text: ${heading.replace(/\s+/g, " ").slice(0, 300)}`);
       });
       await g("open-menu", async () => { await page.locator("main").getByRole("button", { name: rx(r.moreButton) }).first().click(); await sleep(800); });
       await g("click-remove", async () => { await page.getByRole("menuitem", { name: rx(r.removeMenuItem) }).first().click(); await sleep(1200); });
