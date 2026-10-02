@@ -9,6 +9,11 @@ describe("claude list parsing (rows captured live 2026-10-01)", () => {
     expect(parseRow("Gmail\n\t\nWeb\n\t\n\uE03B\nConnected")).toEqual({ name: "Gmail", custom: false, connected: true });
     expect(parseRow("Figma\n\t\nWeb\n\t\n\uE055\nConnect")).toEqual({ name: "Figma", custom: false, connected: false });
   });
+  it("still finds a row whose status is neither Connected nor Connect (e.g. a re-authorise state), and reports it", () => {
+    expect(parseRow("DSM Connect Web Custom Reconnect")).toEqual({ name: "DSM Connect", custom: true, connected: false, status: "Reconnect" });
+    expect(parseRow("DSM Connect Web Custom Needs authentication")).toMatchObject({ name: "DSM Connect", connected: false, status: "Needs authentication" });
+    expect(parseRow("Gmail Web Connected")).toEqual({ name: "Gmail", custom: false, connected: true });
+  });
   it("parses built-in, custom, and not-connected rows; ignores the header", () => {
     expect(parseRow("Connector Type Status")).toBeUndefined();
     expect(parseRow("Gmail Web  Connected")).toEqual({ name: "Gmail", custom: false, connected: true });

@@ -10,16 +10,19 @@ const rx = (p: string) => new RegExp(p, "i");
 
 export class DuplicateUrlError extends Error {}
 
-export interface Row { name: string; custom: boolean; connected: boolean }
+export interface Row { name: string; custom: boolean; connected: boolean; /** Raw status text when it is neither "Connected" nor "Connect" (e.g. a re-authorise state), so the row is still found and can be removed. */ status?: string }
 
 /** Parse the connector table text ("Name Web [Custom] Connected|Connect"). */
 export function parseRow(text: string): Row | undefined {
   // claude.ai renders icons from a private-use font (U+E000-F8FF) inside the row text; they are not whitespace.
   const t = text.replace(/[\uE000-\uF8FF\u200B-\u200D\u2060\uFEFF]/g, " ").trim().replace(/\s+/g, " ");
   if (!t || /^connector type status$/i.test(t)) return undefined;
-  const m = /^(.*?)\s+Web\b(\s+Custom)?\s*(Connected|Connect)?$/i.exec(t);
+  const m = /^(.*?)\s+Web\b(\s+Custom)?\s*(.*)$/i.exec(t);
   if (!m) return undefined;
-  return { name: m[1].trim(), custom: !!m[2], connected: /^connected$/i.test(m[3] ?? "") };
+  const status = (m[3] ?? "").trim();
+  const row: Row = { name: m[1].trim(), custom: !!m[2], connected: /^connected$/i.test(status) };
+  if (status && !/^(connected|connect)$/i.test(status)) row.status = status;
+  return row;
 }
 
 async function assertSignedIn(page: Page): Promise<void> {
@@ -130,7 +133,7 @@ export function claudeAdapter(): PlatformAdapter {
   const find = async (ctx: AdapterContext, name: string) => (await readRows(ctx)).find((r) => r.name === name);
   return {
     platform: "claude",
-    async list(ctx) { return { names: (await readRows(ctx)).map((r) => r.name + (r.custom ? " (custom)" : "") + (r.connected ? "" : " [not connected]")) }; },
+    async list(ctx) { return { names: (await readRows(ctx)).map((r) => r.name + (r.custom ? " (custom)" : "") + (r.connected ? "" : r.status ? ` [not connected: ${r.status}]` : " [not connected]")) }; },
     async probe(ctx) { const rows = await readRows(ctx); return { status: "ok", detail: `signed in; ${rows.length} connectors listed` }; },
     async verify(ctx, c): Promise<AdapterOutcome> {
       const r = await find(ctx, c.name);
