@@ -165,7 +165,7 @@ describe.skipIf(!CHROME)("one Chrome process per run (real Chromium)", () => {
       return [platform, { platform, probe: act, list: async () => ({ names: [] }), add: act, remove: act, update: act, verify: act } as PlatformAdapter];
     })) as Record<(typeof plats)[number], PlatformAdapter>;
     const t0 = Date.now();
-    const res = await run(reg, { op: "add", connectors: ["cc-selftest"], platforms: [...plats] }, { deps, adapters });
+    const res = await run(reg, { op: "add", connectors: ["cc-selftest"], platforms: [...plats] }, { deps, adapters, platformParallelism: 3 });
     const elapsed = Date.now() - t0;
     expect(res.ok).toBe(true);
     expect(Math.max(...lockCounts)).toBe(3);                    // three browsers were alive together

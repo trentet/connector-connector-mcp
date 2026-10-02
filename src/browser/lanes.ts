@@ -14,7 +14,7 @@ export interface Lane {
   release(): void;
 }
 
-const DEFAULT_MAX = 6;
+const DEFAULT_MAX = 4;
 const DEFAULT_PORT_BASE = 9400;
 const DEFAULT_WAIT_MS = 120_000;
 /** A lock older than this is treated as dead even if its pid is alive (pid reuse, wedged run). */
