@@ -13,6 +13,8 @@ Connector repos must NOT carry their own registration scripts. If you are asked 
    prefer `error` over a false `ok`. Poll for asynchronous registration instead of reading once.
 5. **Browser rules (learned the hard way):** attach to the normally launched Chrome over CDP (never `launchPersistentContext`); never close the last tab (Chrome exits);
    one clean tab per run; never dump full page text (the grok/chatgpt sidebars contain private chat titles); scope snapshots to a dialog.
+   **Browser lifetime:** a Chrome that cc itself launched (recorded in `<profile>\cc-launched.json`) is closed when the run ends, unless another tab is in use.
+   A Chrome somebody else started (the shared HELM browser, the operator's own) is attached to and left running. Never add code that leaves a cc-launched browser idling. `CC_KEEP_BROWSER=1` opts out for debugging.
 6. **Logins** come from the vault inside this process (`bw serve`), never via a vault MCP tool call. ChatGPT's SMS code goes through a one-time vault entry (`ChatGPT SMS code`).
 7. **Throwaway test connector:** `registry/selftest.json` (`cc-selftest`). Exit test per platform = add → verify → remove → verify, twice, then confirm real connectors are untouched.
 
