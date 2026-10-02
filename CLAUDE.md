@@ -14,12 +14,14 @@ Connector repos must NOT carry their own registration scripts. If you are asked 
 5. **Browser rules (learned the hard way):** every run drives its OWN Chrome process (one process per connector sequence), attached over CDP to a normally launched
    chrome.exe (NEVER `launchPersistentContext`: claude.ai's anti-automation sends a Playwright-launched persistent context into a challenge/logout loop). Never dump full page text
    (the grok/chatgpt sidebars contain private chat titles); scope snapshots to a dialog.
-   **Browser model (src/browser):** a run claims a lane (`lanes.ts`: numbered slot, CDP port = base+index, cross-process lock file, bounded by `CC_MAX_CONCURRENCY`, default 4; a full house waits then errors clearly),
-   clones the sign-in state of the COLD master profile (`CC_BROWSER_MASTER`, default `<helm base>/browser-master`) into a private temp dir (`profile.ts`), launches Chrome on that copy, and on `close()` shuts that Chrome down,
-   deletes the copy, frees the lane and (only if every platform the run touched still has its sign-in cookie, and the master has not moved since the clone) writes the refreshed cookies back to the master.
-   **Invariants that protect it:** (a) a browser belongs to exactly one run: never attach to a port you do not hold the lane for, never close or reuse another run's tabs; (b) never open the master with a browser while runs may clone it
-   (`cc browser seed` is the only thing that does, and it refuses a master that is in use); (c) a copy that is older than the master never overwrites it; (d) nothing in `src/browser` may leave a Chrome, a temp profile or a lane lock behind, on success or on failure;
-   (e) the old shared Chrome (the HELM browser on 9222, `CC_CHROME_PROFILE`) is not used by cc any more. Tests: `test/browser-concurrency.test.ts` runs real Chromium.
+   **Browser model (src/browser):** every run drives its OWN Chrome process(es), and a call that covers several platforms runs them AT THE SAME TIME: the runner gives each platform its own worker and its own browser (`CC_PLATFORM_PARALLELISM`, default all platforms;
+   connectors on one platform stay sequential, because two adds in one account can race on that platform's list). A browser claims a lane (`lanes.ts`: numbered slot, CDP port = base+index, cross-process lock file, bounded by `CC_MAX_CONCURRENCY`, default 6; a full house waits, then errors clearly),
+   clones the sign-in state of the COLD master profile (`CC_BROWSER_MASTER`, default `<helm base>/browser-master`) into a private temp dir (`profile.ts`), launches Chrome on that copy, and on `close()` shuts that Chrome down, deletes the copy and frees the lane.
+   Refreshed sessions are merged back cookie by cookie: only the sign-in cookies a healthy browser (every platform it touched still has its sign-in cookie) ROTATED during the run, by a short-lived Chrome that holds the master lock (`mergeCookiesIntoMaster`).
+   **Invariants that protect it:** (a) a browser belongs to exactly one run and one platform: never attach to a port you do not hold the lane for, never close or reuse another run's tabs; (b) never open the master with a browser while runs may clone it
+   (only `cc browser seed` and the merge do, both under the master lock, and clones refuse a master a foreign Chrome has open); (c) unchanged cookies are never written back, so an older copy cannot overwrite a newer master; (d) nothing in `src/browser` may leave a Chrome, a temp profile or a lane lock behind, on success or on failure;
+   (e) lock order is always lane first, then master lock (a merge or seed claims its own lane before taking the master lock, and a run frees its lane before merging), so they cannot deadlock; (f) the old shared Chrome (the HELM browser on 9222, `CC_CHROME_PROFILE`) is not used by cc any more.
+   Tests: `test/browser-concurrency.test.ts` runs real Chromium; `test/parallel-platforms.test.ts` covers the runner.
 6. **Logins** come from the vault inside this process (`bw serve`), never via a vault MCP tool call. ChatGPT's SMS code goes through a one-time vault entry (`ChatGPT SMS code`).
 7. **Throwaway test connector:** `registry/selftest.json` (`cc-selftest`). Exit test per platform = add → verify → remove → verify, twice, then confirm real connectors are untouched.
 
@@ -45,4 +47,4 @@ Promotion rule (operator, 2026-10-02): test is for development and functionality
 ## Commands
 `npm test` · `npm run build` · `node bin/cc.mjs <add|remove|update|verify|list|probe> [ids|--all] --platform <claude|chatgpt|grok ...>|all [--dry-run] [--registry <path>]` ·
 `node bin/cc.mjs browser seed|check` (master profile) · `node bin/cc.mjs audit --scan <repo-root>` (finds registration-script look-alikes in other repos).
-Host: `CC_BROWSER_MASTER` (cold master profile), `CC_MAX_CONCURRENCY`, `CC_CHROME_PATH`, `CC_DEBUG=1` (redacted step dumps), deploy with `scripts/setup-host.ps1`, `scripts/deploy.mjs`, `scripts/install-tasks.ps1`.
+Host: `CC_BROWSER_MASTER` (cold master profile), `CC_MAX_CONCURRENCY`, `CC_PLATFORM_PARALLELISM`, `CC_CHROME_PATH`, `CC_DEBUG=1` (redacted step dumps), deploy with `scripts/setup-host.ps1`, `scripts/deploy.mjs`, `scripts/install-tasks.ps1`.

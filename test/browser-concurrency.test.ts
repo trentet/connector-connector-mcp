@@ -6,7 +6,6 @@ import type { AddressInfo } from "node:net";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { launchChrome, openSession as realOpen, shutdownChrome, type BrowserSession } from "../src/browser/chrome.js";
 import { acquireLane, portInUse } from "../src/browser/lanes.js";
-import { readGeneration } from "../src/browser/profile.js";
 import { loadRegistry } from "../src/core/registry.js";
 import { run } from "../src/core/runner.js";
 import type { PlatformAdapter } from "../src/adapters/types.js";
@@ -44,7 +43,8 @@ async function setup(portBase: number, max = 3) {
   master = tmp("cc-master-");
   selectors = tmp("cc-sel-");
   lanesDir = tmp("cc-lanes-");
-  fs.writeFileSync(path.join(selectors, "testplat.json"), JSON.stringify({ auth: { cookie: "authcookie", hosts: [host], ssoHosts: [] } }));
+  fs.writeFileSync(path.join(selectors, "testplat.json"), JSON.stringify({ auth: { cookie: "authcookie", refresh: ["authcookie"], hosts: [host], ssoHosts: [] } }));
+  fs.writeFileSync(path.join(selectors, "testplat2.json"), JSON.stringify({ auth: { cookie: "authcookie2", refresh: ["authcookie2"], hosts: ["localhost"], ssoHosts: [] } }));
   Object.assign(process.env, { CC_CHROME_PATH: CHROME, CC_BROWSER_MASTER: master, CC_CHROME_EXTRA_ARGS: HEADLESS, CC_LANES_DIR: lanesDir, CC_MAX_CONCURRENCY: String(max), CC_LANE_PORT_BASE: String(portBase), CC_SELECTORS_DIR: selectors });
   const seedPort = portBase + 50;
   const l = await launchChrome(master, seedPort);
@@ -99,32 +99,79 @@ describe.skipIf(!CHROME)("one Chrome process per run (real Chromium)", () => {
     got.release();
   }, 60000);
 
-  it("a healthy run writes its refreshed sign-in back; an older copy never overwrites a newer master; an unhealthy run writes nothing", async () => {
-    await setup(9490, 2);
-    const gen0 = readGeneration(master);
+  it("only rotated sign-in cookies of a healthy run are merged into the master; an older copy never overwrites a newer value; a signed-out run writes nothing", async () => {
+    await setup(9490, 3);
     const [a, b] = await Promise.all([openSession(), openSession()]);
     a.touched!.add("testplat"); b.touched!.add("testplat");
     await a.page.goto(origin); await b.page.goto(origin);
-    await setCookie(a, "authcookie", "refreshed-by-A");
-    await setCookie(b, "authcookie", "refreshed-by-B");
-    await a.close(); // first to finish publishes
-    expect(readGeneration(master)).toBe(gen0 + 1);
-    await b.close(); // cloned before A published: must not overwrite
-    expect(readGeneration(master)).toBe(gen0 + 1);
+    await setCookie(a, "authcookie", "rotated-by-A");     // A rotated the sign-in cookie
+    await setCookie(a, "tracking", "noise");             // not a sign-in cookie: never merged
+    await a.close();                                     // A merges into the master
+    await b.close();                                     // B cloned BEFORE A merged and changed nothing: must not overwrite A's value
     const c = await openSession();
     await c.page.goto(origin);
-    expect(await cookieValue(c, "authcookie")).toBe("refreshed-by-A");
-    // unhealthy: the platform cookie is gone, so nothing is written back
+    expect(await cookieValue(c, "authcookie")).toBe("rotated-by-A");
+    expect(await cookieValue(c, "tracking")).toBeUndefined();
+    // signed out: the platform cookie is gone, so nothing this run did reaches the master
     c.touched!.add("testplat");
     await c.context.clearCookies({ name: "authcookie" });
-    await setCookie(c, "junk", "x");
+    await setCookie(c, "authcookie", "x"); await c.context.clearCookies({ name: "authcookie" });
     await c.close();
-    expect(readGeneration(master)).toBe(gen0 + 1);
     const d = await openSession();
     await d.page.goto(origin);
-    expect(await cookieValue(d, "authcookie")).toBe("refreshed-by-A");
-    expect(await cookieValue(d, "junk")).toBeUndefined();
+    expect(await cookieValue(d, "authcookie")).toBe("rotated-by-A");
     await d.close();
+  }, 180000);
+
+  it("sibling runs that touched different platforms both merge their own rotation (the parallel-platform case)", async () => {
+    await setup(9530, 3);
+    const originLocalhost = origin.replace("127.0.0.1", "localhost");
+    // master also needs a platform-2 cookie so the clone starts signed in to both
+    const l = await launchChrome(master, 9580);
+    const mb = await chromium.connectOverCDP("http://127.0.0.1:9580");
+    await mb.contexts()[0].addCookies([{ name: "authcookie2", value: "master2-v0", url: originLocalhost, expires: Math.floor(Date.now() / 1000) + 86400 }]);
+    await shutdownChrome(mb, l.child, l.exited);
+    const [a, b] = await Promise.all([openSession(), openSession()]);
+    a.touched!.add("testplat"); b.touched!.add("testplat2");
+    await a.page.goto(origin); await b.page.goto(originLocalhost);
+    await a.context.addCookies([{ name: "authcookie", value: "A-rotated", url: origin, expires: Math.floor(Date.now() / 1000) + 86400 }]);
+    await b.context.addCookies([{ name: "authcookie2", value: "B-rotated", url: originLocalhost, expires: Math.floor(Date.now() / 1000) + 86400 }]);
+    await Promise.all([a.close(), b.close()]);
+    const c = await openSession();
+    await c.page.goto(origin);
+    expect(await cookieValue(c, "authcookie")).toBe("A-rotated");
+    expect((await c.context.cookies(originLocalhost)).find((k) => k.name === "authcookie2")?.value).toBe("B-rotated");
+    await c.close();
+    expect(fs.readdirSync(lanesDir).filter((f) => f.endsWith(".lock"))).toEqual([]);
+  }, 180000);
+
+  it("ONE run over three platforms drives three simultaneous real browsers, each isolated, and finishes in about the time of the slowest", async () => {
+    await setup(9550, 4);
+    const reg = loadRegistry(path.resolve("registry", "selftest.json"));
+    const { deps } = registryFixture(reg);
+    const plats = ["claude", "chatgpt", "grok"] as const;
+    const lockCounts: number[] = []; const states: Record<string, { before: string | null; after: string | null }> = {};
+    const adapters = Object.fromEntries(plats.map((platform) => {
+      const act = async (ctx: Parameters<PlatformAdapter["probe"]>[0]) => {
+        const s = await ctx.session();
+        await s.page.goto(origin + `/${platform}`);
+        const before = await s.page.evaluate(() => localStorage.getItem("who"));
+        await s.page.evaluate((p) => localStorage.setItem("who", p), platform);
+        await sleep(2500);
+        lockCounts.push(fs.readdirSync(lanesDir).filter((f) => f.endsWith(".lock")).length); // browsers alive right now
+        states[platform] = { before, after: await s.page.evaluate(() => localStorage.getItem("who")) };
+        return { status: "ok" as const, detail: `${platform} ok` };
+      };
+      return [platform, { platform, probe: act, list: async () => ({ names: [] }), add: act, remove: act, update: act, verify: act } as PlatformAdapter];
+    })) as Record<(typeof plats)[number], PlatformAdapter>;
+    const t0 = Date.now();
+    const res = await run(reg, { op: "add", connectors: ["cc-selftest"], platforms: [...plats] }, { deps, adapters });
+    const elapsed = Date.now() - t0;
+    expect(res.ok).toBe(true);
+    expect(Math.max(...lockCounts)).toBe(3);                    // three browsers were alive together
+    for (const p of plats) expect(states[p]).toEqual({ before: null, after: p }); // none saw another's state
+    expect(elapsed).toBeLessThan(2500 * 3);                     // not three sequential 2.5 s waits
+    expect(fs.readdirSync(lanesDir).filter((f) => f.endsWith(".lock"))).toEqual([]);
   }, 180000);
 
   it("refuses a master that a running Chrome has open (copying a live profile is unreliable)", async () => {

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Cookie, type Page } from "patchright";
 import { acquireLane, type Lane } from "./lanes.js";
-import { cloneProfile, removeProfile, syncBack } from "./profile.js";
+import { cloneProfile, profileInUse, removeProfile, withMasterLock } from "./profile.js";
 
 /** Hosts whose stale tabs this tool may close. Anything else in the shared profile is left alone. */
 const OWNED_HOSTS = ["claude.ai", "chatgpt.com", "grok.com", "x.ai", "accounts.google.com", "auth.openai.com"];
@@ -22,14 +22,14 @@ export interface BrowserSession {
 }
 
 /** What the browser layer knows about a platform's sign-in state (data/selectors/<platform>.json "auth"). */
-export interface AuthSpec { cookie: string; hosts: string[]; ssoHosts: string[] }
+export interface AuthSpec { cookie: string; refresh: string[]; hosts: string[]; ssoHosts: string[] }
 
 export function loadAuthSpecs(dir = path.resolve(process.env.CC_SELECTORS_DIR ?? path.join("data", "selectors"))): Record<string, AuthSpec> {
   const out: Record<string, AuthSpec> = {};
   for (const f of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
     if (!f.endsWith(".json")) continue;
     const a = (JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")) as { auth?: Partial<AuthSpec> }).auth;
-    if (a?.cookie && a.hosts?.length) out[f.replace(/\.json$/, "")] = { cookie: a.cookie, hosts: a.hosts, ssoHosts: a.ssoHosts ?? [] };
+    if (a?.cookie && a.hosts?.length) out[f.replace(/\.json$/, "")] = { cookie: a.cookie, refresh: a.refresh?.length ? a.refresh : [a.cookie], hosts: a.hosts, ssoHosts: a.ssoHosts ?? [] };
   }
   return out;
 }
@@ -55,6 +55,42 @@ export function masterDir(e = process.env, platform = process.platform, home = o
       : platform === "darwin" ? path.join(home, "Library", "Application Support", "HELM", app)
       : path.join(e.XDG_DATA_HOME ?? path.join(home, ".local", "share"), "helm", app));
   return path.join(base, "browser-master");
+}
+
+const cookieKey = (c: Cookie) => `${c.domain}|${c.path}|${c.name}`;
+
+/** The sign-in cookies (spec.refresh) of the platforms a run touched. */
+export function refreshCookies(cookies: Cookie[], touched: Iterable<string>, specs: Record<string, AuthSpec>): Cookie[] {
+  const list = [...touched].map((p) => specs[p]).filter((s): s is AuthSpec => !!s);
+  return cookies.filter((c) => list.some((s) => domainMatches(c.domain, s.hosts) && s.refresh.some((n) => c.name.startsWith(n))));
+}
+
+/** Sign-in cookies whose value differs from what the run started with (rotated or newly issued). Unchanged cookies are never written, so a stale copy cannot overwrite a newer master. */
+export function changedSince(start: Map<string, string>, now: Cookie[]): Cookie[] {
+  return now.filter((c) => start.get(cookieKey(c)) !== c.value);
+}
+
+/**
+ * Merge rotated sign-in cookies into the cold master, cookie by cookie, with a short-lived Chrome on the master itself.
+ * Holds a lane and then the master lock (same order as a run, so the two cannot deadlock); clones wait for it. Best effort:
+ * on any failure the master simply keeps its previous cookies.
+ */
+export async function mergeCookiesIntoMaster(master: string, cookies: Cookie[]): Promise<boolean> {
+  if (!cookies.length) return false;
+  const lane = await acquireLane();
+  try {
+    return await withMasterLock(master, async () => {
+      if (profileInUse(master)) return false;
+      const l = await launchChrome(master, lane.port);
+      let b: Browser | undefined;
+      try {
+        b = await chromium.connectOverCDP(`http://127.0.0.1:${lane.port}`);
+        const now = Math.floor(Date.now() / 1000);
+        await b.contexts()[0].addCookies(cookies.map((c) => ({ ...c, expires: c.expires > 0 ? c.expires : now + SESSION_COOKIE_LIFETIME_S })));
+        return true;
+      } finally { await shutdownChrome(b, l.child, l.exited); }
+    });
+  } finally { lane.release(); }
 }
 
 async function cdpUp(port: number): Promise<boolean> {
@@ -112,7 +148,7 @@ export async function openSession(opts: { artifactsDir?: string } = {}): Promise
   };
   try {
     runDir = fs.mkdtempSync(path.join(os.tmpdir(), `cc-run-${lane.index}-`));
-    const { generation } = await cloneProfile(master, runDir);
+    await cloneProfile(master, runDir);
     launched = await launchChrome(runDir, lane.port);
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${lane.port}`);
     const context = browser.contexts()[0];
@@ -125,25 +161,23 @@ export async function openSession(opts: { artifactsDir?: string } = {}): Promise
     const page = await context.newPage();
     const touched = new Set<string>();
     const run = runDir, child = launched, br = browser;
+    // What the sign-in cookies looked like when this run started, to find out later which ones the run rotated.
+    const specsAtStart = loadAuthSpecs();
+    const startCookies = new Map((await context.cookies()).filter((c) => Object.values(specsAtStart).some((sp) => domainMatches(c.domain, sp.hosts) && sp.refresh.some((n) => c.name.startsWith(n)))).map((c) => [cookieKey(c), c.value] as const));
     return {
       browser: br, context, page, artifactsDir, touched,
       async close() {
-        let healthy = false;
+        let rotated: Cookie[] = [];
         try {
           const specs = loadAuthSpecs();
           const cookies = await context.cookies();
-          healthy = sessionHealthy(cookies, touched, specs);
-          if (healthy) {
-            // Session-only cookies vanish when Chrome exits; make the auth ones persistent so the write-back carries them.
-            const hosts = Object.values(specs).flatMap((s) => [...s.hosts, ...s.ssoHosts]);
-            const promote = cookies.filter((c) => c.expires <= 0 && domainMatches(c.domain, hosts)).map((c) => ({ ...c, expires: Math.floor(Date.now() / 1000) + SESSION_COOKIE_LIFETIME_S }));
-            if (promote.length) await context.addCookies(promote).catch(() => {});
-          }
-        } catch { /* a dead browser is simply not healthy */ }
+          // Only a healthy run (every platform it touched still has its sign-in cookie) may contribute; a signed-out browser never does.
+          if (sessionHealthy(cookies, touched, specs)) rotated = changedSince(startCookies, refreshCookies(cookies, touched, specs));
+        } catch { /* a dead browser contributes nothing */ }
         await shutdownChrome(br, child.child, child.exited);
-        try { if (healthy) await syncBack(run, master, generation); } catch { /* the master keeps its previous state */ }
         removeProfile(run);
-        lane.release();
+        lane.release(); // free the lane BEFORE merging: the merge claims its own, and holding two could starve other callers
+        try { if (rotated.length) await mergeCookiesIntoMaster(master, rotated); } catch { /* the master keeps its previous cookies */ }
       },
     };
   } catch (e) {
