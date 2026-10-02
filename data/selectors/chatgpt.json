@@ -33,7 +33,8 @@
   },
   "verify": {
     "connectedLabel": "^connected$",
-    "connectLabel": "^connect$"
+    "connectLabel": "^connect$",
+    "connectConfirm": "^connect\\b"
   },
   "list": {
     "installedHeading": "Installed"

@@ -90,16 +90,22 @@ async function readInstalled(ctx: AdapterContext): Promise<string[]> {
     return [...names];
   }, heading);
 }
-/**
- * Connection state on a plugin's own page: a "Connected" label when ChatGPT completed its handshake with the server,
- * a "Connect" button when the app is installed but not connected. The page lists no discovered tools, so this is the deepest check available.
- */
-async function readConnectionState(ctx: AdapterContext, name: string): Promise<"connected" | "not-connected" | "unreadable"> {
+/** Opens the plugin's own page from the Installed list and checks the heading, so nothing is clicked on the wrong plugin. */
+async function openPluginPage(ctx: AdapterContext, name: string): Promise<Page> {
   const page = await openPlugins(ctx);
   await page.locator("section a", { hasText: new RegExp("^\\s*" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*$") }).first().click();
   await page.waitForURL(/\/plugins\/[^/]+/, { timeout: 15000 });
   const h1 = (await page.locator("h1").first().innerText().catch(() => "")).trim();
   if (h1 !== name) throw new Error(`opened a page headed "${h1}", expected "${name}"`);
+  return page;
+}
+
+type ConnectionState = "connected" | "not-connected" | "unreadable";
+/**
+ * Connection state on a plugin's own page: a "Connected" label when ChatGPT completed its handshake with the server,
+ * a "Connect" button when the app is installed but not connected. The page lists no discovered tools, so this is the deepest check available.
+ */
+async function pageConnectionState(page: Page): Promise<ConnectionState> {
   const connected = new RegExp(sel.verify.connectedLabel, "i"), connect = new RegExp(sel.verify.connectLabel, "i");
   for (let i = 0; i < 6; i++) {
     const lines: string[] = await page.evaluate(() => ((document.querySelector("main") as HTMLElement | null)?.innerText ?? "").split("\n").map((l) => l.trim()).filter(Boolean));
@@ -108,6 +114,25 @@ async function readConnectionState(ctx: AdapterContext, name: string): Promise<"
     await sleep(1500);
   }
   return "unreadable";
+}
+const readConnectionState = async (ctx: AdapterContext, name: string) => pageConnectionState(await openPluginPage(ctx, name));
+
+/** An installed app still needs ChatGPT's own Connect step (button, then a confirmation dialog) before chats can use it. Idempotent. */
+async function ensureConnected(ctx: AdapterContext, name: string): Promise<"already" | "connected-now"> {
+  const page = await openPluginPage(ctx, name);
+  const state = await pageConnectionState(page);
+  if (state === "connected") return "already";
+  if (state === "unreadable") throw new Error(`"${name}" page shows neither Connected nor Connect`);
+  await page.getByRole("button", { name: new RegExp(sel.verify.connectLabel, "i") }).first().click();
+  const dlg = page.getByRole("dialog").or(page.getByRole("alertdialog")).last();
+  await dlg.waitFor({ timeout: 8000 });
+  if (!(await dlg.innerText()).includes(name)) throw new Error(`connect dialog does not mention "${name}"; not confirming`);
+  await dlg.getByRole("button", { name: new RegExp(sel.verify.connectConfirm, "i") }).last().click();
+  for (let i = 0; i < 10; i++) {
+    await sleep(2000);
+    if ((await pageConnectionState(page)) === "connected") return "connected-now";
+  }
+  throw new Error(`clicked Connect for "${name}" but its page never showed Connected`);
 }
 const pageHasName = async (ctx: AdapterContext, name: string) => (await readInstalled(ctx)).includes(name);
 
@@ -158,8 +183,9 @@ export function chatgptAdapter(): PlatformAdapter {
       const s = await ctx.session();
       const a = sel.add;
       if (await pageHasName(ctx, c.name)) {
-        if (ifExisting === "skip") return { status: "skipped", detail: `"${c.name}" already installed` };
-        return { status: "error", detail: `"${c.name}" already installed` };
+        if (ifExisting !== "skip") return { status: "error", detail: `"${c.name}" already installed` };
+        const was = await ensureConnected(ctx, c.name);
+        return was === "already" ? { status: "skipped", detail: `"${c.name}" already installed and Connected` } : { status: "ok", detail: `"${c.name}" was installed but not connected; clicked Connect, page now shows Connected` };
       }
       const g = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
         const r = await guarded(s, "chatgpt-add-" + label, ctx.redact, fn);
@@ -190,7 +216,7 @@ export function chatgptAdapter(): PlatformAdapter {
         await btn.click();
         await sleep(4000);
       });
-      for (let i = 0; i < 5; i++) { if (await pageHasName(ctx, c.name)) return { status: "ok", detail: `"${c.name}" added (appears in Installed list)` }; await sleep(3000); }
+      for (let i = 0; i < 5; i++) { if (await pageHasName(ctx, c.name)) { await ensureConnected(ctx, c.name); return { status: "ok", detail: `"${c.name}" added, appears in Installed list, and page shows Connected` }; } await sleep(3000); }
       return { status: "error", detail: `submitted, but "${c.name}" did not appear in ChatGPT's Installed list after waiting` };
     },
   };
