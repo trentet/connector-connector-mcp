@@ -62,13 +62,15 @@ async function readConnected(ctx: AdapterContext): Promise<string[]> {
   const marker: string = sel.list.rowMarkerText;
   await sleep(1500);
   return page.evaluate((m) => {
+    // Rows are <button> (name line + subtitle line); the "Added" tag lives in the row WRAPPER, not inside the button.
+    const lines = (e: Element | null) => ((e as HTMLElement | null)?.innerText ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
     const names = new Set<string>();
-    for (const leaf of [...document.querySelectorAll("*")].filter((e) => e.children.length === 0 && (e.textContent ?? "").trim() === m)) {
-      let row: Element | null = leaf.parentElement;
-      for (let i = 0; i < 4 && row; i++) {
-        const lines = ((row as HTMLElement).innerText ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
-        if (lines.length >= 2 && lines.indexOf(m) > 0) { names.add(lines[0]); break; }
-        row = row.parentElement;
+    for (const b of [...document.querySelectorAll("button")]) {
+      const own = lines(b);
+      if (!own.length) continue;
+      for (let wrap: Element | null = b.parentElement, up = 0; wrap && up < 2; wrap = wrap.parentElement, up++) {
+        if (wrap.querySelectorAll("button").length !== 1) break; // wrapper holds several rows: too far up
+        if (lines(wrap).includes(m)) { names.add(own[0]); break; }
       }
     }
     return [...names];
