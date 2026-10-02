@@ -9,15 +9,24 @@ try {
   await page.goto("https://chatgpt.com/plugins", { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => [...document.querySelectorAll("h1,h2,h3,[role=heading]")].some((e) => e.innerText.trim() === "Installed"), null, { timeout: 25000 });
   await new Promise((r) => setTimeout(r, 2500));
+  out.chain = await page.evaluate((n) => {
+    const hd = [...document.querySelectorAll("h1,h2,h3,[role=heading]")].find((e) => e.innerText.trim() === "Installed");
+    const sec = hd.closest("section") ?? hd.parentElement.parentElement;
+    const hit = [...sec.querySelectorAll("*")].filter((e) => e.children.length === 0 && e.innerText?.trim() === n)[0];
+    if (!hit) return "no leaf element with exact text in Installed section";
+    const rows = [];
+    for (let a = hit, i = 0; a && i < 8; a = a.parentElement, i++) {
+      rows.push({ level: i, tag: a.tagName.toLowerCase(), role: a.getAttribute("role"), textLen: (a.innerText || "").length, buttons: [...a.querySelectorAll("button,[role=button]")].map((b) => b.getAttribute("aria-label") || (b.innerText || "").trim().slice(0, 25)).slice(0, 6) });
+    }
+    return rows;
+  }, name);
   out.tagged = await page.evaluate((n) => {
     const hd = [...document.querySelectorAll("h1,h2,h3,[role=heading]")].find((e) => e.innerText.trim() === "Installed");
     const sec = hd.closest("section") ?? hd.parentElement.parentElement;
-    for (const e of sec.querySelectorAll("button,a,li,[role=listitem],div")) {
-      if (((e.innerText ?? "").split("\n").map((l) => l.trim()).filter(Boolean)[0]) !== n) continue;
-      for (let a = e, i = 0; a && i < 5; a = a.parentElement, i++) {
-        const more = a.querySelector('button[aria-label="More actions"]');
-        if (more && a.querySelectorAll('button[aria-label="More actions"]').length === 1) { more.setAttribute("data-cc-target", "1"); return { tag: a.tagName.toLowerCase(), level: i }; }
-      }
+    const hit = [...sec.querySelectorAll("*")].filter((e) => e.children.length === 0 && e.innerText?.trim() === n)[0];
+    for (let a = hit, i = 0; a && i < 8; a = a.parentElement, i++) {
+      const mores = a.querySelectorAll('button[aria-label="More actions"]');
+      if (mores.length === 1) { mores[0].setAttribute("data-cc-target", "1"); return { tag: a.tagName.toLowerCase(), level: i }; }
     }
     return null;
   }, name);
