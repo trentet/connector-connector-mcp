@@ -124,9 +124,8 @@ async function ensureConnected(ctx: AdapterContext, name: string): Promise<"alre
   if (state === "connected") return "already";
   if (state === "unreadable") throw new Error(`"${name}" page shows neither Connected nor Connect`);
   await page.getByRole("button", { name: new RegExp(sel.verify.connectLabel, "i") }).first().click();
-  const dlg = page.getByRole("dialog").or(page.getByRole("alertdialog")).last();
-  await dlg.waitFor({ timeout: 8000 });
-  if (!(await dlg.innerText()).includes(name)) throw new Error(`connect dialog does not mention "${name}"; not confirming`);
+  const dlg = page.getByRole("dialog").or(page.getByRole("alertdialog")).filter({ hasText: name }).last();
+  await dlg.waitFor({ timeout: 12000 }).catch(() => { throw new Error(`no connect dialog naming "${name}" appeared; not confirming`); });
   await dlg.getByRole("button", { name: new RegExp(sel.verify.connectConfirm, "i") }).last().click();
   for (let i = 0; i < 10; i++) {
     await sleep(2000);
