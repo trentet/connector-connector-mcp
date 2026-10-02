@@ -499,6 +499,60 @@
         "grok"
       ],
       "tier": "test"
+    },
+    {
+      "id": "helm-esxi-mcp",
+      "name": "HELM ESXi Connector",
+      "description": "Read-only VM/host inventory for a standalone VMware ESXi host, via govc. Tier test until the operator promotes it to production.",
+      "url": {
+        "type": "literal",
+        "value": "https://esxi.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://esxi.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-esxi-mcp/production/secrets/connector.env"
+              ],
+              "key": "ESXI_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://esxi.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-esxi-mcp/production/secrets/connector.env"
+              ],
+              "key": "ESXI_MCP_BEARER_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/helm-esxi-mcp/production/secrets/connector.env"
+          ],
+          "key": "ESXI_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ],
+      "tier": "test"
     }
   ]
 }
