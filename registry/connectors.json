@@ -638,6 +638,60 @@
         "grok"
       ],
       "tier": "test"
+    },
+    {
+      "id": "arr-test",
+      "name": "arr-mcp-connector TEST",
+      "description": "TEST environment of the Sonarr/Radarr/Prowlarr/Jellyseerr media-automation connector (arr-test.trentt.me). Claude uses the x-api-key header; ChatGPT and Grok use the same token via ?token=, but the server rejects ?token= specifically for the one destructive tool (remove_from_queue) regardless of value - verified live 2026-10-02 (header: 200, ?token=-only: 403).",
+      "url": {
+        "type": "literal",
+        "value": "https://arr-test.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://arr-test.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/arr-mcp-connector/test/secrets/connector.env"
+              ],
+              "key": "ARR_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://arr-test.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/arr-mcp-connector/test/secrets/connector.env"
+              ],
+              "key": "ARR_MCP_BEARER_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/arr-mcp-connector/test/secrets/connector.env"
+          ],
+          "key": "ARR_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ],
+      "tier": "test"
     }
   ]
 }
