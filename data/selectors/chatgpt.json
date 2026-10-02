@@ -5,7 +5,10 @@
   "loginVaultLabel": "Google Account (trenterrolthomas@gmail.com)",
   "smsCodeVaultLabel": "ChatGPT SMS code",
   "smsWaitMinutes": 14,
-  "signedOutMarkers": ["log in", "sign up for free"],
+  "signedOutMarkers": [
+    "log in",
+    "sign up for free"
+  ],
   "login": {
     "continueWithGoogle": "continue with google",
     "googleEmailInput": "input[type=email]",
@@ -27,5 +30,8 @@
     "consentCheckbox": "i understand and want to continue",
     "createButton": "^create$",
     "failureText": "connection failed|could not connect|invalid server|unauthorized|already exists|duplicate"
+  },
+  "list": {
+    "installedHeading": "Installed"
   }
 }

@@ -72,16 +72,33 @@ async function openPlugins(ctx: AdapterContext): Promise<Page> {
   return s.page;
 }
 
-const pageHasName = async (page: Page, name: string) => (await page.evaluate(() => document.body.innerText)).includes(name);
+/** Names in the "Installed" section of the plugins page (item text's first line). */
+async function readInstalled(ctx: AdapterContext): Promise<string[]> {
+  const page = await openPlugins(ctx);
+  const heading: string = sel.list.installedHeading;
+  await page.waitForFunction((h) => [...document.querySelectorAll("h1,h2,h3,[role=heading]")].some((e) => (e as HTMLElement).innerText.trim() === h), heading, { timeout: 20000 }).catch(() => {});
+  await sleep(1500);
+  return page.evaluate((h) => {
+    const hd = [...document.querySelectorAll("h1,h2,h3,[role=heading]")].find((e) => (e as HTMLElement).innerText.trim() === h);
+    if (!hd) return [];
+    const sec = hd.closest("section") ?? hd.parentElement?.parentElement;
+    const names = new Set<string>();
+    for (const e of [...(sec?.querySelectorAll("button,a,li,[role=listitem]") ?? [])]) {
+      const first = ((e as HTMLElement).innerText ?? "").split("\n").map((l) => l.trim()).filter(Boolean)[0];
+      if (first && first !== h && first.length < 80) names.add(first);
+    }
+    return [...names];
+  }, heading);
+}
+const pageHasName = async (ctx: AdapterContext, name: string) => (await readInstalled(ctx)).includes(name);
 
 export function chatgptAdapter(): PlatformAdapter {
   return {
     platform: "chatgpt",
     async probe(ctx) { await openPlugins(ctx); return { status: "ok", detail: "signed in to chatgpt.com" }; },
-    async list() { return { names: [] }; },
+    async list(ctx) { return { names: await readInstalled(ctx) }; },
     async verify(ctx, c): Promise<AdapterOutcome> {
-      const page = await openPlugins(ctx);
-      return (await pageHasName(page, c.name)) ? { status: "ok", detail: `"${c.name}" appears on the ChatGPT plugins page` } : { status: "error", detail: `"${c.name}" does not appear on the ChatGPT plugins page` };
+      return (await pageHasName(ctx, c.name)) ? { status: "ok", detail: `"${c.name}" is in ChatGPT's Installed list` } : { status: "error", detail: `"${c.name}" is not in ChatGPT's Installed list` };
     },
     async remove() { return { status: "not-implemented", detail: "chatgpt remove not yet mapped (needs a live probe on a throwaway connector)" }; },
     async update() { return { status: "not-implemented", detail: "chatgpt update not yet mapped" }; },
@@ -89,16 +106,16 @@ export function chatgptAdapter(): PlatformAdapter {
       const page = await openPlugins(ctx);
       const s = await ctx.session();
       const a = sel.add;
-      if (await pageHasName(page, c.name)) {
-        if (ifExisting === "skip") return { status: "skipped", detail: `"${c.name}" already on the plugins page` };
-        return { status: "error", detail: `"${c.name}" already on the plugins page` };
+      if (await pageHasName(ctx, c.name)) {
+        if (ifExisting === "skip") return { status: "skipped", detail: `"${c.name}" already installed` };
+        return { status: "error", detail: `"${c.name}" already installed` };
       }
       const g = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
         const r = await guarded(s, "chatgpt-add-" + label, ctx.redact, fn);
         if (process.env.CC_DEBUG) console.error(`[debug chatgpt after ${label}] ` + ctx.redact(await page.evaluate(() => [...document.querySelectorAll("[role=dialog]")].filter((e) => (e as HTMLElement).offsetWidth).map((e) => (e as HTMLElement).innerText.replace(/\s+/g, " ").slice(0, 200)).join(" || ")).catch(() => "?")));
         return r;
       };
-      await g("open-menu", async () => { await page.getByRole("button", { name: rx(a.addButton) }).first().click(); await page.getByRole("menuitem", { name: rx(a.createMcpMenuItem) }).first().waitFor({ timeout: 8000 }); });
+      await g("open-menu", async () => { const addBtn = page.getByRole("button", { name: rx(a.addButton) }).first(); await addBtn.waitFor({ timeout: 20000 }); await addBtn.click(); await page.getByRole("menuitem", { name: rx(a.createMcpMenuItem) }).first().waitFor({ timeout: 8000 }); });
       await g("open-form", async () => { await page.getByRole("menuitem", { name: rx(a.createMcpMenuItem) }).first().click(); await page.getByRole("dialog").filter({ hasText: rx(a.dialogHeading) }).first().waitFor({ timeout: 8000 }); });
       const dlg = page.getByRole("dialog").filter({ hasText: rx(a.dialogHeading) }).first();
       await g("fill", async () => {
@@ -122,9 +139,8 @@ export function chatgptAdapter(): PlatformAdapter {
         await btn.click();
         await sleep(4000);
       });
-      await sleep(2000);
-      const page2 = await openPlugins(ctx);
-      return (await pageHasName(page2, c.name)) ? { status: "ok", detail: `"${c.name}" added (appears on the plugins page)` } : { status: "error", detail: `submitted, but "${c.name}" does not appear on the plugins page` };
+      for (let i = 0; i < 5; i++) { if (await pageHasName(ctx, c.name)) return { status: "ok", detail: `"${c.name}" added (appears in Installed list)` }; await sleep(3000); }
+      return { status: "error", detail: `submitted, but "${c.name}" did not appear in ChatGPT's Installed list after waiting` };
     },
   };
 }
