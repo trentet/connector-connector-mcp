@@ -123,6 +123,112 @@
       "platforms": [
         "claude"
       ]
+    },
+    {
+      "id": "helm-audio-mcp",
+      "name": "HELM Audio Connector",
+      "description": "HELM audio transcription, diarization and speech processing endpoint",
+      "url": {
+        "type": "literal",
+        "value": "https://audio.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://audio.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-audio-mcp/production/secrets/connector.env"
+              ],
+              "key": "HELM_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://audio.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-audio-mcp/production/secrets/connector.env"
+              ],
+              "key": "HELM_MCP_BEARER_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/helm-audio-mcp/production/secrets/connector.env"
+          ],
+          "key": "HELM_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ]
+    },
+    {
+      "id": "patchright-mcp",
+      "name": "Patchright MCP",
+      "description": "Patchright (stealth Playwright) browser-control endpoint",
+      "url": {
+        "type": "literal",
+        "value": "https://patchright.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://patchright.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/patchright-mcp/production/secrets/connector.env"
+              ],
+              "key": "PATCHRIGHT_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://patchright.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/patchright-mcp/production/secrets/connector.env"
+              ],
+              "key": "PATCHRIGHT_MCP_BEARER_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/patchright-mcp/production/secrets/connector.env"
+          ],
+          "key": "PATCHRIGHT_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ]
     }
   ]
 }

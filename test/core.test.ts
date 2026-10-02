@@ -9,7 +9,7 @@ import { PLATFORMS } from "../src/core/types.js";
 
 const SECRET = "s3cr3t-TOKEN-value-123456";
 const files: Record<string, string> = {
-  "/e/.env": `# c\nSHELL_MCP_SHELL_SECRET="shellSecretValue99"\nSHELL_MCP_BEARER_TOKEN=${SECRET}\nVAULT_MCP_BEARER_TOKEN='vaultTok-ABCDEF'\n`,
+  "/e/.env": `# c\nSHELL_MCP_SHELL_SECRET="shellSecretValue99"\nSHELL_MCP_BEARER_TOKEN=${SECRET}\nVAULT_MCP_BEARER_TOKEN='vaultTok-ABCDEF'\nHELM_MCP_BEARER_TOKEN=audioTok-0123456789\nPATCHRIGHT_MCP_BEARER_TOKEN=patchTok-9876543210\n`,
   "/info.txt": `url: https://mcp.trentt.me/mcp?token=driveTokenXYZ789 end`,
 };
 const deps: ResolveDeps = {
@@ -61,14 +61,14 @@ describe("registry", () => {
 
 describe("runner", () => {
   const reg = loadRegistry(registryPath);
-  const rewritten = JSON.parse(JSON.stringify(reg).replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env", "/e/.env").replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/Vault MCP Connector/Repos/vault-mcp/.env", "/e/.env").replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/HELM Drive MCP Connector/Repos/TT-MCP/connector-info.txt", "/info.txt"));
+  const rewritten = JSON.parse(JSON.stringify(reg).replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env", "/e/.env").replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/Vault MCP Connector/Repos/vault-mcp/.env", "/e/.env").replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/HELM Drive MCP Connector/Repos/TT-MCP/connector-info.txt", "/info.txt").replaceAll("C:/Users/Trent/AppData/Local/HELM/helm-audio-mcp/production/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/patchright-mcp/production/secrets/connector.env", "/e/.env"));
   it("dry-run resolves every seeded connector on every platform with ZERO secret leakage", async () => {
     const res = await run(rewritten, { op: "add", connectors: ["*"], platforms: PLATFORMS, dryRun: true }, { deps });
     const text = JSON.stringify(res);
     expect(res.ok).toBe(true);
-    expect(res.items.filter((i) => i.status === "dry-run").length).toBe(7); // vault-mcp is claude-only
+    expect(res.items.filter((i) => i.status === "dry-run").length).toBe(13); // vault-mcp is claude-only; audio + patchright add 3 each
     expect(res.items.filter((i) => i.status === "skipped").length).toBe(2); // vault-mcp @ chatgpt, grok
-    for (const leak of [SECRET, "shellSecretValue99", "vaultTok-ABCDEF", "driveTokenXYZ789"]) expect(text).not.toContain(leak);
+    for (const leak of [SECRET, "shellSecretValue99", "vaultTok-ABCDEF", "driveTokenXYZ789", "audioTok-0123456789", "patchTok-9876543210"]) expect(text).not.toContain(leak);
     expect(text).toContain("<query redacted>");
     expect(text).toMatch(/header x-api-key set \(\d+ chars\)/);
     expect(text).toContain("https://shell.trentt.me/mcp"); // host and path stay visible
