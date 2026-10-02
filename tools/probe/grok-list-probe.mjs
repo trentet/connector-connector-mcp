@@ -1,25 +1,29 @@
-// Read-only: find where grok.com lists the user's connectors and whether `name` (default cc-selftest) is there.
+// Read-only: locate grok.com's connector management UI; look for `name` anywhere in the page text. Filtered output only (no chat titles).
 import { openSession } from "../../dist/browser/chrome.js";
 const name = process.argv[2] ?? "cc-selftest";
 const s = await openSession();
 const out = {};
+const clip = (t) => (t || "").trim().replace(/[-]/g, "").replace(/\s+/g, " ");
+const sweep = () => s.page.evaluate(([n]) => {
+  const c = (t) => (t || "").trim().replace(/[-]/g, "").replace(/\s+/g, " ");
+  const re = /connector|plugin|app|manage|setting|custom|new|add|install|connected|integration|tool/i;
+  return {
+    path: location.pathname,
+    nameInPage: document.body.innerText.includes(n),
+    links: [...document.querySelectorAll("a[href]")].map((a) => a.getAttribute("href")).filter((h) => /connector|plugin|app|setting|integration/i.test(h || "")).slice(0, 12),
+    controls: [...document.querySelectorAll("button,[role=button],[role=tab],[role=menuitem],a")].filter((e) => (e.offsetWidth || e.offsetHeight) && re.test(c(e.getAttribute("aria-label") || e.innerText)) && c(e.getAttribute("aria-label") || e.innerText).length < 60).map((e) => c(e.getAttribute("aria-label") || e.innerText)).slice(0, 25),
+  };
+}, [name]);
 try {
   await s.page.goto("https://grok.com/connectors", { waitUntil: "domcontentloaded" });
-  await new Promise((r) => setTimeout(r, 5000));
+  await new Promise((r) => setTimeout(r, 6000));
   const rej = s.page.getByRole("button", { name: /reject all/i });
   if (await rej.count()) { await rej.first().click().catch(() => {}); await new Promise((r) => setTimeout(r, 500)); }
-  out.signedOutButtons = await s.page.getByRole("button", { name: /^sign in$/i }).count();
-  out.found = await s.page.evaluate((n) => {
-    const clip = (t) => (t || "").trim().replace(/[-]/g, "").replace(/\s+/g, " ");
-    const hits = [...document.querySelectorAll("*")].filter((e) => e.children.length === 0 && clip(e.textContent) === n);
-    return hits.slice(0, 3).map((h) => {
-      let a = h; const chain = [];
-      for (let i = 0; i < 5 && a.parentElement; i++) { a = a.parentElement; chain.push({ tag: a.tagName.toLowerCase(), role: a.getAttribute("role"), text: clip(a.innerText).slice(0, 160), buttons: [...a.querySelectorAll("button,[role=button],[role=switch],a")].map((b) => clip(b.getAttribute("aria-label") || b.innerText).slice(0, 40)).filter(Boolean).slice(0, 8) }); }
-      return chain;
-    });
-  }, name);
-  out.pageHeadings = await s.page.evaluate(() => [...document.querySelectorAll("main h1,main h2,main h3,[role=heading]")].map((h) => h.innerText.trim().replace(/\s+/g, " ")).slice(0, 12));
-  out.mainText = await s.page.evaluate(() => (document.querySelector("main")?.innerText ?? "").replace(/[-]/g, "").replace(/\s+/g, " ").slice(0, 500));
+  out.atLoad = await sweep();
+  const nc = s.page.getByRole("button", { name: /new connector/i }).first();
+  out.newConnectorButtonVisible = (await nc.count()) > 0;
+  const plugins = s.page.getByRole("link", { name: /plugins|connectors|apps/i }).or(s.page.getByRole("button", { name: /plugins|connectors|apps/i })).first();
+  if (await plugins.count()) { await plugins.click().catch(() => {}); await new Promise((r) => setTimeout(r, 3000)); out.afterPluginsClick = await sweep(); }
 } catch (e) { out.error = String(e.message).split("\n")[0]; }
 finally { await s.close(); }
 console.log(JSON.stringify(out, null, 1));
