@@ -33,6 +33,7 @@
   },
   "verify": {
     "connectedLabel": "^connected$",
+    "readyLabel": "^try in chat$",
     "connectLabel": "^connect$",
     "connectConfirm": "^connect\\b"
   },
