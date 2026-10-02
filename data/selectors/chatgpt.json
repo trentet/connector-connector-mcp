@@ -33,5 +33,10 @@
   },
   "list": {
     "installedHeading": "Installed"
+  },
+  "remove": {
+    "moreActions": "button[aria-label=\"More actions\"]",
+    "deleteItem": "^delete plugin$",
+    "confirmButton": "^(delete|remove|confirm)"
   }
 }

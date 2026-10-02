@@ -100,7 +100,35 @@ export function chatgptAdapter(): PlatformAdapter {
     async verify(ctx, c): Promise<AdapterOutcome> {
       return (await pageHasName(ctx, c.name)) ? { status: "ok", detail: `"${c.name}" is in ChatGPT's Installed list` } : { status: "error", detail: `"${c.name}" is not in ChatGPT's Installed list` };
     },
-    async remove() { return { status: "not-implemented", detail: "chatgpt remove not yet mapped (needs a live probe on a throwaway connector)" }; },
+    async remove(ctx, c): Promise<AdapterOutcome> {
+      if (!(await pageHasName(ctx, c.name))) return { status: "skipped", detail: `"${c.name}" not in Installed list` };
+      const page = await openPlugins(ctx);
+      const s = await ctx.session();
+      const r = sel.remove;
+      const g = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
+        const res = await guarded(s, "chatgpt-remove-" + label, ctx.redact, fn);
+        if (process.env.CC_DEBUG) console.error(`[debug chatgpt remove after ${label}] ` + ctx.redact(await page.evaluate(() => `${location.pathname.replace(/[0-9a-f]{8}-[0-9a-f-]{27}/, "<id>")} | ` + [...document.querySelectorAll("[role=dialog],[role=alertdialog]")].filter((e) => (e as HTMLElement).offsetWidth).map((e) => (e as HTMLElement).innerText.replace(/\s+/g, " ").slice(0, 120)).join(" || ")).catch(() => "?")));
+        return res;
+      };
+      await g("open-plugin-page", async () => {
+        await page.locator("section a", { hasText: new RegExp("^\\s*" + c.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*$") }).first().click();
+        await page.waitForURL(/\/plugins\/[^/]+/, { timeout: 15000 });
+        await sleep(2000);
+        const h1 = (await page.locator("h1").first().innerText().catch(() => "")).trim();
+        if (h1 !== c.name) throw new Error(`opened a page headed "${h1}", expected "${c.name}"; not deleting`);
+      });
+      await g("open-menu", async () => { await page.locator(r.moreActions).last().click(); await sleep(800); });
+      await g("click-delete", async () => { await page.getByRole("menuitem", { name: rx(r.deleteItem) }).first().click(); await sleep(1200); });
+      await g("confirm", async () => {
+        const dlg = page.getByRole("alertdialog").or(page.getByRole("dialog")).last();
+        await dlg.waitFor({ timeout: 8000 });
+        if (!(await dlg.innerText()).includes(c.name)) throw new Error(`confirmation does not mention "${c.name}"; not confirming`);
+        await dlg.getByRole("button", { name: rx(r.confirmButton) }).last().click();
+        await sleep(3000);
+      });
+      for (let i = 0; i < 5; i++) { if (!(await pageHasName(ctx, c.name))) return { status: "ok", detail: `"${c.name}" deleted` }; await sleep(3000); }
+      return { status: "error", detail: `confirmed delete but "${c.name}" is still in the Installed list` };
+    },
     async update() { return { status: "not-implemented", detail: "chatgpt update not yet mapped" }; },
     async add(ctx, c, ifExisting): Promise<AdapterOutcome> {
       const page = await openPlugins(ctx);
