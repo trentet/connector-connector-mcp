@@ -110,12 +110,14 @@ let lastPageLines: string[] = [];
 const pageSnippet = () => lastPageLines.slice(0, 30).join(" | ").slice(0, 600);
 
 async function pageConnectionState(page: Page): Promise<ConnectionState> {
-  const connected = new RegExp(sel.verify.connectedLabel, "i"), connect = new RegExp(sel.verify.connectLabel, "i");
+  const connected = new RegExp(sel.verify.connectedLabel, "i"), connect = new RegExp(sel.verify.connectLabel, "i"), ready = new RegExp(sel.verify.readyLabel, "i");
   for (let i = 0; i < 6; i++) {
     const lines: string[] = await page.evaluate(() => ((document.querySelector("main") as HTMLElement | null)?.innerText ?? "").split("\n").map((l) => l.trim()).filter(Boolean));
     lastPageLines = lines;
     if (lines.some((l) => connected.test(l))) return "connected";
     if (lines.some((l) => connect.test(l))) return "not-connected";
+    // An OAuth app that has finished its sign-in shows no "Connected" label, only "Try in chat" (seen live 2026-10-02, with the server log showing the token exchange). Checked after "Connect" so an unconnected app that also offers "Try in chat" is not misread.
+    if (lines.some((l) => ready.test(l))) return "connected";
     await sleep(1500);
   }
   return "unreadable";
