@@ -33,7 +33,7 @@ describe("http front door", () => {
     const names = r.result.tools.map((t: { name: string }) => t.name).sort();
     expect(names).toEqual(["cc_list_registry", "cc_run"]);
     const props = Object.keys(r.result.tools.find((t: { name: string }) => t.name === "cc_run").inputSchema.properties);
-    expect(props.sort()).toEqual(["connectors", "dry_run", "if_existing", "op", "platforms"]);
+    expect(props.sort()).toEqual(["connectors", "dry_run", "if_existing", "include_test", "op", "platforms"]);
     expect(props.join(" ")).not.toMatch(/url|token|secret|password|header/i);
   });
   it("cc_run reaches the shared runner; unknown fields (e.g. a smuggled token) are rejected", async () => {

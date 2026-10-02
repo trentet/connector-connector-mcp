@@ -51,6 +51,7 @@ const runInput = z.object({
   op: z.enum(["add", "remove", "update", "verify", "list", "probe"]),
   connectors: z.array(z.string().regex(/^(\*|[a-z0-9][a-z0-9-]*)$/)).max(50).default([]).describe('Registry ids, or ["*"] for all. Not used by list/probe.'),
   platforms: z.array(z.enum(PLATFORMS as [string, ...string[]])).min(1).default([...PLATFORMS]),
+  include_test: z.boolean().default(false).describe('With connectors ["*"], also include tier "test" connectors. Test connectors are on-demand: name them explicitly to add/remove one.'),
   dry_run: z.boolean().default(false).describe("Resolve and validate everything without touching any platform."),
   if_existing: z.enum(["skip", "update", "fail"]).optional(),
 }).strict();
@@ -78,7 +79,7 @@ export function buildMcpServer(opts: AppOptions, queue: <T>(fn: () => Promise<T>
     { description: "List the connector definitions cc knows about (ids, display names, enabled platforms). Never returns URLs or secrets.", inputSchema: {} },
     async () => {
       const reg = loadRegistry(opts.registryPath);
-      const rows = reg.connectors.map((c) => ({ id: c.id, name: c.name, platforms: c.platforms, auth: c.auth.mode }));
+      const rows = reg.connectors.map((c) => ({ id: c.id, name: c.name, platforms: c.platforms, tier: c.tier ?? "production", auth: c.auth.mode }));
       return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
     },
   );
@@ -93,7 +94,7 @@ export function buildMcpServer(opts: AppOptions, queue: <T>(fn: () => Promise<T>
     async (args) => {
       const a = runInput.parse(args);
       const reg = loadRegistry(opts.registryPath);
-      const res = await queue(() => runFn(reg, { op: a.op, connectors: a.connectors, platforms: a.platforms as RunRequest["platforms"], dryRun: a.dry_run, ifExisting: a.if_existing }));
+      const res = await queue(() => runFn(reg, { op: a.op, connectors: a.connectors, platforms: a.platforms as RunRequest["platforms"], dryRun: a.dry_run, includeTest: a.include_test, ifExisting: a.if_existing }));
       return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     },
   );

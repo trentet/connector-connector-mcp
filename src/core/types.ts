@@ -16,6 +16,8 @@ export type Source =
 export interface ConnectorDef {
   id: string;
   name: string;
+  /** "test" connectors are on-demand only: `*` / --all skips them unless includeTest is set. Default "production". */
+  tier?: "production" | "test";
   /** Display name differs on some platforms (verified: claude.ai calls the Drive connector by a shorter name). */
   nameByPlatform?: Partial<Record<Platform, string>>;
   description?: string;
@@ -39,6 +41,8 @@ export interface RunRequest {
   connectors: string[]; // ids, or ["*"]
   platforms: Platform[];
   dryRun?: boolean;
+  /** Also select tier "test" connectors when connectors includes "*". */
+  includeTest?: boolean;
   ifExisting?: "skip" | "update" | "fail";
 }
 

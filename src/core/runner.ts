@@ -27,7 +27,7 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
   return { ok: items.every((i) => i.status !== "error"), items };
 
   async function runItems(): Promise<void> {
-  const wanted = req.connectors.includes("*") ? reg.connectors : req.connectors.map((id) => reg.connectors.find((c) => c.id === id) ?? id);
+  const wanted = req.connectors.includes("*") ? reg.connectors.filter((c) => req.includeTest || c.tier !== "test") : req.connectors.map((id) => reg.connectors.find((c) => c.id === id) ?? id);
   const needsConnector = req.op !== "list" && req.op !== "probe";
 
   if (!needsConnector) {

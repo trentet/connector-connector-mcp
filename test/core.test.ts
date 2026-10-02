@@ -66,7 +66,7 @@ describe("runner", () => {
     const res = await run(rewritten, { op: "add", connectors: ["*"], platforms: PLATFORMS, dryRun: true }, { deps });
     const text = JSON.stringify(res);
     expect(res.ok).toBe(true);
-    expect(res.items.filter((i) => i.status === "dry-run").length).toBe(16); // vault-mcp is claude-only; audio, audio-test, patchright add 3 each
+    expect(res.items.filter((i) => i.status === "dry-run").length).toBe(13); // vault-mcp is claude-only; audio + patchright add 3 each; the test-tier connector is excluded from "*"
     expect(res.items.filter((i) => i.status === "skipped").length).toBe(2); // vault-mcp @ chatgpt, grok
     for (const leak of [SECRET, "shellSecretValue99", "vaultTok-ABCDEF", "driveTokenXYZ789", "audioTok-0123456789", "patchTok-9876543210"]) expect(text).not.toContain(leak);
     expect(text).toContain("<query redacted>");
@@ -85,6 +85,23 @@ describe("runner", () => {
   it("a failing resolve is an error item whose message has no secret", async () => {
     const res = await run(rewritten, { op: "add", connectors: ["helm-shell"], platforms: ["claude"], dryRun: true }, { deps: { ...deps, readFile: () => undefined } });
     expect(res.items[0].status).toBe("error");
+  });
+});
+
+describe("test tier", () => {
+  const reg = loadRegistry(registryPath);
+  const rewritten = JSON.parse(JSON.stringify(reg).replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env", "/e/.env").replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/Vault MCP Connector/Repos/vault-mcp/.env", "/e/.env").replaceAll("D:/GDrive/HELM/DEV-PROJECTS/Connectors/HELM Drive MCP Connector/Repos/TT-MCP/connector-info.txt", "/info.txt").replaceAll("C:/Users/Trent/AppData/Local/HELM/helm-audio-mcp/production/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/helm-audio-mcp/test/secrets/connector.env", "/e/.env").replaceAll("C:/Users/Trent/AppData/Local/HELM/patchright-mcp/production/secrets/connector.env", "/e/.env"));
+  const tests = rewritten.connectors.filter((c: { tier?: string }) => c.tier === "test").map((c: { id: string }) => c.id);
+  it("there is at least one test-tier connector and it is excluded from '*' by default", async () => {
+    expect(tests.length).toBeGreaterThan(0);
+    const res = await run(rewritten, { op: "add", connectors: ["*"], platforms: ["claude"], dryRun: true }, { deps });
+    for (const t of tests) expect(res.items.some((i) => i.connector === t)).toBe(false);
+  });
+  it("includeTest adds them to '*'; naming one explicitly always works", async () => {
+    const all = await run(rewritten, { op: "add", connectors: ["*"], platforms: ["claude"], dryRun: true, includeTest: true }, { deps });
+    for (const t of tests) expect(all.items.some((i) => i.connector === t)).toBe(true);
+    const one = await run(rewritten, { op: "add", connectors: [tests[0]], platforms: ["claude"], dryRun: true }, { deps });
+    expect(one.items[0].status).toBe("dry-run");
   });
 });
 

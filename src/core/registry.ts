@@ -20,6 +20,7 @@ export function validateRegistry(r: unknown): { registry?: Registry; errors: str
     if (seen.has(c.id)) errors.push(`${w}: duplicate id`);
     seen.add(c.id);
     if (!c.name) errors.push(`${w}: name required`);
+    if (c.tier !== undefined && c.tier !== "production" && c.tier !== "test") errors.push(`${w}: tier must be "production" or "test"`);
     if (!c.platforms?.length || c.platforms.some((p) => !PLATFORMS.includes(p))) errors.push(`${w}: platforms must be a non-empty subset of ${PLATFORMS.join("|")}`);
     if (!c.auth || !["header", "oauth", "none"].includes(c.auth.mode)) errors.push(`${w}: auth.mode invalid`);
     if (c.auth?.mode === "header" && !c.auth.headerName) errors.push(`${w}: header auth needs headerName`);
