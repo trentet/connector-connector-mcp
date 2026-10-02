@@ -10,6 +10,10 @@ const rx = (p: string) => new RegExp(p, "i");
 
 export class DuplicateUrlError extends Error {}
 
+const squash = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
+/** True when `text` mentions `name`, ignoring case, spaces and punctuation. Exported for tests. */
+export const sameName = (text: string, name: string) => squash(text).includes(squash(name));
+
 export interface Row { name: string; custom: boolean; connected: boolean; /** Raw status text when it is neither "Connected" nor "Connect" (e.g. a re-authorise state), so the row is still found and can be removed. */ status?: string }
 
 /** Parse the connector table text ("Name Web [Custom] Connected|Connect"). */
@@ -184,7 +188,9 @@ export function claudeAdapter(): PlatformAdapter {
         await sleep(1500);
         // guard against clicking the wrong connector's detail page
         const heading = (await page.locator("main").innerText()).replace(/[\uE000-\uF8FF]/g, " ");
-        if (!heading.includes(c.name)) throw new Error(`opened a detail page that does not mention "${c.name}"`);
+        // Case/punctuation-insensitive: a connector in an error state can show the server's own name instead of the display name.
+        // The row was already picked by exact name above, so this is only a second guard against a mis-click.
+        if (!sameName(heading, c.name)) throw new Error(`opened a detail page that does not mention "${c.name}". Page text: ${heading.replace(/\s+/g, " ").slice(0, 300)}`);
       });
       await g("open-menu", async () => { await page.locator("main").getByRole("button", { name: rx(r.moreButton) }).first().click(); await sleep(800); });
       await g("click-remove", async () => { await page.getByRole("menuitem", { name: rx(r.removeMenuItem) }).first().click(); await sleep(1200); });
