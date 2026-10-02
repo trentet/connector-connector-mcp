@@ -43,5 +43,16 @@
     "moreActions": "button[aria-label=\"More actions\"]",
     "deleteItem": "^delete plugin$",
     "confirmButton": "^(delete|remove|confirm)"
+  },
+  "auth": {
+    "cookie": "__Secure-next-auth.session-token",
+    "hosts": [
+      "chatgpt.com",
+      "openai.com"
+    ],
+    "ssoHosts": [
+      "google.com"
+    ],
+    "_note": "Browser-layer facts: which cookie proves a signed-in session (name or name prefix), which hosts hold session state, and which SSO hosts must be carried along. Used to seed a lane master and to decide whether a run's session is healthy enough to write back."
   }
 }

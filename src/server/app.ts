@@ -37,12 +37,6 @@ function requireToken(expected: string) {
   };
 }
 
-/** One browser, one run at a time: concurrent callers queue instead of fighting over tabs. */
-function serialize(): <T>(fn: () => Promise<T>) => Promise<T> {
-  let tail: Promise<unknown> = Promise.resolve();
-  return <T>(fn: () => Promise<T>): Promise<T> => { const p = tail.then(fn, fn) as Promise<T>; tail = p.catch(() => {}); return p; };
-}
-
 /**
  * Tools take registry IDS only. There is deliberately no url/token/secret argument anywhere: anything passed as an MCP
  * argument lands in the calling session's context. `.strict()` makes unknown fields an error, not silently ignored.
@@ -71,7 +65,7 @@ export function unknownArgs(body: unknown): string[] | undefined {
   return undefined;
 }
 
-export function buildMcpServer(opts: AppOptions, queue: <T>(fn: () => Promise<T>) => Promise<T>): McpServer {
+export function buildMcpServer(opts: AppOptions): McpServer {
   const server = new McpServer({ name: "connector-connector-mcp", version: opts.version ?? "0.0.1" });
   const runFn = opts.runFn ?? ((reg, req) => import("../adapters/index.js").then(({ ADAPTERS }) => coreRun(reg, req, { adapters: ADAPTERS })));
   server.registerTool(
@@ -94,7 +88,7 @@ export function buildMcpServer(opts: AppOptions, queue: <T>(fn: () => Promise<T>
     async (args) => {
       const a = runInput.parse(args);
       const reg = loadRegistry(opts.registryPath);
-      const res = await queue(() => runFn(reg, { op: a.op, connectors: a.connectors, platforms: a.platforms as RunRequest["platforms"], dryRun: a.dry_run, includeTest: a.include_test, ifExisting: a.if_existing }));
+      const res = await runFn(reg, { op: a.op, connectors: a.connectors, platforms: a.platforms as RunRequest["platforms"], dryRun: a.dry_run, includeTest: a.include_test, ifExisting: a.if_existing });
       return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     },
   );
@@ -104,7 +98,6 @@ export function buildMcpServer(opts: AppOptions, queue: <T>(fn: () => Promise<T>
 export function buildApp(opts: AppOptions) {
   const host = opts.host ?? "127.0.0.1";
   const app = createMcpExpressApp({ host, allowedHosts: opts.allowedHosts });
-  const queue = serialize();
   app.get("/health", (_req, res) => { res.status(200).json({ status: "ok", service: "connector-connector-mcp", version: opts.version ?? "0.0.1" }); });
   app.post("/mcp", requireToken(opts.token), async (req, res) => {
     const extra = unknownArgs(req.body);
@@ -112,7 +105,7 @@ export function buildApp(opts: AppOptions) {
       res.status(200).json({ jsonrpc: "2.0", id: (req.body as { id?: unknown })?.id ?? null, error: { code: -32602, message: `Invalid params: unknown argument(s): ${extra.join(", ")}. cc takes registry ids only; never pass urls, tokens or secrets as arguments.` } });
       return;
     }
-    const server = buildMcpServer(opts, queue);
+    const server = buildMcpServer(opts);
     try {
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
       await server.connect(transport);
