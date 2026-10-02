@@ -76,7 +76,7 @@ async function openPlugins(ctx: AdapterContext): Promise<Page> {
 async function readInstalled(ctx: AdapterContext): Promise<string[]> {
   const page = await openPlugins(ctx);
   const heading: string = sel.list.installedHeading;
-  await page.waitForFunction((h) => [...document.querySelectorAll("h1,h2,h3,[role=heading]")].some((e) => (e as HTMLElement).innerText.trim() === h), heading, { timeout: 20000 }).catch(() => {});
+  await page.waitForFunction((h) => [...document.querySelectorAll("h1,h2,h3,[role=heading]")].some((e) => (e as HTMLElement).innerText.trim() === h), heading, { timeout: 20000, polling: 500 }).catch(() => {});
   await sleep(1500);
   return page.evaluate((h) => {
     const hd = [...document.querySelectorAll("h1,h2,h3,[role=heading]")].find((e) => (e as HTMLElement).innerText.trim() === h);
@@ -95,7 +95,7 @@ async function openPluginPage(ctx: AdapterContext, name: string): Promise<Page> 
   const page = await openPlugins(ctx);
   await page.locator("section a", { hasText: new RegExp("^\\s*" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*$") }).first().click();
   await page.waitForURL(/\/plugins\/[^/]+/, { timeout: 15000 });
-  const onPage = await page.waitForFunction((n) => ((document.querySelector("main") as HTMLElement | null)?.innerText ?? "").split("\n").some((l) => l.trim() === n), name, { timeout: 12000 }).then(() => true, () => false);
+  const onPage = await page.waitForFunction((n) => ((document.querySelector("main") as HTMLElement | null)?.innerText ?? "").split("\n").some((l) => l.trim() === n), name, { timeout: 12000, polling: 500 }).then(() => true, () => false);
   if (!onPage) throw new Error(`opened a plugin page that never showed "${name}" as a title`);
   return page;
 }

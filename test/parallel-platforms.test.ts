@@ -67,16 +67,16 @@ describe("one call, one browser per platform; platforms at the same time when as
     }
   });
 
-  it("by default platforms run one after another (parallel was measured slower on the host); CC_PLATFORM_PARALLELISM opts in", async () => {
+  it("by default every platform is allowed to overlap (the lane admission gate decides how much really does); CC_PLATFORM_PARALLELISM=1 forces one after another", async () => {
     delete process.env.CC_PLATFORM_PARALLELISM;
     const h = harness(100);
     await run(reg, { op: "verify", connectors: ids.slice(0, 1), platforms: [...PLATFORMS] }, { deps, adapters: h.adapters, sessionFactory: h.sessionFactory });
-    expect(h.peak()).toBe(1);
-    process.env.CC_PLATFORM_PARALLELISM = "3";
+    expect(h.peak()).toBe(3);
+    process.env.CC_PLATFORM_PARALLELISM = "1";
     try {
       const h2 = harness(100);
       await run(reg, { op: "verify", connectors: ids.slice(0, 1), platforms: [...PLATFORMS] }, { deps, adapters: h2.adapters, sessionFactory: h2.sessionFactory });
-      expect(h2.peak()).toBe(3);
+      expect(h2.peak()).toBe(1);
     } finally { delete process.env.CC_PLATFORM_PARALLELISM; }
   });
 
