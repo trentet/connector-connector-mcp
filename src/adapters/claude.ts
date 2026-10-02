@@ -159,7 +159,17 @@ export function claudeAdapter(): PlatformAdapter {
       await g("open-detail", async () => {
         await page.goto(sel.listUrl, { waitUntil: "domcontentloaded" });
         await page.waitForSelector(sel.listRow, { timeout: 20000 });
-        const tr = page.locator(sel.listRow, { hasText: c.name }).first();
+        // hasText on a plain string is a SUBSTRING match - unsafe whenever one connector's name is a
+        // prefix of another's (e.g. a production connector's name vs. its own "... TEST" tier
+        // variant): it would pick whichever row DOM order puts first, regardless of which one was
+        // asked for, and could delete the wrong connector outright. Confirmed live 2026-10-02: this
+        // exact collision deleted a TEST-tier connector while trying to repair its production
+        // counterpart. Use the same exact-name match parseRow()/find() already use elsewhere in this
+        // file instead.
+        const rowTexts = await page.$$eval(sel.listRow, (rs) => rs.map((r) => (r as HTMLElement).innerText));
+        const rowIndex = rowTexts.findIndex((t) => parseRow(t)?.name === c.name);
+        if (rowIndex < 0) throw new Error(`row for "${c.name}" not found (listed ${rowTexts.length} rows)`);
+        const tr = page.locator(sel.listRow).nth(rowIndex);
         await tr.click();
         await page.waitForURL(/\/yours\/id\//, { timeout: 15000 });
         await sleep(1500);
