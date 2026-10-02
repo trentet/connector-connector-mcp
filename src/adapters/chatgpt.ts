@@ -95,8 +95,8 @@ async function openPluginPage(ctx: AdapterContext, name: string): Promise<Page> 
   const page = await openPlugins(ctx);
   await page.locator("section a", { hasText: new RegExp("^\\s*" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*$") }).first().click();
   await page.waitForURL(/\/plugins\/[^/]+/, { timeout: 15000 });
-  const h1 = (await page.locator("h1").first().innerText().catch(() => "")).trim();
-  if (h1 !== name) throw new Error(`opened a page headed "${h1}", expected "${name}"`);
+  const onPage = await page.waitForFunction((n) => ((document.querySelector("main") as HTMLElement | null)?.innerText ?? "").split("\n").some((l) => l.trim() === n), name, { timeout: 12000 }).then(() => true, () => false);
+  if (!onPage) throw new Error(`opened a plugin page that never showed "${name}" as a title`);
   return page;
 }
 
