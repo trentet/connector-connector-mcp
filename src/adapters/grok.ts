@@ -96,38 +96,6 @@ async function readConnected(ctx: AdapterContext): Promise<string[]> {
   return names;
 }
 
-/** Grok registers/unregisters asynchronously: poll the Connected list until `name` is present/absent instead of reading once. */
-async function waitForState(ctx: AdapterContext, name: string, present: boolean, tries = 5): Promise<boolean> {
-  for (let i = 0; i < tries; i++) {
-    if ((await readConnected(ctx)).includes(name) === present) return true;
-    await sleep(3000);
-  }
-  return false;
-}
-
-const notMapped = (what: string): AdapterOutcome => ({ status: "not-implemented", detail: `grok ${what} not yet mapped (needs a live probe)` });
-
-/** Names in the "Connected" section: rows are elements whose own text is exactly the marker ("Added"); the row's first line is the name. */
-async function readConnected(ctx: AdapterContext): Promise<string[]> {
-  const page = await openConnectors(ctx);
-  const marker: string = sel.list.rowMarkerText;
-  await sleep(1500);
-  return page.evaluate((m) => {
-    // Rows are <button> (name line + subtitle line); the "Added" tag lives in the row WRAPPER, not inside the button.
-    const lines = (e: Element | null) => ((e as HTMLElement | null)?.innerText ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
-    const names = new Set<string>();
-    for (const b of [...document.querySelectorAll("button")]) {
-      const own = lines(b);
-      if (!own.length) continue;
-      for (let wrap: Element | null = b.parentElement, up = 0; wrap && up < 2; wrap = wrap.parentElement, up++) {
-        if (wrap.querySelectorAll("button").length !== 1) break; // wrapper holds several rows: too far up
-        if (lines(wrap).includes(m)) { names.add(own[0]); break; }
-      }
-    }
-    return [...names];
-  }, marker);
-}
-
 export function grokAdapter(): PlatformAdapter {
   return {
     platform: "grok",
