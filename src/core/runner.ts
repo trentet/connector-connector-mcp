@@ -46,10 +46,15 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
     s.touched?.add(platform); // records that this browser drove this platform (decides whether its refreshed sign-in is merged back)
     return s;
   };
+  const closeSession = async (platform: Platform) => {
+    const p = sessions.get(platform);
+    sessions.delete(platform);
+    if (p) { try { await (await p).close(); } catch { /* a session that never opened has nothing to close */ } }
+  };
   try {
     await runTasks();
   } finally {
-    await Promise.allSettled([...sessions.values()].map(async (p) => { try { await (await p).close(); } catch { /* a session that never opened has nothing to close */ } }));
+    await Promise.allSettled(req.platforms.map((p) => closeSession(p)));
   }
   const items = results.filter(Boolean);
   return { ok: items.every((i) => i.status !== "error"), items };
@@ -75,7 +80,10 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
     const limit = Math.max(1, opts.platformParallelism ?? (Number(process.env.CC_PLATFORM_PARALLELISM) || req.platforms.length));
     const queue = [...byPlatform.values()];
     await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, async () => {
-      for (let w = queue.shift(); w; w = queue.shift()) for (const t of w) results[t.idx] = await runTask(t, needsConnector);
+      for (let w = queue.shift(); w; w = queue.shift()) {
+        for (const t of w) results[t.idx] = await runTask(t, needsConnector);
+        await closeSession(w[0].platform); // done with this platform: free its browser and lane NOW, not at the end of the call
+      }
     }));
   }
 

@@ -19,11 +19,13 @@ function harness(ms: number, opts: { failPlatform?: Platform; failOpen?: Platfor
   const closed: Platform[] = [];
   const touchedBy: Record<string, string[]> = {};
   let live = 0, peak = 0;
+  let liveSessions = 0, peakSessions = 0;
   const sessionFactory = async (platform: Platform): Promise<BrowserSession> => {
     opened.push(platform);
-    if (opts.failOpen === platform) throw new Error(`all cc browser lanes are busy (simulated for ${platform})`);
+    liveSessions++; peakSessions = Math.max(peakSessions, liveSessions);
+    if (opts.failOpen === platform) { liveSessions--; throw new Error(`all cc browser lanes are busy (simulated for ${platform})`); }
     const touched = new Set<string>();
-    return { touched, close: async () => { closed.push(platform); touchedBy[platform] = [...touched]; } } as unknown as BrowserSession;
+    return { touched, close: async () => { liveSessions--; closed.push(platform); touchedBy[platform] = [...touched]; } } as unknown as BrowserSession;
   };
   const adapter = (platform: Platform): PlatformAdapter => {
     const act = async (ctx: Parameters<PlatformAdapter["probe"]>[0], connector = "*") => {
@@ -37,7 +39,7 @@ function harness(ms: number, opts: { failPlatform?: Platform; failOpen?: Platfor
     return { platform, probe: (c) => act(c), list: async (c) => { await act(c); return { names: [] }; }, add: (c, rc) => act(c, rc.def.id), remove: (c, rc) => act(c, rc.def.id), update: (c, rc) => act(c, rc.def.id), verify: (c, rc) => act(c, rc.def.id) };
   };
   const adapters = Object.fromEntries(PLATFORMS.map((p) => [p, adapter(p)])) as Record<Platform, PlatformAdapter>;
-  return { spans, opened, closed, touchedBy, adapters, sessionFactory, peak: () => peak };
+  return { spans, opened, closed, touchedBy, adapters, sessionFactory, peak: () => peak, peakSessions: () => peakSessions };
 }
 
 describe("one call, one browser per platform; platforms at the same time when asked", () => {
@@ -77,6 +79,7 @@ describe("one call, one browser per platform; platforms at the same time when as
       const h2 = harness(100);
       await run(reg, { op: "verify", connectors: ids.slice(0, 1), platforms: [...PLATFORMS] }, { deps, adapters: h2.adapters, sessionFactory: h2.sessionFactory });
       expect(h2.peak()).toBe(1);
+      expect(h2.peakSessions()).toBe(1); // one after another means ONE browser (and lane) at a time: each platform's browser is closed as soon as that platform is done
     } finally { delete process.env.CC_PLATFORM_PARALLELISM; }
   });
 
