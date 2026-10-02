@@ -1,4 +1,4 @@
-# SPEC -- connector-connector-mcp v0.2 (APPROVED 2026-10-01)
+# SPEC -- connector-connector-mcp v0.3 (APPROVED 2026-10-01; status updated 2026-10-02)
 
 Status: plan approved by operator 2026-10-01. Language: TypeScript. Server hostname: cc.trentt.me.
 Owner decision (operator, 2026-10-01): ONE universal tool registers ANY connector on ANY platform
@@ -100,3 +100,20 @@ vault-mcp, helm-terminal-mcp, helm-audio-mcp scripts/register-connector/ (and D:
 helm-local\register-test-connector, helm-local\backups\register-connector-accommodation-edit-20260928,
 helm-local\chatgpt-register-connectors. Find stragglers with `cc audit --scan`. Add docs/ADOPTION.md
 snippet to each connector repo. Confirm with operator before deleting.
+
+## 8. STATUS (2026-10-02)
+P0 DONE. P1 DONE (core, 19 tests). P2 DONE (CDP session, vault logins incl. one-time-vault SMS code for ChatGPT).
+P3 DONE: claude, grok, chatgpt adapters each passed the exit test (add>verify>remove>verify x2 on a throwaway, real connectors intact).
+P4 DONE for server + deploy: MCP front door (cc_run, cc_list_registry; ids only; unknown args rejected), deployed test (cc-test.trentt.me:8811)
+and production (cc.trentt.me:8810) under %LOCALAPPDATA%\HELM\connector-connector-mcp, four AtLogOn watchdog tasks. Live verify over MCP matched the CLI on all three platforms.
+P5 IN PROGRESS: parity verified for helm-drive (3/3) and helm-shell (claude, chatgpt); helm-shell@grok, helm-audio-mcp and patchright-mcp being registered.
+P6 NOT STARTED (needs operator go-ahead): remove the old per-repo registrars; use `cc audit --scan`.
+
+### Findings that changed the design
+- ChatGPT and Grok are header-less: header-auth connectors need urlByPlatform (a tokenized URL), and the SERVER must accept ?token=.
+  Vault MCP's server rejects ?token= (401), so it is Claude-only until that server changes. HELM Drive, HELM Shell, helm-audio-mcp, patchright-mcp accept both.
+- claude.ai refuses a second connector with an existing URL ("already exists in your organization").
+- Platforms show different display names for the same connector (nameByPlatform): claude "HELM Drive Connector", chatgpt "HELM Drive MCP Connector", grok "HELMMCP".
+- Rows in claude.ai's list contain icon-font characters; Grok registers asynchronously (poll); ChatGPT's Authentication is a native <select>, Remove is Delete plugin on the plugin page;
+  Grok's Custom tile is a button inside the dialog.
+- ChatGPT login needs an SMS code unless the Chrome session persists; the code is supplied through a one-time vault entry, never typed into a chat.
