@@ -23,6 +23,7 @@ export function validateRegistry(r: unknown): { registry?: Registry; errors: str
     if (c.tier !== undefined && c.tier !== "production" && c.tier !== "test") errors.push(`${w}: tier must be "production" or "test"`);
     if (!c.platforms?.length || c.platforms.some((p) => !PLATFORMS.includes(p))) errors.push(`${w}: platforms must be a non-empty subset of ${PLATFORMS.join("|")}`);
     if (!c.auth || !["header", "oauth", "none"].includes(c.auth.mode)) errors.push(`${w}: auth.mode invalid`);
+    if (c.auth?.oauthLogin !== undefined && (c.auth.mode !== "oauth" || !c.auth.oauthLogin.vaultLabel)) errors.push(`${w}: auth.oauthLogin needs mode "oauth" and a vaultLabel`);
     if (c.auth?.mode === "header" && !c.auth.headerName) errors.push(`${w}: header auth needs headerName`);
     if (c.auth?.mode === "header" && !c.auth.headerValue) errors.push(`${w}: header auth needs headerValue source`);
     if (c.auth?.mode === "header") for (const hp of HEADERLESS_PLATFORMS) if (c.platforms?.includes(hp) && !c.urlByPlatform?.[hp]) errors.push(`${w}: ${hp} cannot send custom headers; provide urlByPlatform.${hp} (tokenized URL) or drop ${hp} from platforms`);

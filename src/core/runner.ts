@@ -1,4 +1,6 @@
+import type { BrowserContext } from "patchright";
 import type { BrowserSession } from "../browser/chrome.js";
+import { watchLogin, type LoginCredential, type LoginWatcher } from "../browser/oauthLogin.js";
 import { notImplementedAdapter, type PlatformAdapter, type ResolvedConnector } from "../adapters/types.js";
 import { Redactor } from "./redact.js";
 import { resolve, defaultDeps, type ResolveDeps } from "./secrets.js";
@@ -11,6 +13,8 @@ export interface RunnerOptions {
   sessionFactory?: (platform: Platform) => Promise<BrowserSession>;
   /** How many platforms run at the same time (default CC_PLATFORM_PARALLELISM, else all of them; the lane admission gate keeps that polite, see docs/SPEC.md section 9). */
   platformParallelism?: number;
+  /** Starts the connector-login watcher (injectable for tests); defaults to the real one. */
+  watchLogin?: (context: BrowserContext, connectorUrl: string, cred: LoginCredential | undefined) => LoginWatcher;
 }
 
 interface Task { idx: number; platform: Platform; connector?: ConnectorDef }
@@ -99,10 +103,21 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
 
   async function doTask(t: Task, needsConnector: boolean, base: { connector: string; platform: Platform; op: RunRequest["op"] }): Promise<ItemResult> {
     const { platform, connector: c } = t;
+    let watcher: LoginWatcher | undefined;
     try {
       const rc = c && needsConnector ? await resolveConnector(c, platform, red, deps) : undefined;
-      if (req.dryRun) return { ...base, status: "dry-run", detail: c ? describe(c, rc, red) : "would " + req.op };
-      const ctx = { platform, redact: (x: string) => red.redact(x), session: sessionFor(platform) };
+      const label = c?.auth.mode === "oauth" ? c.auth.oauthLogin?.vaultLabel : undefined;
+      const cred = label ? await deps.vault(label) : undefined;
+      red.add(cred?.password); red.add(cred?.username);
+      if (req.dryRun) return { ...base, status: "dry-run", detail: c ? describe(c, rc, red) + (label ? `, sign-in credential: vault "${label}" ${cred?.password ? "found" : "MISSING"}` : "") : "would " + req.op };
+      const wantLogin = !!label && (req.op === "add" || req.op === "update");
+      const baseSession = sessionFor(platform);
+      const session = async () => {
+        const s = await baseSession();
+        if (wantLogin && !watcher) watcher = (opts.watchLogin ?? watchLogin)(s.context, rc!.url, cred);
+        return s;
+      };
+      const ctx = { platform, redact: (x: string) => red.redact(x), session: wantLogin ? session : baseSession };
       const a = adapter(platform);
       const ifx = req.ifExisting ?? reg.defaults?.ifExisting ?? "skip";
       const out =
@@ -112,8 +127,11 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
         : req.op === "remove" ? await a.remove(ctx, rc!)
         : req.op === "update" ? await a.update(ctx, rc!)
         : await a.verify(ctx, rc!);
-      return { ...base, status: out.status, detail: out.detail ? red.redact(out.detail) : undefined };
+      const rep = await (watcher as LoginWatcher | undefined)?.stop();
+      const note = rep ? (rep.signedIn ? ` [connector login page signed in via vault x${rep.signedIn}]` : "") + (rep.needsLogin ? " [connector login page appeared but no sign-in credential is configured: not filled]" : "") : "";
+      return { ...base, status: out.status, detail: out.detail || note ? red.redact((out.detail ?? "") + note) : undefined };
     } catch (e) {
+      await watcher?.stop().catch(() => {});
       return { ...base, status: "error", detail: red.redact((e as Error).message) };
     }
   }

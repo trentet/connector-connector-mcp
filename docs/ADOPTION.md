@@ -16,3 +16,11 @@ The server must answer an unauthenticated-header `POST /mcp` initialize with 200
 
 ## Finding leftovers
 `node bin/cc.mjs audit --scan <repo-root>` lists files that look like per-repo registrars so they can be removed once cc is verified.
+
+## OAuth connectors (`auth.mode: "oauth"`)
+The platform opens the connector's authorization page in cc's automation Chrome and nobody is at the host. If that page is a login form,
+name the vault credential it accepts in the entry: `"auth": {"mode": "oauth", "oauthLogin": {"vaultLabel": "<label>"}}`. While an `add`/`update`
+for that connector runs, cc signs in to a page on the **connector's own origin** with that credential (resolved in-process from the vault, never
+returned or logged). It only acts on a page with a password field, never clicks a consent/Approve button on its own, and never touches another
+origin. A login form with no `oauthLogin` configured is reported in the item detail, not guessed at. `cc add --dry-run` shows whether the vault
+label resolves.

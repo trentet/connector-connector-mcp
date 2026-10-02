@@ -26,7 +26,17 @@ export interface ConnectorDef {
   /** Per-platform URL override, e.g. ChatGPT cannot send headers so it needs a tokenized URL. */
   urlByPlatform?: Partial<Record<Platform, Source>>;
   /** header = custom request header (claude.ai); none = auth lives in the URL or the server is open; oauth = platform-driven. */
-  auth: { mode: "header" | "none" | "oauth"; headerName?: string; headerValue?: Source };
+  auth: {
+    mode: "header" | "none" | "oauth";
+    headerName?: string;
+    headerValue?: Source;
+    /**
+     * oauth only: the connector's OWN authorization page is a login form. Nobody is at the host, so cc signs in to it
+     * with this vault credential (username/password resolved inside the process, never returned or logged). cc never
+     * clicks an Approve/consent button on its own and never fills any other origin.
+     */
+    oauthLogin?: { vaultLabel: string };
+  };
   platforms: Platform[];
 }
 

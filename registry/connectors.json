@@ -750,13 +750,16 @@
     {
       "id": "dsm-connect",
       "name": "DSM Connect",
-      "description": "DSM Connect: HELM file/memory layer and Docker/Container Manager administration on the Synology NAS (dsm.trentt.me). OAuth 2.1 (PKCE + dynamic client registration) with a single-principal consent step; no header or ?token= is used, so claude.ai, ChatGPT and Grok all go through the platform's own sign-in. Platform consents never carry admin or Docker scopes.",
+      "description": "DSM Connect: HELM file/memory layer and Docker/Container Manager administration on the Synology NAS (dsm.trentt.me). OAuth 2.1 (PKCE + dynamic client registration) with a single-principal consent step; no header or ?token= is used, so claude.ai, ChatGPT and Grok all go through the platform's own sign-in. The authorization page is a login form; cc signs in to it with the vault credential named in auth.oauthLogin (nobody is at the host).",
       "url": {
         "type": "literal",
         "value": "https://dsm.trentt.me/mcp"
       },
       "auth": {
-        "mode": "oauth"
+        "mode": "oauth",
+        "oauthLogin": {
+          "vaultLabel": "DSM-Connect-deployment-secrets"
+        }
       },
       "platforms": [
         "claude",
@@ -768,13 +771,16 @@
     {
       "id": "dsm-connect-test",
       "name": "DSM Connect TEST",
-      "description": "TEST environment of DSM Connect (dsm-test.trentt.me): separate data volume, no Docker tools. OAuth 2.1 (PKCE + dynamic client registration) with a single-principal consent step; no header or ?token= is used, so claude.ai, ChatGPT and Grok all go through the platform's own sign-in. Platform consents never carry admin or Docker scopes.",
+      "description": "TEST environment of DSM Connect (dsm-test.trentt.me): separate data volume, no Docker tools. OAuth 2.1 (PKCE + dynamic client registration) with a single-principal consent step; no header or ?token= is used, so claude.ai, ChatGPT and Grok all go through the platform's own sign-in. The authorization page is a login form; cc signs in to it with the vault credential named in auth.oauthLogin (nobody is at the host).",
       "url": {
         "type": "literal",
         "value": "https://dsm-test.trentt.me/mcp"
       },
       "auth": {
-        "mode": "oauth"
+        "mode": "oauth",
+        "oauthLogin": {
+          "vaultLabel": "DSM-Connect-deployment-secrets"
+        }
       },
       "platforms": [
         "claude",
