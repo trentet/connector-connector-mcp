@@ -35,7 +35,11 @@ if (-not (Test-Path $cf)) {
 function Invoke-Cf { param([string[]]$CfArgs) $ErrorActionPreference = "Continue"; $out = (& $cf @CfArgs 2>&1 | Out-String); return @{ Code = $LASTEXITCODE; Out = $out } }
 
 # tunnel (reuse if it exists)
-function Get-Tunnel { $r = Invoke-Cf @("tunnel", "list", "--output", "json"); $json = ($r.Out -split "`r?`n" | Where-Object { $_ -match '^\s*[\[\{]' }) -join "`n"; if ($json) { return ($json | ConvertFrom-Json) | Where-Object { $_.name -eq $spec.Tunnel } } }
+function Get-Tunnel {
+    $ErrorActionPreference = "Continue"
+    $json = (& $cf tunnel list --output json 2>$null | Out-String).Trim()   # stdout only: warnings go to stderr
+    if ($json) { return ($json | ConvertFrom-Json) | Where-Object { $_.name -eq $spec.Tunnel } }
+}
 $t = Get-Tunnel
 if (-not $t) {
     $r = Invoke-Cf @("tunnel", "create", $spec.Tunnel)
