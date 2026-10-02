@@ -1,0 +1,42 @@
+{
+  "_note": "Flow + selector map for the chatgpt adapter. Data, not code: fix UI drift here. Add flow ported from the original ChatGPT registrar (verified there 2026-09-30); login flow verified live 2026-10-01.",
+  "pluginsUrl": "https://chatgpt.com/plugins",
+  "loginUrl": "https://chatgpt.com/auth/login",
+  "loginVaultLabel": "Google Account (trenterrolthomas@gmail.com)",
+  "smsCodeVaultLabel": "ChatGPT SMS code",
+  "smsWaitMinutes": 14,
+  "signedOutMarkers": [
+    "log in",
+    "sign up for free"
+  ],
+  "login": {
+    "continueWithGoogle": "continue with google",
+    "googleEmailInput": "input[type=email]",
+    "googleNext": "^next$",
+    "googlePasswordInput": "input[type=password]",
+    "mfaCodeInput": "input[name=code]",
+    "mfaContinue": "^continue$"
+  },
+  "add": {
+    "addButton": "^add$",
+    "createMcpMenuItem": "create mcp app",
+    "dialogHeading": "new plugin",
+    "nameTextbox": "^name$",
+    "descriptionTextbox": "description",
+    "urlTextbox": "server url",
+    "consentCheckbox": "i understand and want to continue",
+    "createButton": "^create$",
+    "failureText": "connection failed|could not connect|invalid server|unauthorized|already exists|duplicate",
+    "authSelect": "select",
+    "noAuthLabel": "No authentication",
+    "oauthLabel": "OAuth"
+  },
+  "list": {
+    "installedHeading": "Installed"
+  },
+  "remove": {
+    "moreActions": "button[aria-label=\"More actions\"]",
+    "deleteItem": "^delete plugin$",
+    "confirmButton": "^(delete|remove|confirm)"
+  }
+}

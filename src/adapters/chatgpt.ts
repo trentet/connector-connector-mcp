@@ -1,0 +1,174 @@
+import fs from "node:fs";
+import path from "node:path";
+import type { Page } from "patchright";
+import { guarded } from "../browser/chrome.js";
+import { sleep } from "../browser/dom.js";
+import { deleteCredential, getCredential, waitForCredential } from "../core/vaultClient.js";
+import type { AdapterContext, AdapterOutcome, PlatformAdapter } from "./types.js";
+
+const sel = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "chatgpt.json"), "utf8"));
+const rx = (p: string) => new RegExp(p, "i");
+
+async function signedIn(page: Page): Promise<boolean> {
+  const body = (await page.evaluate(() => document.body.innerText.slice(0, 1200)).catch(() => "")).toLowerCase();
+  return !(sel.signedOutMarkers as string[]).some((m) => body.includes(m));
+}
+
+/**
+ * Login: "Continue with Google" (Google is already signed in in the profile; password only if asked), then OpenAI's SMS
+ * code. The code is never typed by a human into this process: the operator submits it to a one-time vault entry
+ * (vault_request_secret) which is read here, entered, and deleted.
+ */
+async function login(ctx: AdapterContext): Promise<void> {
+  const s = await ctx.session();
+  const page = s.page;
+  const google = await getCredential(sel.loginVaultLabel);
+  const redact = (x: string) => { let o = ctx.redact(x); for (const v of [google?.password, google?.username]) if (v) o = o.split(v).join("<REDACTED>"); return o; };
+  await guarded(s, "chatgpt-login", redact, async () => {
+    await page.goto(sel.loginUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+    await sleep(2500);
+    const popupP = s.context.waitForEvent("page", { timeout: 6000 }).catch(() => null);
+    await page.getByRole("button", { name: rx(sel.login.continueWithGoogle) }).first().click();
+    const popup = await popupP;
+    let cur = popup ?? page;
+    await cur.waitForLoadState("domcontentloaded").catch(() => {});
+    await sleep(3500);
+    if (cur.url().includes("accounts.google.com")) {
+      if (!google?.password) throw new Error(`Google asked for credentials but vault entry "${sel.loginVaultLabel}" has no password`);
+      if (await cur.locator(sel.login.googleEmailInput).count()) {
+        await cur.locator(sel.login.googleEmailInput).fill(google.username ?? "");
+        await cur.getByRole("button", { name: rx(sel.login.googleNext) }).click();
+        await sleep(3500);
+      }
+      if (await cur.locator(sel.login.googlePasswordInput).count()) {
+        await cur.locator(sel.login.googlePasswordInput).first().fill(google.password);
+        await cur.getByRole("button", { name: rx(sel.login.googleNext) }).click();
+        await sleep(6000);
+      }
+    }
+    cur = s.context.pages().find((p) => /auth\.openai\.com|chatgpt\.com/.test(p.url())) ?? cur;
+    if (/mfa-challenge/.test(cur.url()) || (await cur.locator(sel.login.mfaCodeInput).count())) {
+      const c = await waitForCredential(sel.smsCodeVaultLabel, sel.smsWaitMinutes * 60 * 1000);
+      if (!c) throw new Error(`OpenAI is waiting for an SMS code; timed out after ${sel.smsWaitMinutes} min waiting for vault entry "${sel.smsCodeVaultLabel}" (operator: vault_request_secret with that label)`);
+      const code = (c.password || c.username || "").replace(/\D/g, "");
+      await cur.locator(sel.login.mfaCodeInput).fill(code);
+      await cur.getByRole("button", { name: rx(sel.login.mfaContinue) }).click();
+      await deleteCredential(sel.smsCodeVaultLabel).catch(() => {});
+      await sleep(7000);
+    }
+  });
+}
+
+async function openPlugins(ctx: AdapterContext): Promise<Page> {
+  const s = await ctx.session();
+  await s.page.goto(sel.pluginsUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+  await sleep(3500);
+  if (!(await signedIn(s.page))) {
+    await login(ctx);
+    await s.page.goto(sel.pluginsUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+    await sleep(3500);
+    if (!(await signedIn(s.page))) throw new Error("chatgpt.com still shows signed out after login");
+  }
+  return s.page;
+}
+
+/** Names in the "Installed" section of the plugins page (item text's first line). */
+async function readInstalled(ctx: AdapterContext): Promise<string[]> {
+  const page = await openPlugins(ctx);
+  const heading: string = sel.list.installedHeading;
+  await page.waitForFunction((h) => [...document.querySelectorAll("h1,h2,h3,[role=heading]")].some((e) => (e as HTMLElement).innerText.trim() === h), heading, { timeout: 20000 }).catch(() => {});
+  await sleep(1500);
+  return page.evaluate((h) => {
+    const hd = [...document.querySelectorAll("h1,h2,h3,[role=heading]")].find((e) => (e as HTMLElement).innerText.trim() === h);
+    if (!hd) return [];
+    const sec = hd.closest("section") ?? hd.parentElement?.parentElement;
+    const names = new Set<string>();
+    for (const e of [...(sec?.querySelectorAll("button,a,li,[role=listitem]") ?? [])]) {
+      const first = ((e as HTMLElement).innerText ?? "").split("\n").map((l) => l.trim()).filter(Boolean)[0];
+      if (first && first !== h && first.length < 80) names.add(first);
+    }
+    return [...names];
+  }, heading);
+}
+const pageHasName = async (ctx: AdapterContext, name: string) => (await readInstalled(ctx)).includes(name);
+
+export function chatgptAdapter(): PlatformAdapter {
+  return {
+    platform: "chatgpt",
+    async probe(ctx) { await openPlugins(ctx); return { status: "ok", detail: "signed in to chatgpt.com" }; },
+    async list(ctx) { return { names: await readInstalled(ctx) }; },
+    async verify(ctx, c): Promise<AdapterOutcome> {
+      return (await pageHasName(ctx, c.name)) ? { status: "ok", detail: `"${c.name}" is in ChatGPT's Installed list` } : { status: "error", detail: `"${c.name}" is not in ChatGPT's Installed list` };
+    },
+    async remove(ctx, c): Promise<AdapterOutcome> {
+      if (!(await pageHasName(ctx, c.name))) return { status: "skipped", detail: `"${c.name}" not in Installed list` };
+      const page = await openPlugins(ctx);
+      const s = await ctx.session();
+      const r = sel.remove;
+      const g = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
+        const res = await guarded(s, "chatgpt-remove-" + label, ctx.redact, fn);
+        if (process.env.CC_DEBUG) console.error(`[debug chatgpt remove after ${label}] ` + ctx.redact(await page.evaluate(() => `${location.pathname.replace(/[0-9a-f]{8}-[0-9a-f-]{27}/, "<id>")} | ` + [...document.querySelectorAll("[role=dialog],[role=alertdialog]")].filter((e) => (e as HTMLElement).offsetWidth).map((e) => (e as HTMLElement).innerText.replace(/\s+/g, " ").slice(0, 120)).join(" || ")).catch(() => "?")));
+        return res;
+      };
+      await g("open-plugin-page", async () => {
+        await page.locator("section a", { hasText: new RegExp("^\\s*" + c.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*$") }).first().click();
+        await page.waitForURL(/\/plugins\/[^/]+/, { timeout: 15000 });
+        await sleep(2000);
+        const h1 = (await page.locator("h1").first().innerText().catch(() => "")).trim();
+        if (h1 !== c.name) throw new Error(`opened a page headed "${h1}", expected "${c.name}"; not deleting`);
+      });
+      await g("open-menu", async () => { await page.locator(r.moreActions).last().click(); await sleep(800); });
+      await g("click-delete", async () => { await page.getByRole("menuitem", { name: rx(r.deleteItem) }).first().click(); await sleep(1200); });
+      await g("confirm", async () => {
+        const dlg = page.getByRole("alertdialog").or(page.getByRole("dialog")).last();
+        await dlg.waitFor({ timeout: 8000 });
+        if (!(await dlg.innerText()).includes(c.name)) throw new Error(`confirmation does not mention "${c.name}"; not confirming`);
+        await dlg.getByRole("button", { name: rx(r.confirmButton) }).last().click();
+        await sleep(3000);
+      });
+      for (let i = 0; i < 5; i++) { if (!(await pageHasName(ctx, c.name))) return { status: "ok", detail: `"${c.name}" deleted` }; await sleep(3000); }
+      return { status: "error", detail: `confirmed delete but "${c.name}" is still in the Installed list` };
+    },
+    async update() { return { status: "not-implemented", detail: "chatgpt update not yet mapped" }; },
+    async add(ctx, c, ifExisting): Promise<AdapterOutcome> {
+      const page = await openPlugins(ctx);
+      const s = await ctx.session();
+      const a = sel.add;
+      if (await pageHasName(ctx, c.name)) {
+        if (ifExisting === "skip") return { status: "skipped", detail: `"${c.name}" already installed` };
+        return { status: "error", detail: `"${c.name}" already installed` };
+      }
+      const g = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
+        const r = await guarded(s, "chatgpt-add-" + label, ctx.redact, fn);
+        if (process.env.CC_DEBUG) console.error(`[debug chatgpt after ${label}] ` + ctx.redact(await page.evaluate(() => [...document.querySelectorAll("[role=dialog]")].filter((e) => (e as HTMLElement).offsetWidth).map((e) => (e as HTMLElement).innerText.replace(/\s+/g, " ").slice(0, 200)).join(" || ")).catch(() => "?")));
+        return r;
+      };
+      await g("open-menu", async () => { const addBtn = page.getByRole("button", { name: rx(a.addButton) }).first(); await addBtn.waitFor({ timeout: 20000 }); await addBtn.click(); await page.getByRole("menuitem", { name: rx(a.createMcpMenuItem) }).first().waitFor({ timeout: 8000 }); });
+      await g("open-form", async () => { await page.getByRole("menuitem", { name: rx(a.createMcpMenuItem) }).first().click(); await page.getByRole("dialog").filter({ hasText: rx(a.dialogHeading) }).first().waitFor({ timeout: 8000 }); });
+      const dlg = page.getByRole("dialog").filter({ hasText: rx(a.dialogHeading) }).first();
+      await g("fill", async () => {
+        await dlg.getByRole("textbox", { name: rx(a.nameTextbox) }).first().fill(c.name);
+        if (c.def.description) { const d = dlg.getByRole("textbox", { name: rx(a.descriptionTextbox) }).first(); if (await d.count()) await d.fill(c.def.description); }
+        await dlg.getByRole("textbox", { name: rx(a.urlTextbox) }).first().fill(c.url);
+      });
+      await g("auth", async () => {
+        // Authentication is a native <select> (OAuth / No authentication / OAuth or no authentication).
+        await dlg.locator(a.authSelect).first().selectOption({ label: c.def.auth.mode === "oauth" ? a.oauthLabel : a.noAuthLabel });
+        await dlg.getByRole("checkbox", { name: rx(a.consentCheckbox) }).first().check();
+      });
+      await g("create", async () => {
+        const btn = dlg.getByRole("button", { name: rx(a.createButton) }).first();
+        for (let i = 0; i < 45 && (await btn.isDisabled()); i++) {
+          const text = await dlg.innerText();
+          if (rx(a.failureText).test(text)) throw new Error("ChatGPT rejected the server: " + (text.match(rx(a.failureText))?.[0] ?? "see screenshot"));
+          await sleep(1000);
+        }
+        if (await btn.isDisabled()) throw new Error("Create stayed disabled after server validation");
+        await btn.click();
+        await sleep(4000);
+      });
+      for (let i = 0; i < 5; i++) { if (await pageHasName(ctx, c.name)) return { status: "ok", detail: `"${c.name}" added (appears in Installed list)` }; await sleep(3000); }
+      return { status: "error", detail: `submitted, but "${c.name}" did not appear in ChatGPT's Installed list after waiting` };
+    },
+  };
+}
