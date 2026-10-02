@@ -6,7 +6,8 @@ import path from "node:path";
  *
  * Every cc run gets its OWN Chrome process on its OWN copy of the master's sign-in state, so concurrent runs cannot touch
  * each other's tabs or contexts. The master is never opened by a browser while runs clone from it (a Chrome running on it
- * holds locks that make a copy unreliable); sessions refreshed during a run are written back after that run's Chrome exits.
+ * holds locks that make a copy unreliable). Sign-in cookies a run rotated are merged back cookie by cookie (chrome.ts) by a
+ * short-lived Chrome that holds the master lock, so a clone never sees a half-written master.
  */
 
 /** Sign-in state copied into every run's profile (paths relative to the user-data-dir). Caches, extensions and history stay behind. */
@@ -25,15 +26,10 @@ const CLONE_ENTRIES = [
   "Default/IndexedDB",
   "Default/Web Data",
 ];
-/** What a healthy run writes back: refreshed cookies and local storage only. */
-const WRITEBACK_ENTRIES = ["Default/Network/Cookies", "Default/Network/Cookies-journal", "Default/Cookies", "Default/Cookies-journal", "Default/Local Storage"];
-
-const GENERATION_FILE = "cc-generation";
 const LOCK_FILE = "cc-master.lock";
 const LOCK_STALE_MS = 5 * 60_000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const pidAlive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; } };
-
 /** True when a Chrome is running on this user-data-dir (so it is not a cold master). */
 export function profileInUse(dir: string): boolean {
   try {
@@ -49,8 +45,6 @@ export function profileInUse(dir: string): boolean {
     return Number.isFinite(pid) && pidAlive(pid);
   } catch { return false; }
 }
-
-export const readGeneration = (master: string): number => { try { return Number(fs.readFileSync(path.join(master, GENERATION_FILE), "utf8")) || 0; } catch { return 0; } };
 
 /** Serialize master reads/writes across processes (clones and write-backs are short). */
 export async function withMasterLock<T>(master: string, fn: () => T | Promise<T>, waitMs = 60_000): Promise<T> {
@@ -78,31 +72,12 @@ function copyEntry(from: string, to: string): boolean {
   return true;
 }
 
-/** Copy the master's sign-in state into a fresh user-data-dir. Returns the master generation the clone is based on. */
-export async function cloneProfile(master: string, dest: string): Promise<{ generation: number }> {
+/** Copy the master's sign-in state into a fresh user-data-dir (under the master lock, so no merge is mid-write). */
+export async function cloneProfile(master: string, dest: string): Promise<void> {
   if (!fs.existsSync(master)) throw new Error(`master profile ${master} does not exist; run "cc browser seed" first (README "Full walkthrough, step 1 to done")`);
-  if (profileInUse(master)) throw new Error(`master profile ${master} is in use by a running Chrome. cc needs a COLD master (nothing running on it); use cc's own master profile (CC_BROWSER_MASTER, default <helm base>/browser-master); see README "Full walkthrough, step 1 to done"`);
-  return withMasterLock(master, () => {
+  await withMasterLock(master, () => {
+    if (profileInUse(master)) throw new Error(`master profile ${master} is in use by a running Chrome. cc needs a COLD master (nothing running on it); use cc's own master profile (CC_BROWSER_MASTER, default <helm base>/browser-master); see README "Full walkthrough, step 1 to done"`);
     for (const e of CLONE_ENTRIES) copyEntry(path.join(master, e), path.join(dest, e));
-    return { generation: readGeneration(master) };
-  });
-}
-
-/**
- * After a run's Chrome has exited: publish its refreshed cookies/local storage to the master, but only when the master has
- * not moved since this run cloned it (otherwise another run already refreshed it and this older copy must not overwrite that).
- */
-export async function syncBack(run: string, master: string, baseGeneration: number): Promise<"synced" | "skipped-master-moved" | "skipped-master-busy"> {
-  if (profileInUse(master)) return "skipped-master-busy";
-  return withMasterLock(master, () => {
-    if (readGeneration(master) !== baseGeneration) return "skipped-master-moved" as const;
-    for (const e of WRITEBACK_ENTRIES) {
-      const from = path.join(run, e), to = path.join(master, e);
-      if (fs.existsSync(from)) copyEntry(from, to);
-      else if (e.endsWith("-journal")) fs.rmSync(to, { force: true }); // a stale journal must not outlive the DB it belonged to
-    }
-    fs.writeFileSync(path.join(master, GENERATION_FILE), String(baseGeneration + 1));
-    return "synced" as const;
   });
 }
 

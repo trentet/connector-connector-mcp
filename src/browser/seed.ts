@@ -1,9 +1,8 @@
 import fs from "node:fs";
-import path from "node:path";
 import { chromium, type Cookie } from "patchright";
 import { launchChrome, loadAuthSpecs, masterDir, openSession, sessionHealthy, shutdownChrome } from "./chrome.js";
 import { acquireLane } from "./lanes.js";
-import { profileInUse, readGeneration, withMasterLock } from "./profile.js";
+import { profileInUse, withMasterLock } from "./profile.js";
 
 const LIFETIME_S = 30 * 24 * 3600;
 const domainMatches = (d0: string, hosts: string[]) => { const d = d0.replace(/^\./, ""); return hosts.some((h) => d === h || d.endsWith("." + h)); };
@@ -30,21 +29,24 @@ export async function seedMaster(fromPort: number): Promise<SeedReport> {
   let launched: Awaited<ReturnType<typeof launchChrome>> | undefined;
   let browser: Awaited<ReturnType<typeof chromium.connectOverCDP>> | undefined;
   try {
-    launched = await launchChrome(master, lane.port);
-    browser = await chromium.connectOverCDP(`http://127.0.0.1:${lane.port}`);
-    const ctx = browser.contexts()[0];
-    await ctx.addCookies(prepared);
-    const after = await ctx.cookies();
-    const report: SeedReport = { copied: {}, signedIn: {} };
-    for (const [p, s] of Object.entries(specs)) {
-      report.copied[p] = prepared.filter((c) => domainMatches(c.domain, [...s.hosts, ...s.ssoHosts])).length;
-      report.signedIn[p] = sessionHealthy(after, [p], specs);
-    }
-    return report;
+    return await withMasterLock(master, async () => { // clones wait while the master is being written
+      launched = await launchChrome(master, lane.port);
+      browser = await chromium.connectOverCDP(`http://127.0.0.1:${lane.port}`);
+      const ctx = browser.contexts()[0];
+      await ctx.addCookies(prepared);
+      const after = await ctx.cookies();
+      const report: SeedReport = { copied: {}, signedIn: {} };
+      for (const [p, s] of Object.entries(specs)) {
+        report.copied[p] = prepared.filter((c) => domainMatches(c.domain, [...s.hosts, ...s.ssoHosts])).length;
+        report.signedIn[p] = sessionHealthy(after, [p], specs);
+      }
+      await shutdownChrome(browser, launched.child, launched.exited);
+      launched = undefined;
+      return report;
+    });
   } finally {
     if (launched) await shutdownChrome(browser, launched.child, launched.exited);
     lane.release();
-    await withMasterLock(master, () => fs.writeFileSync(path.join(master, "cc-generation"), String(readGeneration(master) + 1))).catch(() => {});
   }
 }
 
