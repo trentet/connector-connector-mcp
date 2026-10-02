@@ -766,7 +766,13 @@
         "chatgpt",
         "grok"
       ],
-      "tier": "production"
+      "tier": "production",
+      "urlByPlatform": {
+        "claude": {
+          "type": "literal",
+          "value": "https://dsm.trentt.me/mcp?client=claude"
+        }
+      }
     },
     {
       "id": "dsm-connect-test",
