@@ -26,9 +26,10 @@ try {
     await link.click();
     await new Promise((r) => setTimeout(r, 3500));
     out.afterClick = await surface();
-    const more = page.getByRole("button", { name: /more actions|more options|actions|menu/i }).first();
-    if ((await more.count()) && !/Project|sidebar/i.test(await more.getAttribute("aria-label").catch(() => "") ?? "")) {
-      await more.click(); await new Promise((r) => setTimeout(r, 1200));
+    const more = page.locator('button[aria-label="More actions"]');
+    out.moreActionsCount = await more.count();
+    if (out.moreActionsCount) {
+      await more.last().click(); await new Promise((r) => setTimeout(r, 1200));
       out.menu = await page.evaluate(() => [...document.querySelectorAll("[role=menuitem]")].filter((e) => e.offsetWidth || e.offsetHeight).map((e) => e.innerText.trim().replace(/\s+/g, " ")));
       await page.keyboard.press("Escape");
     }
