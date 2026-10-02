@@ -25,6 +25,13 @@ try {
   out.hasConnect = (await btn.count()) > 0;
   if (out.hasConnect) {
     await btn.click();
+    await new Promise((r) => setTimeout(r, 2000));
+    const dlg = page.locator("[role=dialog],[role=alertdialog]").last();
+    out.dialogButtons = await dlg.locator("button").evaluateAll((bs) => bs.filter((b) => b.offsetWidth).map((b) => (b.getAttribute("aria-label") || b.innerText).trim().replace(/\s+/g, " ")));
+    if (process.env.CONFIRM) {
+      await dlg.getByRole("button", { name: new RegExp(process.env.CONFIRM, "i") }).last().click();
+      out.confirmed = process.env.CONFIRM;
+    }
     for (const t of [2, 5, 10]) { await new Promise((r) => setTimeout(r, t * 1000)); out["after" + t] = await snap(); }
   }
 } catch (e) { out.error = String(e.message).split("\n")[0]; }
