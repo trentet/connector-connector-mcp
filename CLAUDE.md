@@ -27,6 +27,6 @@ After a test session ends, remove it again and run `cc list --platform all` to c
 `data/selectors` · `registry` · `scripts` deploy/start/tunnel/tasks · `tools/probe` read-only diagnostics · `docs/SPEC.md`.
 
 ## Commands
-`npm test` · `npm run build` · `node bin/cc.mjs <add|remove|update|verify|list|probe> [ids|--all] --platform claude|chatgpt|grok|all [--dry-run] [--registry <path>]` ·
+`npm test` · `npm run build` · `node bin/cc.mjs <add|remove|update|verify|list|probe> [ids|--all] --platform <claude|chatgpt|grok ...>|all [--dry-run] [--registry <path>]` ·
 `node bin/cc.mjs audit --scan <repo-root>` (finds registration-script look-alikes in other repos).
 Host: `CC_CHROME_PROFILE` (debug Chrome profile), `CC_DEBUG=1` (redacted step dumps), deploy with `scripts/setup-host.ps1`, `scripts/deploy.mjs`, `scripts/install-tasks.ps1`.
