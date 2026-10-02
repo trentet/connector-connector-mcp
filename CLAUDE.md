@@ -11,10 +11,15 @@ Connector repos must NOT carry their own registration scripts. If you are asked 
 3. **Platform UI facts live in `data/selectors/<platform>.json`**, not buried in code. When a UI drifts, fix the data file or the adapter step, then re-run the platform's exit test.
 4. **A result is only real if read back.** `add` is not done until `verify` sees it; `remove` is not done until a fresh list no longer shows it. Adapters must never report success on a hunch;
    prefer `error` over a false `ok`. Poll for asynchronous registration instead of reading once.
-5. **Browser rules (learned the hard way):** attach to the normally launched Chrome over CDP (never `launchPersistentContext`); never close the last tab (Chrome exits);
-   one clean tab per run; never dump full page text (the grok/chatgpt sidebars contain private chat titles); scope snapshots to a dialog.
-   **Browser lifetime:** a Chrome that cc itself launched (recorded in `<profile>\cc-launched.json`) is closed when the run ends, unless another tab is in use.
-   A Chrome somebody else started (the shared HELM browser, the operator's own) is attached to and left running. Never add code that leaves a cc-launched browser idling. `CC_KEEP_BROWSER=1` opts out for debugging.
+5. **Browser rules (learned the hard way):** every run drives its OWN Chrome process (one process per connector sequence), attached over CDP to a normally launched
+   chrome.exe (NEVER `launchPersistentContext`: claude.ai's anti-automation sends a Playwright-launched persistent context into a challenge/logout loop). Never dump full page text
+   (the grok/chatgpt sidebars contain private chat titles); scope snapshots to a dialog.
+   **Browser model (src/browser):** a run claims a lane (`lanes.ts`: numbered slot, CDP port = base+index, cross-process lock file, bounded by `CC_MAX_CONCURRENCY`, default 4; a full house waits then errors clearly),
+   clones the sign-in state of the COLD master profile (`CC_BROWSER_MASTER`, default `<helm base>/browser-master`) into a private temp dir (`profile.ts`), launches Chrome on that copy, and on `close()` shuts that Chrome down,
+   deletes the copy, frees the lane and (only if every platform the run touched still has its sign-in cookie, and the master has not moved since the clone) writes the refreshed cookies back to the master.
+   **Invariants that protect it:** (a) a browser belongs to exactly one run: never attach to a port you do not hold the lane for, never close or reuse another run's tabs; (b) never open the master with a browser while runs may clone it
+   (`cc browser seed` is the only thing that does, and it refuses a master that is in use); (c) a copy that is older than the master never overwrites it; (d) nothing in `src/browser` may leave a Chrome, a temp profile or a lane lock behind, on success or on failure;
+   (e) the old shared Chrome (the HELM browser on 9222, `CC_CHROME_PROFILE`) is not used by cc any more. Tests: `test/browser-concurrency.test.ts` runs real Chromium.
 6. **Logins** come from the vault inside this process (`bw serve`), never via a vault MCP tool call. ChatGPT's SMS code goes through a one-time vault entry (`ChatGPT SMS code`).
 7. **Throwaway test connector:** `registry/selftest.json` (`cc-selftest`). Exit test per platform = add → verify → remove → verify, twice, then confirm real connectors are untouched.
 
@@ -39,5 +44,5 @@ Promotion rule (operator, 2026-10-02): test is for development and functionality
 
 ## Commands
 `npm test` · `npm run build` · `node bin/cc.mjs <add|remove|update|verify|list|probe> [ids|--all] --platform <claude|chatgpt|grok ...>|all [--dry-run] [--registry <path>]` ·
-`node bin/cc.mjs audit --scan <repo-root>` (finds registration-script look-alikes in other repos).
-Host: `CC_CHROME_PROFILE` (debug Chrome profile), `CC_DEBUG=1` (redacted step dumps), deploy with `scripts/setup-host.ps1`, `scripts/deploy.mjs`, `scripts/install-tasks.ps1`.
+`node bin/cc.mjs browser seed|check` (master profile) · `node bin/cc.mjs audit --scan <repo-root>` (finds registration-script look-alikes in other repos).
+Host: `CC_BROWSER_MASTER` (cold master profile), `CC_MAX_CONCURRENCY`, `CC_CHROME_PATH`, `CC_DEBUG=1` (redacted step dumps), deploy with `scripts/setup-host.ps1`, `scripts/deploy.mjs`, `scripts/install-tasks.ps1`.

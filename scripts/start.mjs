@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Start the deployed cc server for one environment. Secrets come from <base>/<env>/secrets/connector.env
- * (CC_MCP_BEARER_TOKEN, and optionally CC_CHROME_PROFILE / CC_CHROME_PATH / BW_SERVE_URL) -- never from the repo.
+ * (CC_MCP_BEARER_TOKEN, and optionally CC_BROWSER_MASTER / CC_CHROME_PATH / CC_MAX_CONCURRENCY / BW_SERVE_URL) -- never from the repo.
  *   node scripts/start.mjs <production|test>
  */
 import { spawn } from "node:child_process";

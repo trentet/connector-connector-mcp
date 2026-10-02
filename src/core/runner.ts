@@ -18,7 +18,11 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
   const adapter = (p: Platform) => opts.adapters?.[p] ?? notImplementedAdapter(p);
   const items: ItemResult[] = [];
   let sess: BrowserSession | undefined;
-  const getSession = async () => (sess ??= await (opts.sessionFactory ?? (async () => (await import("../browser/chrome.js")).openSession()))());
+  let opening: Promise<BrowserSession> | undefined;
+  // One browser per run, opened lazily. A failed open is remembered, so every remaining item fails fast with the same error instead of each waiting for a lane again.
+  const getSession = async () => { opening ??= (opts.sessionFactory ?? (async () => (await import("../browser/chrome.js")).openSession()))(); sess = await opening; return sess; };
+  /** The session handed to a platform's adapter; records that this run drove that platform (decides whether its refreshed sign-in is written back). */
+  const sessionFor = (platform: Platform) => async () => { const s = await getSession(); s.touched?.add(platform); return s; };
   try {
     await runItems();
   } finally {
@@ -35,7 +39,7 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
       const base = { connector: "*", platform, op: req.op } as const;
       try {
         if (req.dryRun) { items.push({ ...base, status: "dry-run", detail: "would " + req.op }); continue; }
-        const ctx = { platform, redact: (x: string) => red.redact(x), session: getSession };
+        const ctx = { platform, redact: (x: string) => red.redact(x), session: sessionFor(platform) };
         const a = adapter(platform);
         const out = req.op === "list" ? { status: "ok" as const, detail: (await a.list(ctx)).names.join(", ") } : await a.probe(ctx);
         items.push({ ...base, status: out.status, detail: out.detail ? red.redact(out.detail) : undefined });
@@ -52,7 +56,7 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
       try {
         const rc = needsConnector ? await resolveConnector(c, platform, red, deps) : undefined;
         if (req.dryRun) { items.push({ ...base, status: "dry-run", detail: describe(c, rc, red) }); continue; }
-        const ctx = { platform, redact: (s: string) => red.redact(s), session: getSession };
+        const ctx = { platform, redact: (s: string) => red.redact(s), session: sessionFor(platform) };
         const a = adapter(platform);
         const ifx = req.ifExisting ?? reg.defaults?.ifExisting ?? "skip";
         const out =

@@ -3,10 +3,13 @@ import { loadRegistry } from "./core/registry.js";
 import { ADAPTERS } from "./adapters/index.js";
 import { audit } from "./audit.js";
 import { run } from "./core/runner.js";
+import { checkMaster, seedMaster } from "./browser/seed.js";
 import { PLATFORMS, type Op, type Platform } from "./core/types.js";
 
 const OPS: Op[] = ["add", "remove", "update", "list", "verify", "probe"];
-const USAGE = `cc audit --scan <repo-root> [--json]     (find per-repo registration scripts that cc replaces)
+const USAGE = `cc browser seed [--from-port <port>]   (one-time: copy platform sign-ins from a signed-in Chrome into cc's cold master profile)
+cc browser check                          (clone the master into a throwaway browser and report which platforms are signed in)
+cc audit --scan <repo-root> [--json]     (find per-repo registration scripts that cc replaces)
 cc <op> [connector-id ...|--all] [--platform <claude|chatgpt|grok ...>|all] [--dry-run] [--include-test] [--registry <path>] [--if-existing skip|update|fail] [--json]
 ops: ${OPS.join(", ")}`;
 
@@ -53,6 +56,23 @@ export async function main(argv: string[]): Promise<number> {
     else if (hits.length === 0) console.log(`audit: no registration-script look-alikes under ${root}`);
     else for (const h of hits) console.log(`${h.file}\n    ${h.reasons.join("; ")}`);
     return hits.length ? 1 : 0;
+  }
+  if (args[0] === "browser") {
+    const sub = args[1];
+    try {
+      if (sub === "seed") {
+        const i = args.indexOf("--from-port");
+        const r = await seedMaster(Number(i >= 0 ? args[i + 1] : 9222));
+        for (const p of Object.keys(r.copied)) console.log(`${p.padEnd(8)} ${String(r.copied[p]).padStart(3)} cookies copied, signed in: ${r.signedIn[p] ? "yes" : "NO"}`);
+        return Object.values(r.signedIn).every(Boolean) ? 0 : 1;
+      }
+      if (sub === "check") {
+        const r = await checkMaster();
+        for (const [p, ok] of Object.entries(r)) console.log(`${p.padEnd(8)} signed in: ${ok ? "yes" : "NO"}`);
+        return Object.values(r).every(Boolean) ? 0 : 1;
+      }
+    } catch (e) { console.error(`browser ${sub}: ${(e as Error).message}`); return 1; }
+    console.error("usage: cc browser seed [--from-port <port>] | cc browser check"); return 2;
   }
   const op = args.shift() as Op | undefined;
   if (!op || op === ("--help" as never) || !OPS.includes(op)) { console.log(USAGE); return op ? 2 : 0; }

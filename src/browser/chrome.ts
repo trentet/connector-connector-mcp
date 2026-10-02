@@ -1,100 +1,155 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { chromium, type Browser, type BrowserContext, type Page } from "patchright";
+import { chromium, type Browser, type BrowserContext, type Cookie, type Page } from "patchright";
+import { acquireLane, type Lane } from "./lanes.js";
+import { cloneProfile, removeProfile, syncBack } from "./profile.js";
 
 /** Hosts whose stale tabs this tool may close. Anything else in the shared profile is left alone. */
 const OWNED_HOSTS = ["claude.ai", "chatgpt.com", "grok.com", "x.ai", "accounts.google.com", "auth.openai.com"];
+const DEFAULT_CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+const SESSION_COOKIE_LIFETIME_S = 30 * 24 * 3600;
 
 export interface BrowserSession {
   browser: Browser;
   context: BrowserContext;
   page: Page;
   artifactsDir: string;
+  /** Platforms this run drove; decides whether its refreshed sign-in state is healthy enough to write back. */
+  touched?: Set<string>;
   close(): Promise<void>;
 }
 
-/**
- * Attach to an ALREADY-RUNNING, normally launched Chrome over CDP (never launchPersistentContext:
- * claude.ai's anti-automation sends a persistent-context browser into a challenge/logout loop).
- * Starts the run from ONE clean tab: stale tabs on platform hosts are closed first.
- */
-const DEFAULT_CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+/** What the browser layer knows about a platform's sign-in state (data/selectors/<platform>.json "auth"). */
+export interface AuthSpec { cookie: string; hosts: string[]; ssoHosts: string[] }
 
-async function cdpUp(port: string): Promise<boolean> {
+export function loadAuthSpecs(dir = path.resolve(process.env.CC_SELECTORS_DIR ?? path.join("data", "selectors"))): Record<string, AuthSpec> {
+  const out: Record<string, AuthSpec> = {};
+  for (const f of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
+    if (!f.endsWith(".json")) continue;
+    const a = (JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")) as { auth?: Partial<AuthSpec> }).auth;
+    if (a?.cookie && a.hosts?.length) out[f.replace(/\.json$/, "")] = { cookie: a.cookie, hosts: a.hosts, ssoHosts: a.ssoHosts ?? [] };
+  }
+  return out;
+}
+
+const domainMatches = (cookieDomain: string, hosts: string[]) => { const d = cookieDomain.replace(/^\./, ""); return hosts.some((h) => d === h || d.endsWith("." + h)); };
+
+/** Every touched platform still has its sign-in cookie: the run's session is healthy. */
+export function sessionHealthy(cookies: Cookie[], touched: Iterable<string>, specs: Record<string, AuthSpec>): boolean {
+  const list = [...touched];
+  if (list.length === 0) return false;
+  return list.every((p) => { const s = specs[p]; return !!s && cookies.some((c) => c.name.startsWith(s.cookie) && domainMatches(c.domain, s.hosts)); });
+}
+
+/**
+ * The cold master profile: CC_BROWSER_MASTER, else <helm base>/browser-master (same base as scripts/env.mjs).
+ * The old CC_CHROME_PROFILE (a shared, always-running Chrome's profile) is deliberately ignored: a master must be cold.
+ */
+export function masterDir(e = process.env, platform = process.platform, home = os.homedir()): string {
+  if (e.CC_BROWSER_MASTER) return e.CC_BROWSER_MASTER;
+  const app = (JSON.parse(fs.readFileSync(path.resolve("data", "app.json"), "utf8")) as { dataDirName: string }).dataDirName;
+  const base = e.HELM_DATA_ROOT
+    ?? (platform === "win32" ? path.join(e.LOCALAPPDATA ?? path.join(home, "AppData", "Local"), "HELM", app)
+      : platform === "darwin" ? path.join(home, "Library", "Application Support", "HELM", app)
+      : path.join(e.XDG_DATA_HOME ?? path.join(home, ".local", "share"), "helm", app));
+  return path.join(base, "browser-master");
+}
+
+async function cdpUp(port: number): Promise<boolean> {
   try { return (await fetch(`http://127.0.0.1:${port}/json/version`)).ok; } catch { return false; }
 }
 
-const OWNER_FILE = "cc-launched.json";
-const pidAlive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
-
-/** A Chrome that cc itself started is recorded next to its profile, so a later cc process can tell it from one somebody else owns. */
-export function readOwner(profile: string | undefined, port: string, alive: (pid: number) => boolean = pidAlive): { pid: number } | undefined {
-  if (!profile) return undefined;
-  try {
-    const o = JSON.parse(fs.readFileSync(path.join(profile, OWNER_FILE), "utf8")) as { pid?: number; port?: string };
-    return typeof o.pid === "number" && o.port === port && alive(o.pid) ? { pid: o.pid } : undefined;
-  } catch { return undefined; }
-}
-const writeOwner = (profile: string, port: string, pid: number) => fs.writeFileSync(path.join(profile, OWNER_FILE), JSON.stringify({ pid, port, launchedAt: new Date().toISOString() }));
-const clearOwner = (profile: string | undefined) => { if (profile) try { fs.rmSync(path.join(profile, OWNER_FILE), { force: true }); } catch { /* best effort */ } };
-
-/** If nothing listens on the debug port, start a normal (not automation-launched) Chrome with the dedicated profile and record that cc owns it. */
-export async function ensureChrome(port: string): Promise<void> {
-  if (await cdpUp(port)) return;
+/** Start a normal (not automation-launched) Chrome on a user-data-dir and CDP port. Playwright's persistent-context API is never used. */
+export async function launchChrome(userDataDir: string, port: number): Promise<{ child: ChildProcess; exited: Promise<void> }> {
   const exe = process.env.CC_CHROME_PATH ?? DEFAULT_CHROME;
-  const profile = process.env.CC_CHROME_PROFILE;
-  if (!profile) throw new Error(`nothing listens on CDP port ${port} and CC_CHROME_PROFILE is not set; cannot relaunch Chrome`);
   const extra = (process.env.CC_CHROME_EXTRA_ARGS ?? "").split(/\s+/).filter(Boolean);
-  const child = spawn(exe, [`--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, ...extra, "about:blank"], { detached: true, stdio: "ignore" });
-  child.unref();
-  if (child.pid) { fs.mkdirSync(profile, { recursive: true }); writeOwner(profile, port, child.pid); }
-  for (let i = 0; i < 30; i++) { if (await cdpUp(port)) return; await new Promise((r) => setTimeout(r, 1000)); }
+  const child = spawn(exe, [`--remote-debugging-port=${port}`, `--user-data-dir=${userDataDir}`, "--no-first-run", "--no-default-browser-check", ...extra, "about:blank"], { stdio: "ignore", windowsHide: false });
+  const exited = new Promise<void>((resolve) => { child.once("exit", () => resolve()); child.once("error", () => resolve()); });
+  for (let i = 0; i < 60; i++) {
+    if (await cdpUp(port)) return { child, exited };
+    if (child.exitCode !== null) throw new Error(`Chrome exited immediately (code ${child.exitCode}) when launched on port ${port}`);
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  killTree(child);
   throw new Error(`Chrome did not expose CDP on port ${port} within 30s`);
 }
 
-/** Tabs that are not someone's work: blank pages and Chrome's own pages (new tab, and the first-run intro/welcome a fresh profile opens). */
-export const isBlank = (url: string) => url === "" || url === "about:blank" || /^chrome(-search|-untrusted)?:\/\//.test(url);
+function killTree(child: ChildProcess): void {
+  if (!child.pid) return;
+  try {
+    if (process.platform === "win32") spawnSync("taskkill", ["/T", "/F", "/PID", String(child.pid)], { stdio: "ignore" });
+    else child.kill("SIGKILL");
+  } catch { /* already gone */ }
+}
 
-export async function openSession(opts: { port?: string; artifactsDir?: string } = {}): Promise<BrowserSession> {
-  const port = opts.port ?? process.env.CC_DEBUG_PORT ?? "9222";
+/** Ask Chrome to quit over CDP, wait for the process to exit, and force it if it does not. */
+export async function shutdownChrome(browser: Browser | undefined, child: ChildProcess, exited: Promise<void>): Promise<void> {
+  try { if (browser) await (await browser.newBrowserCDPSession()).send("Browser.close"); } catch { /* fall through to waiting/killing */ }
+  const done = await Promise.race([exited.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 15000))]);
+  if (!done) { killTree(child); await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]); }
+}
+
+/**
+ * One run = one Chrome process. The run claims a lane (CDP port), clones the cold master profile into a private temp dir,
+ * launches an independent Chrome on that copy, attaches over CDP, and on close() shuts that Chrome down, deletes the copy and,
+ * if the run's sign-in state is still healthy, writes the refreshed cookies back to the master. Nothing is shared between runs,
+ * so concurrent runs cannot touch each other's tabs.
+ */
+export async function openSession(opts: { artifactsDir?: string } = {}): Promise<BrowserSession> {
+  const master = masterDir();
   const artifactsDir = path.resolve(opts.artifactsDir ?? "artifacts");
   fs.mkdirSync(artifactsDir, { recursive: true });
-  await ensureChrome(port);
-  const profile = process.env.CC_CHROME_PROFILE;
-  const ownedByCc = !!readOwner(profile, port) && process.env.CC_KEEP_BROWSER !== "1";
-  let browser: Browser, context: BrowserContext, page: Page;
+  const lane: Lane = await acquireLane();
+  let runDir: string | undefined;
+  let launched: { child: ChildProcess; exited: Promise<void> } | undefined;
+  let browser: Browser | undefined;
+  const cleanup = async () => {
+    if (launched) await shutdownChrome(browser, launched.child, launched.exited);
+    if (runDir) removeProfile(runDir);
+    lane.release();
+  };
   try {
-    browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-    context = browser.contexts()[0];
+    runDir = fs.mkdtempSync(path.join(os.tmpdir(), `cc-run-${lane.index}-`));
+    const { generation } = await cloneProfile(master, runDir);
+    launched = await launchChrome(runDir, lane.port);
+    browser = await chromium.connectOverCDP(`http://127.0.0.1:${lane.port}`);
+    const context = browser.contexts()[0];
     if (!context) throw new Error("CDP browser has no default context");
     for (const p of context.pages()) {
       let host = "";
       try { host = new URL(p.url()).hostname; } catch { /* about:blank etc. */ }
       if (OWNED_HOSTS.some((h) => host === h || host.endsWith("." + h))) await p.close().catch(() => {});
     }
-    page = await context.newPage();
+    const page = await context.newPage();
+    const touched = new Set<string>();
+    const run = runDir, child = launched, br = browser;
+    return {
+      browser: br, context, page, artifactsDir, touched,
+      async close() {
+        let healthy = false;
+        try {
+          const specs = loadAuthSpecs();
+          const cookies = await context.cookies();
+          healthy = sessionHealthy(cookies, touched, specs);
+          if (healthy) {
+            // Session-only cookies vanish when Chrome exits; make the auth ones persistent so the write-back carries them.
+            const hosts = Object.values(specs).flatMap((s) => [...s.hosts, ...s.ssoHosts]);
+            const promote = cookies.filter((c) => c.expires <= 0 && domainMatches(c.domain, hosts)).map((c) => ({ ...c, expires: Math.floor(Date.now() / 1000) + SESSION_COOKIE_LIFETIME_S }));
+            if (promote.length) await context.addCookies(promote).catch(() => {});
+          }
+        } catch { /* a dead browser is simply not healthy */ }
+        await shutdownChrome(br, child.child, child.exited);
+        try { if (healthy) await syncBack(run, master, generation); } catch { /* the master keeps its previous state */ }
+        removeProfile(run);
+        lane.release();
+      },
+    };
   } catch (e) {
-    // Setup failed after cc may have launched Chrome: do not leave that browser behind.
-    const owner = ownedByCc ? readOwner(profile, port) : undefined;
-    if (owner) { try { process.kill(owner.pid); } catch { /* already gone */ } clearOwner(profile); }
+    await cleanup().catch(() => {});
     throw e;
   }
-  return {
-    browser, context, page, artifactsDir,
-    async close() {
-      // A Chrome that cc started and nobody else is using is shut down with the run, so no browser is left idling.
-      // Anything else (a Chrome somebody else started, or one with other tabs open) is left running.
-      const othersInUse = context.pages().some((p) => p !== page && !isBlank(p.url()));
-      if (ownedByCc && !othersInUse) {
-        try { await (await browser.newBrowserCDPSession()).send("Browser.close"); clearOwner(profile); return; } catch { /* fall through to a plain disconnect */ }
-      }
-      // Never close the LAST tab of a browser we leave running: a Chrome with zero tabs exits, killing the shared logged-in session.
-      if (context.pages().length <= 1) await page.goto("about:blank").catch(() => {});
-      else await page.close().catch(() => {});
-      await browser.close().catch(() => {}); // disconnects CDP only; Chrome keeps running
-    },
-  };
 }
 
 /** Run a step; on failure save a screenshot (filename carries no secrets) and rethrow with the path. */
