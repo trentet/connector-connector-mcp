@@ -588,7 +588,7 @@
     {
       "id": "fleet-connect-test",
       "name": "Fleet Connect TEST",
-      "description": "TEST environment of the Fleet Connect cross-platform fleet bootstrap/remote-execution connector (fleet-test.trentt.me). Claude uses the x-api-key header; ChatGPT and Grok use a low-privilege ?token= (non-admin tools only).",
+      "description": "TEST environment of the Fleet Connect cross-platform fleet bootstrap/remote-execution connector (fleet-test.trentt.me). One token accepted identically via x-api-key header or ?token= on every platform.",
       "url": {
         "type": "literal",
         "value": "https://fleet-test.trentt.me/mcp"
@@ -603,7 +603,7 @@
               "paths": [
                 "C:/Users/Trent/AppData/Local/HELM/fleet-connect/test/secrets/connector.env"
               ],
-              "key": "FLEET_MCP_QUERY_TOKEN"
+              "key": "FLEET_MCP_BEARER_TOKEN"
             }
           }
         },
@@ -616,7 +616,7 @@
               "paths": [
                 "C:/Users/Trent/AppData/Local/HELM/fleet-connect/test/secrets/connector.env"
               ],
-              "key": "FLEET_MCP_QUERY_TOKEN"
+              "key": "FLEET_MCP_BEARER_TOKEN"
             }
           }
         }
@@ -696,7 +696,7 @@
     {
       "id": "fleet-connect",
       "name": "Fleet Connect",
-      "description": "Fleet Connect: cross-platform fleet bootstrap/remote-execution MCP connector (Windows/Linux/Synology DSM), one connector addressing many machines by target_id. Claude uses the x-api-key header; ChatGPT and Grok use a low-privilege ?token= (non-admin tools only).",
+      "description": "Fleet Connect: cross-platform fleet bootstrap/remote-execution MCP connector (Windows/Linux/Synology DSM), one connector addressing many machines by target_id. One token accepted identically via x-api-key header or ?token= on every platform.",
       "url": {
         "type": "literal",
         "value": "https://fleet.trentt.me/mcp"
@@ -711,7 +711,7 @@
               "paths": [
                 "C:/Users/Trent/AppData/Local/HELM/fleet-connect/production/secrets/connector.env"
               ],
-              "key": "FLEET_MCP_QUERY_TOKEN"
+              "key": "FLEET_MCP_BEARER_TOKEN"
             }
           }
         },
@@ -724,7 +724,7 @@
               "paths": [
                 "C:/Users/Trent/AppData/Local/HELM/fleet-connect/production/secrets/connector.env"
               ],
-              "key": "FLEET_MCP_QUERY_TOKEN"
+              "key": "FLEET_MCP_BEARER_TOKEN"
             }
           }
         }
