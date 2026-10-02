@@ -22,10 +22,14 @@
   "expectedAccountHint": null,
   "add": {
     "newConnectorButton": "new connector",
+    "dialog": "[role=dialog]",
     "customTile": "^custom",
+    "formHeading": "custom connector",
     "namePlaceholder": "My Connector",
     "urlPlaceholder": "mcp.example.com",
-    "submitButton": "^add connector$",
-    "dialogMarkerInput": "input[placeholder=\"My Connector\"]"
+    "submitButton": "^add connector$"
+  },
+  "list": {
+    "rowMarkerText": "Added"
   }
 }

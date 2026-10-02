@@ -56,32 +56,70 @@ async function openConnectors(ctx: AdapterContext): Promise<Page> {
 
 const notMapped = (what: string): AdapterOutcome => ({ status: "not-implemented", detail: `grok ${what} not yet mapped (needs a live probe)` });
 
+/** Names in the "Connected" section: rows are elements whose own text is exactly the marker ("Added"); the row's first line is the name. */
+async function readConnected(ctx: AdapterContext): Promise<string[]> {
+  const page = await openConnectors(ctx);
+  const marker: string = sel.list.rowMarkerText;
+  await sleep(1500);
+  return page.evaluate((m) => {
+    const names = new Set<string>();
+    for (const leaf of [...document.querySelectorAll("*")].filter((e) => e.children.length === 0 && (e.textContent ?? "").trim() === m)) {
+      let row: Element | null = leaf.parentElement;
+      for (let i = 0; i < 4 && row; i++) {
+        const lines = ((row as HTMLElement).innerText ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+        if (lines.length >= 2 && lines.indexOf(m) > 0) { names.add(lines[0]); break; }
+        row = row.parentElement;
+      }
+    }
+    return [...names];
+  }, marker);
+}
+
 export function grokAdapter(): PlatformAdapter {
   return {
     platform: "grok",
     async probe(ctx) { await openConnectors(ctx); return { status: "ok", detail: "signed in to grok.com" }; },
-    async list() { return { names: [] }; },
-    async verify() { return notMapped("verify/list"); },
+    async list(ctx) { return { names: await readConnected(ctx) }; },
+    async verify(ctx, c): Promise<AdapterOutcome> {
+      const names = await readConnected(ctx);
+      return names.includes(c.name) ? { status: "ok", detail: `"${c.name}" is in grok.com's Connected list` } : { status: "error", detail: `"${c.name}" is not in grok.com's Connected list (${names.length} connectors listed)` };
+    },
     async remove() { return notMapped("remove"); },
     async update() { return notMapped("update"); },
-    async add(ctx, c, _ifExisting): Promise<AdapterOutcome> {
+    async add(ctx, c, ifExisting): Promise<AdapterOutcome> {
+      const existing = (await readConnected(ctx)).includes(c.name);
+      if (existing) {
+        if (ifExisting === "skip") return { status: "skipped", detail: `"${c.name}" already in Connected list` };
+        if (ifExisting === "fail") return { status: "error", detail: `"${c.name}" already in Connected list` };
+        return notMapped("update (remove-then-add)");
+      }
       const page = await openConnectors(ctx);
       const s = await ctx.session();
       const a = sel.add;
+      const dialog = page.locator(a.dialog).last();
       const g = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
         const r = await guarded(s, "grok-add-" + label, ctx.redact, fn);
-        if (process.env.CC_DEBUG) console.error(`[debug grok after ${label}] ` + JSON.stringify(await snapshot(page, ctx.redact, { containing: a.dialogMarkerInput, up: 6 }).catch((e) => ({ err: String(e) }))));
+        if (process.env.CC_DEBUG) console.error(`[debug grok after ${label}] ` + ctx.redact(await page.evaluate(() => { const d = [...document.querySelectorAll("[role=dialog]")].pop(); return d ? (d as HTMLElement).innerText.replace(/\s+/g, " ").slice(0, 200) : "(no dialog)"; }).catch(() => "?")));
         return r;
       };
-      await g("open-new-connector", async () => { await page.getByRole("button", { name: rx(a.newConnectorButton) }).first().click(); await sleep(1500); });
-      await g("choose-custom", async () => { await domClick(page.getByRole("button", { name: rx(a.customTile) }).or(page.getByText(rx(a.customTile))).first()); await sleep(1200); });
+      await g("open-new-connector", async () => { await page.getByRole("button", { name: rx(a.newConnectorButton) }).first().click(); await dialog.waitFor({ timeout: 10000 }); });
+      // The Custom tile is a button INSIDE the dialog; the page has other "Custom" text that a global text match would hit first.
+      await g("choose-custom", async () => { await dialog.getByRole("button", { name: rx(a.customTile) }).first().click(); await dialog.getByText(rx(a.formHeading)).first().waitFor({ timeout: 8000 }); });
       await g("fill", async () => {
-        await domFill(page.locator(`input[placeholder="${a.namePlaceholder}"]`), c.name);
-        await domFill(page.locator(`input[placeholder*="${a.urlPlaceholder}"]`), c.url);
-        await sleep(600);
+        const nameBox = dialog.locator(`input[placeholder="${a.namePlaceholder}"]`);
+        const urlBox = dialog.locator(`input[placeholder*="${a.urlPlaceholder}"]`);
+        await nameBox.click(); await nameBox.pressSequentially(c.name, { delay: 12 });
+        await urlBox.click(); await urlBox.pressSequentially(c.url, { delay: 4 });
       });
-      await g("submit", async () => { await domClick(page.getByRole("button", { name: rx(a.submitButton) }).first()); await sleep(5000); });
-      return { status: "ok", detail: `submitted "${c.name}" to grok.com (not yet verified: list/verify not mapped)` };
+      await g("submit", async () => {
+        const btn = dialog.getByRole("button", { name: rx(a.submitButton) }).first();
+        for (let i = 0; i < 20 && (await btn.isDisabled()); i++) await sleep(300);
+        if (await btn.isDisabled()) throw new Error("Add Connector stayed disabled after filling name and URL");
+        await btn.click();
+        await sleep(4000);
+      });
+      const names = await readConnected(ctx);
+      return names.includes(c.name) ? { status: "ok", detail: `"${c.name}" added (appears in Connected list)` } : { status: "error", detail: `submitted, but "${c.name}" did not appear in grok.com's Connected list` };
     },
   };
 }
