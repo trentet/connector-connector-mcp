@@ -22,11 +22,18 @@ unless someone is actively developing or testing them. `--all` / `"*"` skips the
 cc to bring one up (`cc add helm-audio-mcp-test --platform all`) or take it down (`cc remove helm-audio-mcp-test --platform all`) at will; naming it explicitly always works.
 After a test session ends, remove it again and run `cc list --platform all` to confirm.
 
+## What "verified" means per platform
+- **Claude:** the connector row exists and shows Connected.
+- **Grok:** the connector is in the Connected list.
+- **ChatGPT:** the connector is in the Installed list AND its own page shows Connected. Installing alone is not enough: ChatGPT also needs its Connect step (button, then confirmation dialog), which `cc add` performs and `cc add --if-existing skip` repairs.
+  ChatGPT lists no discovered tools anywhere on the page (probed 2026-10-02), so cc cannot prove a tool scan; it only proves the connection state ChatGPT displays.
+- `--platform` takes one or more platforms, or `all`: `--platform chatgpt grok`.
+
 ## Layout
 `bin/cc.mjs` CLI · `src/core` registry/secrets/redaction/runner · `src/adapters/{claude,chatgpt,grok}.ts` · `src/browser` · `src/server` MCP front door ·
 `data/selectors` · `registry` · `scripts` deploy/start/tunnel/tasks · `tools/probe` read-only diagnostics · `docs/SPEC.md`.
 
 ## Commands
-`npm test` · `npm run build` · `node bin/cc.mjs <add|remove|update|verify|list|probe> [ids|--all] --platform claude|chatgpt|grok|all [--dry-run] [--registry <path>]` ·
+`npm test` · `npm run build` · `node bin/cc.mjs <add|remove|update|verify|list|probe> [ids|--all] --platform <claude|chatgpt|grok ...>|all [--dry-run] [--registry <path>]` ·
 `node bin/cc.mjs audit --scan <repo-root>` (finds registration-script look-alikes in other repos).
 Host: `CC_CHROME_PROFILE` (debug Chrome profile), `CC_DEBUG=1` (redacted step dumps), deploy with `scripts/setup-host.ps1`, `scripts/deploy.mjs`, `scripts/install-tasks.ps1`.

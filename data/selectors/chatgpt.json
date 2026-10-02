@@ -31,6 +31,11 @@
     "noAuthLabel": "No authentication",
     "oauthLabel": "OAuth"
   },
+  "verify": {
+    "connectedLabel": "^connected$",
+    "connectLabel": "^connect$",
+    "connectConfirm": "^connect\\b"
+  },
   "list": {
     "installedHeading": "Installed"
   },
