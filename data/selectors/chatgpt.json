@@ -24,12 +24,12 @@
     "nameTextbox": "^name$",
     "descriptionTextbox": "description",
     "urlTextbox": "server url",
-    "authCombobox": "authentication",
-    "noAuthOption": "no authentication",
-    "oauthOption": "oauth",
     "consentCheckbox": "i understand and want to continue",
     "createButton": "^create$",
-    "failureText": "connection failed|could not connect|invalid server|unauthorized|already exists|duplicate"
+    "failureText": "connection failed|could not connect|invalid server|unauthorized|already exists|duplicate",
+    "authSelect": "select",
+    "noAuthLabel": "No authentication",
+    "oauthLabel": "OAuth"
   },
   "list": {
     "installedHeading": "Installed"

@@ -124,8 +124,8 @@ export function chatgptAdapter(): PlatformAdapter {
         await dlg.getByRole("textbox", { name: rx(a.urlTextbox) }).first().fill(c.url);
       });
       await g("auth", async () => {
-        await dlg.getByRole("combobox", { name: rx(a.authCombobox) }).first().click();
-        await page.getByRole("option", { name: rx(c.def.auth.mode === "oauth" ? a.oauthOption : a.noAuthOption) }).first().click();
+        // Authentication is a native <select> (OAuth / No authentication / OAuth or no authentication).
+        await dlg.locator(a.authSelect).first().selectOption({ label: c.def.auth.mode === "oauth" ? a.oauthLabel : a.noAuthLabel });
         await dlg.getByRole("checkbox", { name: rx(a.consentCheckbox) }).first().check();
       });
       await g("create", async () => {
