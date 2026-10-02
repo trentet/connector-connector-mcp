@@ -54,6 +54,15 @@ async function openConnectors(ctx: AdapterContext): Promise<Page> {
   return s.page;
 }
 
+/** Grok registers/unregisters asynchronously: poll the Connected list until `name` is present/absent instead of reading once. */
+async function waitForState(ctx: AdapterContext, name: string, present: boolean, tries = 5): Promise<boolean> {
+  for (let i = 0; i < tries; i++) {
+    if ((await readConnected(ctx)).includes(name) === present) return true;
+    await sleep(3000);
+  }
+  return false;
+}
+
 const notMapped = (what: string): AdapterOutcome => ({ status: "not-implemented", detail: `grok ${what} not yet mapped (needs a live probe)` });
 
 /** Names in the "Connected" section: rows are elements whose own text is exactly the marker ("Added"); the row's first line is the name. */
@@ -114,9 +123,8 @@ export function grokAdapter(): PlatformAdapter {
           await sleep(2000);
         }
       });
-      await sleep(2500);
-      const still = (await readConnected(ctx)).includes(c.name);
-      return still ? { status: "error", detail: `clicked Disconnect but "${c.name}" is still in the Connected list` } : { status: "ok", detail: `"${c.name}" removed` };
+      const gone = await waitForState(ctx, c.name, false);
+      return gone ? { status: "ok", detail: `"${c.name}" removed` } : { status: "error", detail: `clicked Disconnect but "${c.name}" is still in the Connected list` };
     },
     async update() { return notMapped("update"); },
     async add(ctx, c, ifExisting): Promise<AdapterOutcome> {
@@ -151,8 +159,8 @@ export function grokAdapter(): PlatformAdapter {
         await btn.click();
         await sleep(4000);
       });
-      const names = await readConnected(ctx);
-      return names.includes(c.name) ? { status: "ok", detail: `"${c.name}" added (appears in Connected list)` } : { status: "error", detail: `submitted, but "${c.name}" did not appear in grok.com's Connected list` };
+      const there = await waitForState(ctx, c.name, true);
+      return there ? { status: "ok", detail: `"${c.name}" added (appears in Connected list)` } : { status: "error", detail: `submitted, but "${c.name}" did not appear in grok.com's Connected list after waiting` };
     },
   };
 }
