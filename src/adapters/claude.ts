@@ -114,9 +114,15 @@ async function connectIfNeeded(ctx: AdapterContext, name: string): Promise<Row |
   const s = await ctx.session();
   await s.page.goto(sel.listUrl, { waitUntil: "domcontentloaded" });
   await s.page.waitForSelector(sel.listRow, { timeout: 20000 }).catch(() => {});
-  const row = s.page.locator(sel.listRow, { hasText: name }).first();
-  const btn = row.getByRole("button", { name: rx(sel.add.rowConnectButton) });
-  if (await btn.count()) { await domClick(btn.first()); await sleep(5000); }
+  // Same substring-match hazard as remove() (fixed above): hasText on a plain string matches
+  // "name" as a prefix too, so this must resolve the exact row by parsed name, not loose hasText.
+  const rowTexts = await s.page.$$eval(sel.listRow, (rs) => rs.map((r) => (r as HTMLElement).innerText));
+  const rowIndex = rowTexts.findIndex((t) => parseRow(t)?.name === name);
+  if (rowIndex >= 0) {
+    const row = s.page.locator(sel.listRow).nth(rowIndex);
+    const btn = row.getByRole("button", { name: rx(sel.add.rowConnectButton) });
+    if (await btn.count()) { await domClick(btn.first()); await sleep(5000); }
+  }
   return (await readRows(ctx)).find((r) => r.name === name);
 }
 
