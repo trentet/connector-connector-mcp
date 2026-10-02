@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseRow } from "../src/adapters/claude.js";
+import { parseRow, sameName } from "../src/adapters/claude.js";
 import { run } from "../src/core/runner.js";
 import { loadRegistry } from "../src/core/registry.js";
 import type { PlatformAdapter } from "../src/adapters/types.js";
@@ -21,6 +21,14 @@ describe("claude list parsing (rows captured live 2026-10-01)", () => {
     expect(parseRow("Scholar Gateway Web Custom Connect")).toEqual({ name: "Scholar Gateway", custom: true, connected: false });
     expect(parseRow("Fathom – Your Meeting Intelligence Layer Web Connect")).toEqual({ name: "Fathom – Your Meeting Intelligence Layer", custom: false, connected: false });
     expect(parseRow("HELM Drive Connector TEST Web Custom  Connected")?.name).toBe("HELM Drive Connector TEST");
+  });
+});
+
+describe("detail-page name guard", () => {
+  it("accepts the display name or the server's own spelling, rejects other connectors", () => {
+    expect(sameName("DSM Connect\nCustom connector", "DSM Connect")).toBe(true);
+    expect(sameName("dsm-connect\nReconnect", "DSM Connect")).toBe(true);
+    expect(sameName("Fleet Connect", "DSM Connect")).toBe(false);
   });
 });
 
