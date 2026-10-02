@@ -1,5 +1,5 @@
 {
-  "_note": "Flow + selector map for the chatgpt adapter. Data, not code: fix UI drift here. Add flow ported from the original ChatGPT registrar (verified there 2026-09-30); login flow verified live 2026-10-01.",
+  "_note": "Flow + selector map for the chatgpt adapter. Data, not code: fix UI drift here. Add flow ported from the original ChatGPT registrar (verified there 2026-09-30); login flow verified live 2026-10-01. 2026-10-02: ChatGPT renamed the add-menu item/dialog/submit button (was \"create mcp app\" / \"New plugin\" / \"Create\", now \"Create custom MCP server\" / \"Create custom MCP server\" / \"Create as a plugin\") - name/description/url/consent/auth-select fields unchanged, confirmed live via read-only probes against the real page before editing this file. Fixed and verified live (two full add/verify/remove/verify cycles against cc-selftest) 2026-10-02.",
   "pluginsUrl": "https://chatgpt.com/plugins",
   "loginUrl": "https://chatgpt.com/auth/login",
   "loginVaultLabel": "Google Account (trenterrolthomas@gmail.com)",
@@ -19,13 +19,13 @@
   },
   "add": {
     "addButton": "^add$",
-    "createMcpMenuItem": "create mcp app",
-    "dialogHeading": "new plugin",
+    "createMcpMenuItem": "create custom mcp server",
+    "dialogHeading": "create custom mcp server",
     "nameTextbox": "^name$",
     "descriptionTextbox": "description",
     "urlTextbox": "server url",
     "consentCheckbox": "i understand and want to continue",
-    "createButton": "^create$",
+    "createButton": "create as a plugin",
     "failureText": "connection failed|could not connect|invalid server|unauthorized|already exists|duplicate",
     "authSelect": "select",
     "noAuthLabel": "No authentication",
