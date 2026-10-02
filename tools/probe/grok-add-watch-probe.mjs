@@ -28,12 +28,20 @@ try {
   await new Promise((r) => setTimeout(r, 1500));
   await page.getByText(/^custom/i).first().click();
   await new Promise((r) => setTimeout(r, 1200));
-  await page.locator('input[placeholder="My Connector"]').fill("cc-selftest");
-  await page.locator('input[placeholder*="mcp.example.com"]').fill(url);
-  await new Promise((r) => setTimeout(r, 600));
-  await page.getByRole("button", { name: /^add connector$/i }).first().click();
-  for (let i = 0; i < 24; i++) { await watch(); await new Promise((r) => setTimeout(r, 500)); }
+  const nameBox = page.locator('input[placeholder="My Connector"]');
+  const urlBox = page.locator('input[placeholder*="mcp.example.com"]');
+  await nameBox.click(); await nameBox.pressSequentially("cc-selftest", { delay: 15 });
+  await urlBox.click(); await urlBox.pressSequentially(url, { delay: 5 });
+  await new Promise((r) => setTimeout(r, 1000));
+  const btn = page.getByRole("button", { name: /^add connector$/i }).first();
+  const dlgText = async () => R(await page.evaluate(() => { const d = [...document.querySelectorAll("[role=dialog]")].pop(); return d ? d.innerText.trim().replace(/\s+/g, " ").slice(0, 400) : "(no dialog)"; }));
+  const state = { before: { disabled: await btn.isDisabled().catch(() => "n/a"), ariaDisabled: await btn.getAttribute("aria-disabled").catch(() => null), nameVal: await nameBox.inputValue(), urlLen: (await urlBox.inputValue()).length, dialog: await dlgText() } };
+  await btn.click();
+  const timeline = [];
+  for (let i = 0; i < 16; i++) { await new Promise((r) => setTimeout(r, 700)); timeline.push({ t: ((i + 1) * 0.7).toFixed(1), dialog: await dlgText() }); }
+  state.timeline = timeline.filter((x, i) => i === 0 || x.dialog !== timeline[i - 1].dialog);
+  for (let i = 0; i < 4; i++) { await watch(); await new Promise((r) => setTimeout(r, 300)); }
   const nameNow = await page.evaluate(() => document.body.innerText.includes("cc-selftest"));
-  console.log(JSON.stringify({ seenAfterSubmit: [...seen].slice(0, 12), nameInPageAfter: nameNow, path: new URL(page.url()).pathname }, null, 1));
+  console.log(JSON.stringify({ ...state, nameInPageAfter: nameNow, path: new URL(page.url()).pathname }, null, 1));
 } catch (e) { console.log(JSON.stringify({ error: R(String(e.message).split("\n")[0]), seen: [...seen] })); }
 finally { await s.close(); }
