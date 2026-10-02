@@ -35,7 +35,7 @@ afterAll(async () => { await new Promise((r) => site.close(r)); });
 // Every session a test opens is closed afterwards even when an assertion throws, so a failure never leaves a Chrome behind.
 const opened: BrowserSession[] = [];
 const openSession = async () => { const s = await realOpen(); opened.push(s); return s; };
-const envKeys = ["CC_CHROME_PATH", "CC_BROWSER_MASTER", "CC_CHROME_EXTRA_ARGS", "CC_LANES_DIR", "CC_MAX_CONCURRENCY", "CC_LANE_PORT_BASE", "CC_SELECTORS_DIR", "CC_LANE_WAIT_MS"];
+const envKeys = ["CC_CHROME_PATH", "CC_BROWSER_MASTER", "CC_CHROME_EXTRA_ARGS", "CC_LANES_DIR", "CC_MAX_CONCURRENCY", "CC_LANE_PORT_BASE", "CC_SELECTORS_DIR", "CC_LANE_WAIT_MS", "CC_ADMIT"];
 afterEach(async () => { while (opened.length) await opened.pop()!.close().catch(() => {}); for (const k of envKeys) delete process.env[k]; });
 
 /** Fresh master profile holding one persistent sign-in cookie ("authcookie"), a selectors dir declaring it as platform "testplat"'s proof of sign-in, and a private lane dir/port range. */
@@ -45,7 +45,7 @@ async function setup(portBase: number, max = 3) {
   lanesDir = tmp("cc-lanes-");
   fs.writeFileSync(path.join(selectors, "testplat.json"), JSON.stringify({ auth: { cookie: "authcookie", refresh: ["authcookie"], hosts: [host], ssoHosts: [] } }));
   fs.writeFileSync(path.join(selectors, "testplat2.json"), JSON.stringify({ auth: { cookie: "authcookie2", refresh: ["authcookie2"], hosts: ["localhost"], ssoHosts: [] } }));
-  Object.assign(process.env, { CC_CHROME_PATH: CHROME, CC_BROWSER_MASTER: master, CC_CHROME_EXTRA_ARGS: HEADLESS, CC_LANES_DIR: lanesDir, CC_MAX_CONCURRENCY: String(max), CC_LANE_PORT_BASE: String(portBase), CC_SELECTORS_DIR: selectors });
+  Object.assign(process.env, { CC_CHROME_PATH: CHROME, CC_BROWSER_MASTER: master, CC_CHROME_EXTRA_ARGS: HEADLESS, CC_LANES_DIR: lanesDir, CC_MAX_CONCURRENCY: String(max), CC_LANE_PORT_BASE: String(portBase), CC_SELECTORS_DIR: selectors, CC_ADMIT: "off" /* these tests are about isolation, not politeness (see politeness.test.ts) */ });
   const seedPort = portBase + 50;
   const l = await launchChrome(master, seedPort);
   const b = await chromium.connectOverCDP(`http://127.0.0.1:${seedPort}`);

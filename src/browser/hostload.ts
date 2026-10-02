@@ -20,9 +20,18 @@ export const freeMemGB = () => os.freemem() / 1024 ** 3;
 
 export interface Headroom { maxCpuPercent: number; minFreeGB: number }
 export const headroomLimits = (e = process.env): Headroom => ({
-  maxCpuPercent: Number(e.CC_ADMIT_MAX_CPU) || 70,
+  maxCpuPercent: Number(e.CC_ADMIT_MAX_CPU) || 60,
   minFreeGB: e.CC_ADMIT_MIN_FREE_GB === undefined ? 1.5 : Number(e.CC_ADMIT_MIN_FREE_GB),
 });
+
+/**
+ * How many cc browsers this hardware can carry at once: the CPU budget (cores x CC_ADMIT_MAX_CPU) divided by what one cc Chrome uses
+ * (about 1.7 cores, measured; CC_BROWSER_CORES overrides). Never below 1. A weak laptop gets 2, a 32-core server gets 11, with no per-host tuning.
+ */
+export function capacityByHardware(limits: Headroom = headroomLimits(), cores = os.cpus().length, e = process.env): number {
+  const per = Number(e.CC_BROWSER_CORES) || 1.7;
+  return Math.max(1, Math.floor((cores * limits.maxCpuPercent) / 100 / per + 1e-9));
+}
 
 /** True when the host can take another browser right now. `sample` is injectable for tests. */
 export async function hasHeadroom(limits: Headroom = headroomLimits(), sample: () => Promise<number> = () => sampleCpuBusy(), freeGB: () => number = freeMemGB): Promise<{ ok: boolean; cpu: number; freeGB: number }> {
