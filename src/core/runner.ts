@@ -29,9 +29,16 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
   const results: ItemResult[] = [];
   const sessions = new Map<Platform, Promise<BrowserSession>>();
   // One browser per platform, opened lazily. A failed open is remembered, so every remaining item on that platform fails fast with the same error instead of each waiting for a lane again.
+  const trace = (m: string) => { if (process.env.CC_TRACE) console.error(`[trace +${((Date.now() - t0) / 1000).toFixed(1)}s] ${m}`); }; // ids and seconds only, never values
+  const t0 = Date.now();
   const sessionFor = (platform: Platform) => async () => {
     let p = sessions.get(platform);
-    if (!p) { p = (opts.sessionFactory ?? (async () => (await import("../browser/chrome.js")).openSession()))(platform); sessions.set(platform, p); }
+    if (!p) {
+      const t = Date.now();
+      p = (opts.sessionFactory ?? (async () => (await import("../browser/chrome.js")).openSession()))(platform);
+      sessions.set(platform, p);
+      void p.then(() => trace(`${platform}: browser ready in ${((Date.now() - t) / 1000).toFixed(1)}s`), () => trace(`${platform}: browser failed to open`));
+    }
     const s = await p;
     s.touched?.add(platform); // records that this browser drove this platform (decides whether its refreshed sign-in is merged back)
     return s;
@@ -72,6 +79,15 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
   async function runTask(t: Task, needsConnector: boolean): Promise<ItemResult> {
     const { platform, connector: c } = t;
     const base = { connector: c?.id ?? "*", platform, op: req.op } as const;
+    const started = Date.now();
+    trace(`${platform}: ${req.op} ${base.connector} start`);
+    try {
+      return await doTask(t, needsConnector, base);
+    } finally { trace(`${platform}: ${req.op} ${base.connector} done in ${((Date.now() - started) / 1000).toFixed(1)}s`); }
+  }
+
+  async function doTask(t: Task, needsConnector: boolean, base: { connector: string; platform: Platform; op: RunRequest["op"] }): Promise<ItemResult> {
+    const { platform, connector: c } = t;
     try {
       const rc = c && needsConnector ? await resolveConnector(c, platform, red, deps) : undefined;
       if (req.dryRun) return { ...base, status: "dry-run", detail: c ? describe(c, rc, red) : "would " + req.op };
