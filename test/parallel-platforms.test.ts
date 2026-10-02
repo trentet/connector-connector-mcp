@@ -40,11 +40,11 @@ function harness(ms: number, opts: { failPlatform?: Platform; failOpen?: Platfor
   return { spans, opened, closed, touchedBy, adapters, sessionFactory, peak: () => peak };
 }
 
-describe("one call, one browser per platform, platforms at the same time", () => {
+describe("one call, one browser per platform; platforms at the same time when asked", () => {
   it("the three platforms overlap (wall time ~ the slowest, not the sum), each in its own session that touched only its platform", async () => {
     const h = harness(400);
     const t0 = Date.now();
-    const res = await run(reg, { op: "verify", connectors: ids, platforms: [...PLATFORMS] }, { deps, adapters: h.adapters, sessionFactory: h.sessionFactory });
+    const res = await run(reg, { op: "verify", connectors: ids, platforms: [...PLATFORMS] }, { deps, adapters: h.adapters, sessionFactory: h.sessionFactory, platformParallelism: 3 });
     const elapsed = Date.now() - t0;
     expect(res.ok).toBe(true);
     expect(res.items).toHaveLength(ids.length * PLATFORMS.length);
@@ -58,13 +58,26 @@ describe("one call, one browser per platform, platforms at the same time", () =>
 
   it("connectors on the same platform stay sequential, and results keep connector-major, platform-minor order", async () => {
     const h = harness(150);
-    const res = await run(reg, { op: "verify", connectors: ids, platforms: [...PLATFORMS] }, { deps, adapters: h.adapters, sessionFactory: h.sessionFactory });
+    const res = await run(reg, { op: "verify", connectors: ids, platforms: [...PLATFORMS] }, { deps, adapters: h.adapters, sessionFactory: h.sessionFactory, platformParallelism: 3 });
     const order = res.items.map((i) => `${i.connector}@${i.platform}`);
     expect(order).toEqual(ids.flatMap((id) => PLATFORMS.map((p) => `${id}@${p}`)));
     for (const p of PLATFORMS) {
       const mine = h.spans.filter((s) => s.platform === p).sort((a, b) => a.start - b.start);
       for (let i = 1; i < mine.length; i++) expect(mine[i].start).toBeGreaterThanOrEqual(mine[i - 1].end - 5); // no overlap within one platform
     }
+  });
+
+  it("by default platforms run one after another (parallel was measured slower on the host); CC_PLATFORM_PARALLELISM opts in", async () => {
+    delete process.env.CC_PLATFORM_PARALLELISM;
+    const h = harness(100);
+    await run(reg, { op: "verify", connectors: ids.slice(0, 1), platforms: [...PLATFORMS] }, { deps, adapters: h.adapters, sessionFactory: h.sessionFactory });
+    expect(h.peak()).toBe(1);
+    process.env.CC_PLATFORM_PARALLELISM = "3";
+    try {
+      const h2 = harness(100);
+      await run(reg, { op: "verify", connectors: ids.slice(0, 1), platforms: [...PLATFORMS] }, { deps, adapters: h2.adapters, sessionFactory: h2.sessionFactory });
+      expect(h2.peak()).toBe(3);
+    } finally { delete process.env.CC_PLATFORM_PARALLELISM; }
   });
 
   it("platformParallelism caps how many platforms run together", async () => {
@@ -100,7 +113,7 @@ describe("one call, one browser per platform, platforms at the same time", () =>
 
   it("list and probe also run the platforms at the same time", async () => {
     const h = harness(300);
-    const res = await run(reg, { op: "probe", connectors: [], platforms: [...PLATFORMS] }, { deps, adapters: h.adapters, sessionFactory: h.sessionFactory });
+    const res = await run(reg, { op: "probe", connectors: [], platforms: [...PLATFORMS] }, { deps, adapters: h.adapters, sessionFactory: h.sessionFactory, platformParallelism: 3 });
     expect(res.items.map((i) => i.platform)).toEqual([...PLATFORMS]);
     expect(h.peak()).toBe(3);
   });

@@ -9,7 +9,7 @@ export interface RunnerOptions {
   deps?: ResolveDeps;
   /** Opens the browser session a platform's adapter uses; defaults to a fresh per-run Chrome. Called at most once per platform per run. */
   sessionFactory?: (platform: Platform) => Promise<BrowserSession>;
-  /** How many platforms run at the same time (default CC_PLATFORM_PARALLELISM, else all of them). */
+  /** How many platforms run at the same time (default CC_PLATFORM_PARALLELISM, else 1: measured slower on the HELM host when higher, see docs/SPEC.md section 9). */
   platformParallelism?: number;
 }
 
@@ -18,9 +18,11 @@ interface Task { idx: number; platform: Platform; connector?: ConnectorDef }
 /**
  * The single code path used by BOTH the CLI and the MCP server. Knows ops and platforms, never a specific connector.
  *
- * Platforms are independent (separate accounts, logins and pages), so each platform gets its own worker with its own browser
- * and the workers run at the same time; items within one platform stay sequential (two connectors added at once in one account
- * could race on that platform's list). Results come back in the original connector-major, platform-minor order.
+ * Platforms are independent (separate accounts, logins and pages), so each platform gets its own worker with its own browser;
+ * `platformParallelism` (CC_PLATFORM_PARALLELISM) says how many workers run at the same time. The default is 1 because on the
+ * HELM host (8 cores) each cc Chrome burns ~1.7 cores and three at once measured SLOWER than one after another. Items within one
+ * platform always stay sequential (two connectors added at once in one account could race on that platform's list).
+ * Results come back in the original connector-major, platform-minor order.
  */
 export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = {}): Promise<RunResult> {
   const red = new Redactor();
@@ -69,7 +71,7 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
     }
     const byPlatform = new Map<Platform, Task[]>();
     for (const t of tasks) byPlatform.set(t.platform, [...(byPlatform.get(t.platform) ?? []), t]);
-    const limit = Math.max(1, opts.platformParallelism ?? (Number(process.env.CC_PLATFORM_PARALLELISM) || req.platforms.length));
+    const limit = Math.max(1, opts.platformParallelism ?? (Number(process.env.CC_PLATFORM_PARALLELISM) || 1));
     const queue = [...byPlatform.values()];
     await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, async () => {
       for (let w = queue.shift(); w; w = queue.shift()) for (const t of w) results[t.idx] = await runTask(t, needsConnector);
