@@ -93,25 +93,21 @@ OPEN:
    vault_request_secret, label "Grok (grok.com email login)", awaiting operator submit (not yet in vault_list_refs).
 2. Diff of the three vendored Claude registrars and ChatGPT registrar internals still to be read (P0/P3).
 
-## 7. TO-DO (operator-mandated, do not drop)
-FINAL STEP (P6): once cc is built, deployed, and verified on claude.ai, ChatGPT AND Grok with parity for
-every seeded connector, CLEAN UP the old per-repo registration scripts so cc is the single source of truth:
-vault-mcp, helm-terminal-mcp, helm-audio-mcp scripts/register-connector/ (and D:\GDrive\...\Repos copies),
-helm-local\register-test-connector, helm-local\backups\register-connector-accommodation-edit-20260928,
-helm-local\chatgpt-register-connectors. Find stragglers with `cc audit --scan`. Add docs/ADOPTION.md
-snippet to each connector repo. Confirm with operator before deleting.
+## 7. TO-DO
+DONE (2026-10-02): per-repo registration scripts were retired (archived, then deleted) from vault-mcp, helm-terminal-mcp, helm-audio-mcp, TT-MCP, roku-mcp and helm-local;
+each connector repo carries only a "Registering this connector" README note pointing to cc. Find stragglers with `cc audit --scan <root>`; a connector repo must never grow a registrar again.
+Remaining operator-owned work: bring the not-yet-ready connectors (dsm-connect, roku-mcp, itops, arr, fleet, esxi) up in their own threads, then `cc add` them.
 
 ## 8. STATUS (2026-10-02)
-P0 DONE. P1 DONE (core, 19 tests). P2 DONE (CDP session, vault logins incl. one-time-vault SMS code for ChatGPT).
-P3 DONE: claude, grok, chatgpt adapters each passed the exit test (add>verify>remove>verify x2 on a throwaway, real connectors intact).
-P4 DONE for server + deploy: MCP front door (cc_run, cc_list_registry; ids only; unknown args rejected), deployed test (cc-test.trentt.me:8811)
-and production (cc.trentt.me:8810) under %LOCALAPPDATA%\HELM\connector-connector-mcp, four AtLogOn watchdog tasks. Live verify over MCP matched the CLI on all three platforms.
-P5 IN PROGRESS: parity verified for helm-drive (3/3) and helm-shell (claude, chatgpt); helm-shell@grok, helm-audio-mcp and patchright-mcp being registered.
-P6 NOT STARTED (needs operator go-ahead): remove the old per-repo registrars; use `cc audit --scan`.
+P0-P6 DONE. All production connectors (helm-drive, helm-shell, vault-mcp, helm-audio-mcp, patchright-mcp, connector-connector) are registered and verified on
+claude.ai, ChatGPT and Grok (18/18). Test-tier connectors stay off unless actively under test. Deployed: test (cc-test.trentt.me:8811) and production (cc.trentt.me:8810)
+under %LOCALAPPDATA%\HELM\connector-connector-mcp with four AtLogOn watchdog tasks; redeploy = stop the instance, `node scripts/deploy.mjs <env> main`, start it.
+Verify depth: claude = Connected row; grok = in Connected list; chatgpt = Installed AND the plugin page shows Connected (cc add performs ChatGPT's Connect step). ChatGPT shows no tool list, so a tool scan is not provable.
+Known limit: cc_run over the MCP front door can exceed a client's 60 s timeout on long runs (the run still completes); use the host CLI in a background process for large runs.
 
 ### Findings that changed the design
 - ChatGPT and Grok are header-less: header-auth connectors need urlByPlatform (a tokenized URL), and the SERVER must accept ?token=.
-  Vault MCP's server rejects ?token= (401), so it is Claude-only until that server changes. HELM Drive, HELM Shell, helm-audio-mcp, patchright-mcp accept both.
+  Servers must accept a ?token= (non-admin only) for these platforms; Vault MCP gained a separate low-privilege query token for this. A connector that cannot accept it stays Claude-only.
 - claude.ai refuses a second connector with an existing URL ("already exists in your organization").
 - Platforms show different display names for the same connector (nameByPlatform): claude "HELM Drive Connector", chatgpt "HELM Drive MCP Connector", grok "HELMMCP".
 - Rows in claude.ai's list contain icon-font characters; Grok registers asynchronously (poll); ChatGPT's Authentication is a native <select>, Remove is Delete plugin on the plugin page;
