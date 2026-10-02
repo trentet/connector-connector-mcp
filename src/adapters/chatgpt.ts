@@ -105,10 +105,15 @@ type ConnectionState = "connected" | "not-connected" | "unreadable";
  * Connection state on a plugin's own page: a "Connected" label when ChatGPT completed its handshake with the server,
  * a "Connect" button when the app is installed but not connected. The page lists no discovered tools, so this is the deepest check available.
  */
+/** Visible text of the app page the last time its connection state was read; surfaced when the state is unreadable so UI drift can be fixed from the real wording. */
+let lastPageLines: string[] = [];
+const pageSnippet = () => lastPageLines.slice(0, 30).join(" | ").slice(0, 600);
+
 async function pageConnectionState(page: Page): Promise<ConnectionState> {
   const connected = new RegExp(sel.verify.connectedLabel, "i"), connect = new RegExp(sel.verify.connectLabel, "i");
   for (let i = 0; i < 6; i++) {
     const lines: string[] = await page.evaluate(() => ((document.querySelector("main") as HTMLElement | null)?.innerText ?? "").split("\n").map((l) => l.trim()).filter(Boolean));
+    lastPageLines = lines;
     if (lines.some((l) => connected.test(l))) return "connected";
     if (lines.some((l) => connect.test(l))) return "not-connected";
     await sleep(1500);
@@ -122,7 +127,7 @@ async function ensureConnected(ctx: AdapterContext, name: string): Promise<"alre
   const page = await openPluginPage(ctx, name);
   const state = await pageConnectionState(page);
   if (state === "connected") return "already";
-  if (state === "unreadable") throw new Error(`"${name}" page shows neither Connected nor Connect`);
+  if (state === "unreadable") throw new Error(`"${name}" page shows neither Connected nor Connect. Page text: ${pageSnippet()}`);
   await page.getByRole("button", { name: new RegExp(sel.verify.connectLabel, "i") }).first().click();
   const dlg = page.getByRole("dialog").or(page.getByRole("alertdialog")).filter({ hasText: name }).last();
   await dlg.waitFor({ timeout: 12000 }).catch(() => { throw new Error(`no connect dialog naming "${name}" appeared; not confirming`); });
@@ -145,7 +150,7 @@ export function chatgptAdapter(): PlatformAdapter {
       const state = await readConnectionState(ctx, c.name);
       if (state === "connected") return { status: "ok", detail: `"${c.name}" is Installed and its page shows Connected (ChatGPT shows no tool list, so discovered tools are not checked)` };
       if (state === "not-connected") return { status: "error", detail: `"${c.name}" is Installed but its page shows Connect, i.e. ChatGPT has not connected to the server` };
-      return { status: "error", detail: `"${c.name}" is Installed but its page shows neither Connected nor Connect (UI drift? check data/selectors/chatgpt.json "verify")` };
+      return { status: "error", detail: `"${c.name}" is Installed but its page shows neither Connected nor Connect (UI drift? check data/selectors/chatgpt.json "verify"). Page text: ${pageSnippet()}` };
     },
     async remove(ctx, c): Promise<AdapterOutcome> {
       if (!(await pageHasName(ctx, c.name))) return { status: "skipped", detail: `"${c.name}" not in Installed list` };
