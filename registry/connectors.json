@@ -692,6 +692,60 @@
         "grok"
       ],
       "tier": "test"
+    },
+    {
+      "id": "fleet-connect",
+      "name": "Fleet Connect",
+      "description": "Fleet Connect: cross-platform fleet bootstrap/remote-execution MCP connector (Windows/Linux/Synology DSM), one connector addressing many machines by target_id. Claude uses the x-api-key header; ChatGPT and Grok use a low-privilege ?token= (non-admin tools only).",
+      "url": {
+        "type": "literal",
+        "value": "https://fleet.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://fleet.trentt.me/mcp?token={{queryToken}}",
+          "variables": {
+            "queryToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/fleet-connect/production/secrets/connector.env"
+              ],
+              "key": "FLEET_MCP_QUERY_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://fleet.trentt.me/mcp?token={{queryToken}}",
+          "variables": {
+            "queryToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/fleet-connect/production/secrets/connector.env"
+              ],
+              "key": "FLEET_MCP_QUERY_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/fleet-connect/production/secrets/connector.env"
+          ],
+          "key": "FLEET_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ],
+      "tier": "production"
     }
   ]
 }
