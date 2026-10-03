@@ -29,6 +29,8 @@ Connector repos must NOT carry their own registration scripts. If you are asked 
    Tests: `test/browser-concurrency.test.ts` and `test/politeness.test.ts` run real Chromium; `test/parallel-platforms.test.ts` covers the runner.
 6. **Logins** come from the vault inside this process (`bw serve`), never via a vault MCP tool call. ChatGPT's SMS code goes through a one-time vault entry (`ChatGPT SMS code`).
 7. **Throwaway test connector:** `registry/selftest.json` (`cc-selftest`). Exit test per platform = add → verify → remove → verify, twice, then confirm real connectors are untouched.
+8. **Google OAuth renewal lives here, not in connector repos** (operator, 2026-10-03). A connector that holds a Google refresh token (`credentials.json` + `token.json`) gets a `googleOAuth` block in its registry entry and is renewed by `cc reauth` (CLI) / `cc_reauth` (MCP), scheduled by `scripts/run-reauth.ps1` + `scripts/install-reauth-task.ps1`. Connector repos must NOT carry reauth / renew-token scripts or browser automation for Google's consent screen (`cc audit --scan` flags them); the connector's own `auth:url` / `auth:exchange` flow stays as the manual fallback. The Google consent screen is driven by `src/browser/googleConsent.ts` with its facts in `data/selectors/google-consent.json`.
+   **This is the ONE exception to "cc never clicks a consent/Approve button"** (that rule still governs `auth.oauthLogin`), and it is bounded: only for a registry-declared `googleOAuth` target; only while the page is on Google's own hosts (any other host stops it); only for a consent URL cc built itself from the declared scopes; it stops the moment the loopback redirect delivers the result; the granted scopes must include every declared scope or nothing is written; it fills only the Google account's own email/password from the vault. Never widen it to another origin, another account, or any button outside that flow. Everything else is the usual rules: browser via `openSession` (lane + admission gate, one browser per call), output through `Redactor` (never a code, token, client secret or password; logged URLs are origin + path only), no new dependency, nothing connector-specific in `src/`. Proof: `test/reauth.test.ts` (orchestration, rollback, redaction, lock) and `test/google-consent.test.ts` (real Chromium against a fake Google).
 
 ## Test connectors are on-demand (operator policy)
 Connectors with `"tier": "test"` (helm-audio-mcp-test, helm-drive-mcp-test, patchright-mcp-test, connector-connector-test) must NOT stay registered on the platforms
@@ -46,10 +48,10 @@ Promotion rule (operator, 2026-10-02): test is for development and functionality
 - `--platform` takes one or more platforms, or `all`: `--platform chatgpt grok`.
 
 ## Layout
-`bin/cc.mjs` CLI · `src/core` registry/secrets/redaction/runner · `src/adapters/{claude,chatgpt,grok}.ts` · `src/browser` · `src/server` MCP front door ·
+`bin/cc.mjs` CLI · `src/core` registry/secrets/redaction/runner/reauth/transport · `src/adapters/{claude,chatgpt,grok}.ts` · `src/browser` (incl. `googleConsent.ts`) · `src/server` MCP front door ·
 `data/selectors` · `registry` · `scripts` deploy/start/tunnel/tasks · `tools/probe` read-only diagnostics · `docs/SPEC.md`.
 
 ## Commands
 `npm test` · `npm run build` · `node bin/cc.mjs <add|remove|update|verify|list|probe> [ids|--all] --platform <claude|chatgpt|grok ...>|all [--dry-run] [--registry <path>]` ·
-`node bin/cc.mjs browser seed|check` (master profile) · `node bin/cc.mjs audit --scan <repo-root>` (finds registration-script look-alikes in other repos).
+`node bin/cc.mjs reauth <ids|--all> [--include-test] [--dry-run]` (Google OAuth renewal) · `node bin/cc.mjs browser seed|check` (master profile) · `node bin/cc.mjs audit --scan <repo-root>` (finds registration-script look-alikes in other repos).
 Host: `CC_BROWSER_MASTER` (cold master profile), `CC_MAX_CONCURRENCY`, `CC_PLATFORM_PARALLELISM`, `CC_ADMIT_MAX_CPU`, `CC_TRACE=1` (per-step timings and admission waits on stderr), `CC_CHROME_PATH`, `CC_DEBUG=1` (redacted step dumps), deploy with `scripts/setup-host.ps1`, `scripts/deploy.mjs`, `scripts/install-tasks.ps1`.

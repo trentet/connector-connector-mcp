@@ -24,3 +24,12 @@ for that connector runs, cc signs in to a page on the **connector's own origin**
 returned or logged). It only acts on a page with a password field, never clicks a consent/Approve button on its own, and never touches another
 origin. A login form with no `oauthLogin` configured is reported in the item detail, not guessed at. `cc add --dry-run` shows whether the vault
 label resolves.
+
+## Connectors that hold a Google OAuth grant (`googleOAuth`)
+A connector whose server uses a Google refresh token (it has `credentials.json` + `token.json`) does **not** carry a renewal script either. Put this in its README / CLAUDE.md:
+
+> **Renewing this connector's Google OAuth token is done by `connector-connector-mcp` (`cc reauth`), not by a script in this repo.**
+> Do not add reauth / renew-token scripts or browser automation for Google's consent screen here. Add a `googleOAuth` block to this connector's cc registry entry, then `cc reauth <id> --dry-run` and `cc reauth <id>`.
+
+The block names where `credentials.json` / `token.json` live on the connector's host (`secretsDir`), the scopes, the Google account's vault label, optionally an ssh `host` (when the server runs elsewhere), a `restart` command and a `health` URL (so cc can restart it and prove it came back). The server only has to re-read `token.json` when it starts. The fallback stays in the repo: its own `auth:url` / `auth:exchange` consent flow, for when cc cannot do it. `cc audit --scan <repo-root>` also flags Google-consent look-alikes.
+

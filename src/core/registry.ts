@@ -9,6 +9,26 @@ function checkSource(s: unknown, where: string, errs: string[]): void {
   if (o.type === "template") for (const [k, v] of Object.entries(o.variables ?? {})) checkSource(v, `${where}.variables.${k}`, errs);
 }
 
+function checkGoogleOAuth(g: unknown, where: string, errs: string[]): void {
+  const o = g as { secretsDir?: unknown; scopes?: unknown; account?: { vaultLabel?: unknown }; host?: { ssh?: unknown; keyFile?: unknown; port?: unknown; os?: unknown }; restart?: { command?: unknown }; health?: { url?: unknown; waitSeconds?: unknown } };
+  if (!o || typeof o !== "object") { errs.push(`${where}: must be an object`); return; }
+  if (typeof o.secretsDir !== "string" || !o.secretsDir.trim()) errs.push(`${where}.secretsDir: required`);
+  if (!Array.isArray(o.scopes) || o.scopes.length === 0 || o.scopes.some((s) => typeof s !== "string" || !/^https:\/\/www\.googleapis\.com\/auth\/[\w.-]+$/.test(s))) errs.push(`${where}.scopes: a non-empty list of https://www.googleapis.com/auth/... scopes`);
+  if (typeof o.account?.vaultLabel !== "string" || !o.account.vaultLabel) errs.push(`${where}.account.vaultLabel: required (the Google account's vault entry)`);
+  if (o.host !== undefined) {
+    if (typeof o.host.ssh !== "string" || !/^[\w.-]+@[\w.-]+$/.test(o.host.ssh)) errs.push(`${where}.host.ssh: must look like user@host`);
+    if (typeof o.host.keyFile !== "string" || !o.host.keyFile) errs.push(`${where}.host.keyFile: required`);
+    if (o.host.port !== undefined && !(Number.isInteger(o.host.port) && (o.host.port as number) > 0 && (o.host.port as number) < 65536)) errs.push(`${where}.host.port: invalid`);
+    if (o.host.os !== undefined && o.host.os !== "windows" && o.host.os !== "posix") errs.push(`${where}.host.os: "windows" or "posix"`);
+  }
+  if (o.restart !== undefined && (typeof o.restart.command !== "string" || !o.restart.command.trim())) errs.push(`${where}.restart.command: required when restart is given`);
+  if (o.health !== undefined) {
+    if (typeof o.health.url !== "string" || !/^https?:\/\//.test(o.health.url)) errs.push(`${where}.health.url: must be an http(s) URL`);
+    if (o.health.waitSeconds !== undefined && !(typeof o.health.waitSeconds === "number" && o.health.waitSeconds > 0 && o.health.waitSeconds <= 600)) errs.push(`${where}.health.waitSeconds: 1-600`);
+    if (!o.restart) errs.push(`${where}.health: only meaningful together with restart`);
+  }
+}
+
 export function validateRegistry(r: unknown): { registry?: Registry; errors: string[] } {
   const errors: string[] = [];
   const reg = r as Registry;
@@ -31,6 +51,7 @@ export function validateRegistry(r: unknown): { registry?: Registry; errors: str
       if (!PLATFORMS.includes(pl as never)) errors.push(`${w}: urlByPlatform has unknown platform ${pl}`);
       checkSource(src, `${w}.urlByPlatform.${pl}`, errors);
     }
+    if (c.googleOAuth !== undefined) checkGoogleOAuth(c.googleOAuth, `${w}.googleOAuth`, errors);
     checkSource(c.url as Source, `${w}.url`, errors);
     if (c.auth?.headerValue) checkSource(c.auth.headerValue, `${w}.auth.headerValue`, errors);
   });

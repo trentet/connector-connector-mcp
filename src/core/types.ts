@@ -13,6 +13,25 @@ export type Source =
   | { type: "vault"; label: string; field?: "username" | "password" }
   | { type: "template"; template: string; variables: Record<string, Source> };
 
+/**
+ * A connector whose server holds a Google OAuth grant (credentials.json + token.json) that Google expires after 7 days while the
+ * OAuth app stays in Testing status. `cc reauth` renews it. Everything connector-specific lives here, in the registry, never in src/.
+ */
+export interface GoogleOAuthDef {
+  /** Directory on the connector's own host holding credentials.json (read) and token.json (written). `%VAR%` is expanded on this machine. */
+  secretsDir: string;
+  /** The scopes the connector's server uses. The consent must request exactly these and Google must grant them all, or nothing is written. */
+  scopes: string[];
+  /** The Google account that owns the grant: its vault entry (username/password resolved inside the process, never returned or logged). */
+  account: { vaultLabel: string };
+  /** The connector's server runs on another machine: files move with scp and commands with ssh. Absent = this machine. */
+  host?: { ssh: string; keyFile: string; port?: number; os?: "windows" | "posix" };
+  /** Run on the connector's host after the new token is in place (servers read token.json at start). */
+  restart?: { command: string };
+  /** Checked on the connector's host after the restart; if it fails, the previous token is restored. */
+  health?: { url: string; contains?: string; waitSeconds?: number };
+}
+
 export interface ConnectorDef {
   id: string;
   name: string;
@@ -38,6 +57,8 @@ export interface ConnectorDef {
     oauthLogin?: { vaultLabel: string };
   };
   platforms: Platform[];
+  /** Present when this connector's server holds a Google OAuth grant that `cc reauth` must keep alive. */
+  googleOAuth?: GoogleOAuthDef;
 }
 
 export interface Registry {

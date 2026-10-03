@@ -24,6 +24,25 @@
       "nameByPlatform": {
         "claude": "HELM Drive Connector",
         "grok": "HELMMCP"
+      },
+      "googleOAuth": {
+        "secretsDir": "%LOCALAPPDATA%\\HELM\\tt-mcp\\production\\secrets",
+        "scopes": [
+          "https://www.googleapis.com/auth/drive",
+          "https://www.googleapis.com/auth/documents",
+          "https://www.googleapis.com/auth/spreadsheets"
+        ],
+        "account": {
+          "vaultLabel": "Google Account (trenterrolthomas@gmail.com)"
+        },
+        "restart": {
+          "command": "node %LOCALAPPDATA%\\HELM\\tt-mcp\\deploy\\production\\scripts\\restart.mjs production"
+        },
+        "health": {
+          "url": "http://127.0.0.1:8787/health",
+          "contains": "\"status\":\"ok\"",
+          "waitSeconds": 60
+        }
       }
     },
     {
@@ -261,7 +280,31 @@
         "claude",
         "chatgpt",
         "grok"
-      ]
+      ],
+      "googleOAuth": {
+        "secretsDir": "C:\\Users\\KnottyAI\\AppData\\Local\\HELM\\helm-audio-mcp\\production\\secrets",
+        "scopes": [
+          "https://www.googleapis.com/auth/drive",
+          "https://www.googleapis.com/auth/documents",
+          "https://www.googleapis.com/auth/spreadsheets"
+        ],
+        "account": {
+          "vaultLabel": "Google Account (trenterrolthomas@gmail.com)"
+        },
+        "host": {
+          "ssh": "KnottyAI@192.168.23.200",
+          "keyFile": "%USERPROFILE%\\.ssh\\knottyai-pc_helm-shell",
+          "os": "windows"
+        },
+        "restart": {
+          "command": "powershell -NoProfile -NonInteractive -Command Stop-ScheduledTask -TaskName 'helm-audio-mcp Server'; Start-Sleep -Seconds 3; Start-ScheduledTask -TaskName 'helm-audio-mcp Server'"
+        },
+        "health": {
+          "url": "http://127.0.0.1:8791/health",
+          "contains": "\"status\":\"ok\"",
+          "waitSeconds": 90
+        }
+      }
     },
     {
       "id": "patchright-mcp",
@@ -368,7 +411,26 @@
         "chatgpt",
         "grok"
       ],
-      "tier": "test"
+      "tier": "test",
+      "googleOAuth": {
+        "secretsDir": "%LOCALAPPDATA%\\HELM\\helm-audio-mcp\\test\\secrets",
+        "scopes": [
+          "https://www.googleapis.com/auth/drive",
+          "https://www.googleapis.com/auth/documents",
+          "https://www.googleapis.com/auth/spreadsheets"
+        ],
+        "account": {
+          "vaultLabel": "Google Account (trenterrolthomas@gmail.com)"
+        },
+        "restart": {
+          "command": "node %LOCALAPPDATA%\\HELM\\helm-audio-mcp\\deploy\\test\\scripts\\restart.mjs test"
+        },
+        "health": {
+          "url": "http://127.0.0.1:8792/health",
+          "contains": "\"status\":\"ok\"",
+          "waitSeconds": 60
+        }
+      }
     },
     {
       "id": "connector-connector",
@@ -529,7 +591,26 @@
         "chatgpt",
         "grok"
       ],
-      "tier": "test"
+      "tier": "test",
+      "googleOAuth": {
+        "secretsDir": "%LOCALAPPDATA%\\HELM\\tt-mcp\\test\\secrets",
+        "scopes": [
+          "https://www.googleapis.com/auth/drive",
+          "https://www.googleapis.com/auth/documents",
+          "https://www.googleapis.com/auth/spreadsheets"
+        ],
+        "account": {
+          "vaultLabel": "Google Account (trenterrolthomas@gmail.com)"
+        },
+        "restart": {
+          "command": "node %LOCALAPPDATA%\\HELM\\tt-mcp\\deploy\\test\\scripts\\restart.mjs test"
+        },
+        "health": {
+          "url": "http://127.0.0.1:8789/health",
+          "contains": "\"status\":\"ok\"",
+          "waitSeconds": 60
+        }
+      }
     },
     {
       "id": "patchright-mcp-test",

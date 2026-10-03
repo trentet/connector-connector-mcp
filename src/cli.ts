@@ -3,13 +3,15 @@ import { loadRegistry } from "./core/registry.js";
 import { ADAPTERS } from "./adapters/index.js";
 import { audit } from "./audit.js";
 import { run } from "./core/runner.js";
+import { reauth } from "./core/reauth.js";
 import { checkMaster, seedMaster } from "./browser/seed.js";
 import { PLATFORMS, type Op, type Platform } from "./core/types.js";
 
 const OPS: Op[] = ["add", "remove", "update", "list", "verify", "probe"];
 const USAGE = `cc browser seed [--from-port <port>]   (one-time: copy platform sign-ins from a signed-in Chrome into cc's cold master profile)
 cc browser check                          (clone the master into a throwaway browser and report which platforms are signed in)
-cc audit --scan <repo-root> [--json]     (find per-repo registration scripts that cc replaces)
+cc audit --scan <repo-root> [--json]     (find per-repo registration / Google-reauth scripts that cc replaces)
+cc reauth [connector-id ...|--all] [--include-test] [--dry-run] [--registry <path>] [--json]   (renew the Google OAuth token of connectors with a googleOAuth registry block)
 cc <op> [connector-id ...|--all] [--platform <claude|chatgpt|grok ...>|all] [--dry-run] [--include-test] [--registry <path>] [--if-existing skip|update|fail] [--json]
 ops: ${OPS.join(", ")}`;
 
@@ -56,6 +58,15 @@ export async function main(argv: string[]): Promise<number> {
     else if (hits.length === 0) console.log(`audit: no registration-script look-alikes under ${root}`);
     else for (const h of hits) console.log(`${h.file}\n    ${h.reasons.join("; ")}`);
     return hits.length ? 1 : 0;
+  }
+  if (args[0] === "reauth") {
+    const parsed = parseFlags(args.slice(1));
+    if ("error" in parsed) { console.error(parsed.error); return 2; }
+    if (parsed.ids.length === 0) { console.error("usage: cc reauth <connector-id ...|--all> [--include-test] [--dry-run] [--registry <path>] [--json]"); return 2; }
+    const res = await reauth(loadRegistry(parsed.registryPath), { connectors: parsed.ids, includeTest: parsed.includeTest, dryRun: parsed.dryRun });
+    if (parsed.json) console.log(JSON.stringify(res, null, 2));
+    else for (const i of res.items) console.log(`${i.status.padEnd(8)} reauth ${i.connector}${i.detail ? " - " + i.detail : ""}`);
+    return res.ok ? 0 : 1;
   }
   if (args[0] === "browser") {
     const sub = args[1];
