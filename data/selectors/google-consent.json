@@ -12,13 +12,15 @@
   "selectAllText": "^Select all$",
   "paths": {
     "accountChooser": "/accountchooser",
-    "consentSummary": "/signin/oauth/v2/consentsummary",
-    "consent": "/signin/oauth/(consent|v2/consentsummary)",
+    "consent": "/signin/oauth/(v\\d+/)?consent(summary)?",
     "challenge": "/signin/challenge/"
   },
   "accountChooserChrome": "^(Scroll down|Help|Privacy|Terms|Use another account|Resend it|Try another way|Sign in with a different account|Got it)$",
   "accountSwitcherChipAria": "^Google Account:",
-  "googleHosts": ["accounts.google.com", "google.com"],
+  "googleHosts": [
+    "accounts.google.com",
+    "google.com"
+  ],
   "limits": {
     "maxSteps": 20,
     "settleMs": 1200,

@@ -18,7 +18,7 @@ import { sleep } from "./dom.js";
 export interface ConsentSpec {
   emailInput: string; emailNext: string; passwordInput: string; passwordNext: string;
   nextText: string; advancedText: string; goToAppText: string; continueText: string; allowText: string; selectAllText: string;
-  paths: { accountChooser: string; consentSummary: string; consent: string; challenge: string };
+  paths: { accountChooser: string; consent: string; challenge: string };
   accountChooserChrome: string; accountSwitcherChipAria: string; googleHosts: string[];
   limits: { maxSteps: number; settleMs: number; overallTimeoutMs: number; twoFaGraceMs: number; sameUrlStreak: number };
 }
@@ -91,6 +91,17 @@ async function clickAccountChooserEntry(page: Page, spec: ConsentSpec, ownEmail?
   return undefined;
 }
 
+/** Counts and the visible button labels of a consent screen, for the log (no field values, no URL query). */
+async function describeConsent(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const vis = (e: Element) => { const h = e as HTMLElement; return !!(h.offsetWidth || h.offsetHeight); };
+    const boxes = [...document.querySelectorAll('input[type="checkbox"], [role="checkbox"]')].filter(vis);
+    const checked = boxes.filter((b) => (b as HTMLInputElement).checked || b.getAttribute("aria-checked") === "true").length;
+    const buttons = [...document.querySelectorAll("button, [role=button]")].filter(vis).map((b) => (b.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 30)).filter(Boolean).slice(0, 8);
+    return `${boxes.length} checkbox(es), ${checked} checked; buttons: ${buttons.join(" | ")}`;
+  });
+}
+
 /** One "do whatever the next forward-progress thing on this screen is". Returns a label, or undefined when nothing recognized is there. */
 export async function advanceOneStep(page: Page, cred: GoogleCredential, spec: ConsentSpec): Promise<string | undefined> {
   const email = page.locator(spec.emailInput).first();
@@ -117,15 +128,21 @@ export async function advanceOneStep(page: Page, cred: GoogleCredential, spec: C
   }
   if (await clickTextIfVisible(page, new RegExp(spec.advancedText))) return "clicked Advanced (unverified-app notice)";
   if (await clickTextIfVisible(page, new RegExp(spec.goToAppText))) return "clicked Go to <app> (unsafe)";
-  // The consent summary lists each requested scope with its own checkbox, UNCHECKED by default for an app in Testing status;
-  // continuing with any left unchecked makes Google redirect with error=access_denied instead of a code.
-  if (page.url().includes(spec.paths.consentSummary)) {
-    const boxes = page.locator('input[type="checkbox"]');
+  // A consent screen (the v2 summary or the newer v3 page) lists each requested scope with its own checkbox, UNCHECKED by default for an
+  // app in Testing status; continuing with any left unchecked makes Google grant fewer scopes than asked (or redirect with error=access_denied).
+  // Tick every visible unchecked box first, then continue.
+  if (new RegExp(spec.paths.consent).test(new URL(page.url()).pathname)) {
+    const boxes = page.locator('input[type="checkbox"], [role="checkbox"]');
     const n = await boxes.count();
     for (let i = 0; i < n; i++) {
       const cb = boxes.nth(i);
       if (!(await cb.isVisible().catch(() => false))) continue;
-      if (!(await cb.isChecked().catch(() => true))) { await cb.check({ timeout: 5000 }).catch(() => undefined); return `checked scope box ${i + 1}/${n}`; }
+      const aria = await cb.getAttribute("aria-checked").catch(() => null);
+      const checked = aria !== null ? aria === "true" : await cb.isChecked().catch(() => true);
+      if (!checked) {
+        if (aria !== null) await cb.click({ timeout: 5000 }).catch(() => undefined); else await cb.check({ timeout: 5000 }).catch(() => undefined);
+        return `checked scope box ${i + 1}/${n}`;
+      }
     }
   }
   if (await clickLastTextIfVisible(page, new RegExp(spec.continueText))) return "clicked Continue";
@@ -160,6 +177,7 @@ export async function driveConsent(o: ConsentOptions): Promise<void> {
       if (Date.now() > deadline) throw new Error(`consent did not finish within ${L.overallTimeoutMs / 1000}s (last page ${safeUrl(page.url())})`);
       const before = page.url();
       if (!isGoogleHost(before, spec)) { if (o.isDone()) break; throw new Error(`the browser left Google's own pages (now at ${safeUrl(before)}) before the redirect arrived; not acting on it`); }
+      if (new RegExp(spec.paths.consent).test(safeUrl(before))) o.log(`step ${i + 1}: consent screen: ${await describeConsent(page).catch(() => "(could not describe)")}`);
       let action = await advanceOneStep(page, o.credential, spec);
       if (!action && retriedUrl !== before) { retriedUrl = before; await sleep(L.settleMs); action = await advanceOneStep(page, o.credential, spec); } // a fresh screen can still be rendering
       if (o.isDone()) { if (action) o.log(`step ${i + 1}: ${action} -> the redirect delivered the result`); break; }

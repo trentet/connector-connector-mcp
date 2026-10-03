@@ -39,6 +39,12 @@ function route(req: http.IncomingMessage, res: http.ServerResponse): void {
     return send(`<label><input type="checkbox" id="a"> Drive</label><label><input type="checkbox" id="b"> Docs</label>
       <button onclick="var ok=document.getElementById('a').checked&&document.getElementById('b').checked; location='${redirect}?'+(ok?'code=FIXTURECODE':'error=access_denied')+'&state=${encodeURIComponent(state)}'">Continue</button>`);
   }
+  if (u.pathname === "/signin/oauth/v3/consent") {
+    // Google's newer consent page: ARIA checkboxes (not <input>), one per scope, unchecked by default.
+    return send(`<div role="checkbox" aria-checked="false" id="s1" onclick="this.setAttribute('aria-checked', this.getAttribute('aria-checked')==='true'?'false':'true')" style="width:20px;height:20px;border:1px solid #000"></div> Drive
+      <div role="checkbox" aria-checked="false" id="s2" onclick="this.setAttribute('aria-checked', this.getAttribute('aria-checked')==='true'?'false':'true')" style="width:20px;height:20px;border:1px solid #000"></div> Docs
+      <button onclick="var ok=document.getElementById('s1').getAttribute('aria-checked')==='true'&&document.getElementById('s2').getAttribute('aria-checked')==='true'; location='${redirect}?'+(ok?'code=FIXTURECODE':'error=access_denied')+'&state=${encodeURIComponent(state)}'">Continue</button>`);
+  }
   if (u.pathname === "/challenge") return send(`<p>Check your phone</p>`); // not a recognized screen
   if (u.pathname === "/signin/challenge/dp") return send(`<p>2-Step Verification: tap Yes on your phone</p>`);
   if (u.pathname === "/mystery") return send(`<p>Something new from Google</p>`);
@@ -53,7 +59,8 @@ beforeAll(async () => {
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   loopback = http.createServer((req, res) => {
     const u = new URL(req.url ?? "/", "http://127.0.0.1");
-    delivered = { code: u.searchParams.get("code") ?? undefined, error: u.searchParams.get("error") ?? undefined, state: u.searchParams.get("state") ?? undefined };
+    // Only the redirect carries a result; the browser's follow-up favicon request must not overwrite it.
+    if (u.searchParams.has("code") || u.searchParams.has("error")) delivered = { code: u.searchParams.get("code") ?? undefined, error: u.searchParams.get("error") ?? undefined, state: u.searchParams.get("state") ?? undefined };
     res.end("ok");
   });
   await new Promise<void>((r) => loopback.listen(0, "127.0.0.1", r));
@@ -81,6 +88,20 @@ describe.skipIf(!browser)("Google consent driver (real Chromium, fake Google)", 
     expect(joined).toMatch(/clicked Continue/);
     expect(joined).not.toContain(PASSWORD);
     expect(joined).not.toMatch(/\?|state=|redirect_uri/); // origin + path only: the query holds the client id and state
+  });
+
+  it("the newer v3 consent page (ARIA checkboxes) gets every scope ticked before Continue, and the screen is described in the log", async () => {
+    delivered = {};
+    const ctx = await browser!.newContext();
+    const lines: string[] = [];
+    try {
+      await driveConsent({ context: ctx, url: authUrl("/signin/oauth/v3/consent"), credential: { username: "me@example.com", password: PASSWORD }, isDone: () => !!(delivered.code || delivered.error), log: (l) => lines.push(l), spec: spec() });
+    } finally { await ctx.close(); }
+    expect(delivered).toMatchObject({ code: "FIXTURECODE", error: undefined });
+    const joined = lines.join("\n");
+    expect(joined).toMatch(/consent screen: 2 checkbox\(es\), 0 checked; buttons: Continue/);
+    expect(joined).toMatch(/checked scope box 1\/2/);
+    expect(joined).toMatch(/checked scope box 2\/2/);
   });
 
   it("an unrecognized screen is reported, never guessed at", async () => {

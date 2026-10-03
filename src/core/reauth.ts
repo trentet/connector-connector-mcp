@@ -186,7 +186,7 @@ export async function reauth(reg: Registry, req: ReauthRequest, deps: ReauthDeps
       // A dry run changes nothing, so it never needs (or blocks on) the lock.
       const release = req.dryRun || !deps.lock ? (() => {}) : deps.lock(c.id);
       if (!release) { item = { connector: c.id, status: "skipped", detail: "another renewal of this connector is already running" }; log(`${c.id}: ${item.status} - ${item.detail}`); results.push(item); continue; }
-      try { item = { connector: c.id, ...(await reauthOne(c, c.googleOAuth!, req, deps, red, log)) }; }
+      try { const r = await reauthOne(c, c.googleOAuth!, req, deps, red, log); item = { connector: c.id, status: r.status, detail: r.detail === undefined ? undefined : red.redact(r.detail) }; }
       catch (e) { item = { connector: c.id, status: "error", detail: red.redact((e as Error).message) }; }
       finally { release(); }
       log(`${c.id}: ${item.status}${item.detail ? " - " + item.detail : ""}`);
@@ -217,7 +217,7 @@ async function reauthOne(c: ConnectorDef, g: GoogleOAuthDef, req: ReauthRequest,
 
   const cred = await deps.vault(g.account.vaultLabel);
   if (!cred) throw new Error(`vault entry "${g.account.vaultLabel}" not found`);
-  red.add(cred.password); red.add(cred.username);
+  red.add(cred.password); // the address is not a secret (it is in the vault label and the consent hint); the password is
 
   const hadToken = (await t.readFile(tokenFile)) !== undefined;
   if (req.dryRun) {
