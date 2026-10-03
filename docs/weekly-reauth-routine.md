@@ -2,9 +2,11 @@
 
 The Scheduled Task `cc-mcp Google Reauth` (every 5 days, `scripts/install-reauth-task.ps1`) is the primary scheduler for `cc reauth` and needs
 nothing else. If the operator also wants the older pattern - a Claude Routine that stages a one-approval helm-workflow-runner job each week - this
-is the prompt for it. It replaces the prompt of the "TT-MCP weekly Google reauth" Routine (`trig_01StEcUJkmvxpfvYYHUh1nMZ`), whose old prompt ran a
-script in patchright-mcp that was removed on 2026-10-03 (cc#33, patchright-mcp#7); that Routine is **paused** until its own thread (or the operator)
-swaps the prompt in, because a Routine's instructions can only be edited from the thread it posts into.
+is the prompt for it. Since 2026-10-03 it is a Routine of its own, **"cc weekly Google reauth (helm-drive + helm-audio-mcp)"** (`trig_01YaBmJqDGmrMPdWtrXZpF89`, Fridays 03:07 America/Denver), bound to a
+home thread that is itself rooted in THIS repo (session `session_01EV1VWNSe2bGEu2eEoX8NjR`), so its instructions can be edited from here and nothing about it lives in TT-MCP. The older
+"TT-MCP weekly Google reauth" Routine (`trig_01StEcUJkmvxpfvYYHUh1nMZ`, bound to a TT-MCP-rooted thread, stale patchright-mcp prompt) is retired: renamed and paused, not deleted, because
+deleting a Routine also deletes the sessions it started. A Routine's instructions can only be edited from the thread it posts into; to change the prompt below, change it here AND re-create the
+Routine from this thread (or ask in the home thread).
 
 Both schedulers can coexist: cc takes a per-connector lock, so two renewals never run at once (the second is reported as `skipped`).
 
