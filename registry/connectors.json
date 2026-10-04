@@ -7,7 +7,7 @@
     {
       "id": "helm-drive",
       "name": "HELM Drive MCP Connector",
-      "repo": "trentet/TT-MCP",
+      "repo": "trentet/helm-drive-mcp",
       "description": "Private HELM Drive MCP endpoint",
       "url": {
         "type": "fileRegex",
@@ -545,7 +545,7 @@
     {
       "id": "helm-drive-mcp-test",
       "name": "HELM Drive Connector TEST",
-      "repo": "trentet/TT-MCP",
+      "repo": "trentet/helm-drive-mcp",
       "description": "TEST environment of the HELM Drive connector (mcp-test.trentt.me, on demand)",
       "url": {
         "type": "literal",
