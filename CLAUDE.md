@@ -56,3 +56,10 @@ Promotion rule (operator, 2026-10-02): test is for development and functionality
 `npm test` · `npm run build` · `node bin/cc.mjs <add|remove|update|verify|list|probe> [ids|--all] --platform <claude|chatgpt|grok ...>|all [--dry-run] [--registry <path>]` ·
 `node bin/cc.mjs reauth <ids|--all> [--include-test] [--dry-run]` (Google OAuth renewal) · `node bin/cc.mjs browser seed|check` (master profile) · `node bin/cc.mjs audit --scan <repo-root>` (finds registration-script look-alikes in other repos).
 Host: `CC_BROWSER_MASTER` (cold master profile), `CC_MAX_CONCURRENCY`, `CC_PLATFORM_PARALLELISM`, `CC_ADMIT_MAX_CPU`, `CC_TRACE=1` (per-step timings and admission waits on stderr), `CC_CHROME_PATH`, `CC_DEBUG=1` (redacted step dumps), deploy with `scripts/setup-host.ps1`, `scripts/deploy.mjs`, `scripts/install-tasks.ps1`.
+
+## Engineering standards (standing direction from the operator)
+
+This project follows the operator's standing direction in `trentet/helm-engineering-standards` (`docs/standards.md`): isolated dev/test/production, immutable versioned artifacts in a central registry as the
+source of truth, build once and promote, pinned dependencies, library-first layering. Most of it is a future target, but keep it in mind in every decision.
+**Anything that could conflict with it must be raised with the operator before it is decided - never resolved automatically** (examples: deploying a branch instead of a tagged artifact to production, building on
+the machine it runs on and calling that the release, test/production reading files from a dev environment, installing from outside the agreed registry/lockfile, unpinned dependencies, sharing credentials or data between environments).
