@@ -436,6 +436,163 @@
       }
     },
     {
+      "id": "helm-vision-mcp",
+      "name": "HELM Vision Connector",
+      "repo": "trentet/helm-vision-mcp",
+      "description": "HELM vision connector: document OCR, video/GIF frame extraction, image-sequence assembly",
+      "url": {
+        "type": "literal",
+        "value": "https://vision.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://vision.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-vision-mcp/production/secrets/connector.env"
+              ],
+              "key": "HELM_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://vision.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-vision-mcp/production/secrets/connector.env"
+              ],
+              "key": "HELM_MCP_BEARER_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/helm-vision-mcp/production/secrets/connector.env"
+          ],
+          "key": "HELM_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ],
+      "googleOAuth": {
+        "secretsDir": "C:\\Users\\KnottyAI\\AppData\\Local\\HELM\\helm-vision-mcp\\production\\secrets",
+        "scopes": [
+          "https://www.googleapis.com/auth/drive",
+          "https://www.googleapis.com/auth/documents",
+          "https://www.googleapis.com/auth/spreadsheets"
+        ],
+        "account": {
+          "vaultLabel": "Google Account (trenterrolthomas@gmail.com)"
+        },
+        "host": {
+          "ssh": "KnottyAI@192.168.23.200",
+          "keyFile": "%USERPROFILE%\\.ssh\\knottyai-pc_helm-shell",
+          "os": "windows"
+        },
+        "restart": {
+          "command": "powershell -NoProfile -NonInteractive -Command Stop-ScheduledTask -TaskName 'helm-vision-mcp Server'; Start-Sleep -Seconds 3; Start-ScheduledTask -TaskName 'helm-vision-mcp Server'"
+        },
+        "health": {
+          "url": "http://127.0.0.1:8797/health",
+          "contains": "\"status\":\"ok\"",
+          "waitSeconds": 90
+        }
+      }
+    },
+    {
+      "id": "helm-vision-mcp-test",
+      "name": "HELM Vision Connector TEST",
+      "repo": "trentet/helm-vision-mcp",
+      "description": "TEST environment of the HELM vision connector (vision-test.trentt.me)",
+      "url": {
+        "type": "literal",
+        "value": "https://vision-test.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://vision-test.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-vision-mcp/test/secrets/connector.env"
+              ],
+              "key": "HELM_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://vision-test.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-vision-mcp/test/secrets/connector.env"
+              ],
+              "key": "HELM_MCP_BEARER_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/helm-vision-mcp/test/secrets/connector.env"
+          ],
+          "key": "HELM_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ],
+      "tier": "test",
+      "googleOAuth": {
+        "secretsDir": "C:\\Users\\KnottyAI\\AppData\\Local\\HELM\\helm-vision-mcp\\test\\secrets",
+        "scopes": [
+          "https://www.googleapis.com/auth/drive",
+          "https://www.googleapis.com/auth/documents",
+          "https://www.googleapis.com/auth/spreadsheets"
+        ],
+        "account": {
+          "vaultLabel": "Google Account (trenterrolthomas@gmail.com)"
+        },
+        "host": {
+          "ssh": "KnottyAI@192.168.23.200",
+          "keyFile": "%USERPROFILE%\\.ssh\\knottyai-pc_helm-shell",
+          "os": "windows"
+        },
+        "restart": {
+          "command": "powershell -NoProfile -NonInteractive -Command Stop-ScheduledTask -TaskName 'helm-vision-mcp-test Server'; Start-Sleep -Seconds 3; Start-ScheduledTask -TaskName 'helm-vision-mcp-test Server'"
+        },
+        "health": {
+          "url": "http://127.0.0.1:8798/health",
+          "contains": "\"status\":\"ok\"",
+          "waitSeconds": 90
+        }
+      }
+    },
+    {
       "id": "connector-connector",
       "name": "Connector Connector",
       "description": "cc: add, remove, update, list and verify MCP connectors on claude.ai, ChatGPT and Grok",
@@ -882,11 +1039,6 @@
     }
   ],
   "googleOAuthExemptions": [
-    {
-      "repo": "trentet/helm-vision-mcp",
-      "kind": "pending",
-      "reason": "Uses Google Drive OAuth and is deployed on KNOTTYAI-PC, but its Scheduled Tasks, credentials.json and token.json are not in place yet (its README, 2026-10-04). Add the googleOAuth block from docs/pending-google-entries.md the moment they exist; adding it earlier makes the weekly cc reauth --all report a failure."
-    },
     {
       "repo": "trentet/connector-connector-mcp",
       "kind": "exempt",

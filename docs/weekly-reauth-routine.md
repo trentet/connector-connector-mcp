@@ -11,9 +11,7 @@ not deleted, because deleting a Routine also deletes the sessions it started. A 
 change it here AND re-create the Routine from this thread (or ask in the home thread).
 
 **Coverage on 2026-10-04** (audit of all 32 repos under github.com/trentet by `cc audit --google --github trentet`, which now runs after every scheduled renewal):
-registry entries with a `googleOAuth` block: `helm-drive` (repo `trentet/helm-drive-mcp`), `helm-audio-mcp` (repo `trentet/helm-audio-mcp`) and the two test-tier entries. Every other repo is accounted for:
-- `trentet/helm-vision-mcp` uses Google Drive OAuth: **PENDING**. It is deployed on KNOTTYAI-PC but its Scheduled Tasks, `credentials.json` and `token.json` are not in place yet, and adding its block earlier would make
-  this weekly run report a failure. The finished block (facts taken from that repo's own README) is in `docs/pending-google-entries.md`; the guard reports it as `PENDING` on every run until it is added.
+registry entries with a `googleOAuth` block: `helm-drive` (repo `trentet/helm-drive-mcp`), `helm-audio-mcp` (repo `trentet/helm-audio-mcp`), `helm-vision-mcp` (repo `trentet/helm-vision-mcp`, KNOTTYAI-PC, added 2026-10-04 once it was running) and the test-tier entries. Every other repo is accounted for:
 - `trentet/patchright-mcp`: exempt, a leftover. Its `google-auth-library` dependency exists only for `scripts/helm-drive-mcp-weekly-reauth.ts`, the old helm-drive-mcp renewal that `cc reauth` replaced (nothing schedules it any more; the only
   Google reauth task on the host is `cc-mcp Google Reauth`). patchright-mcp itself holds no Google grant. Removing that script and the dependency from the patchright-mcp repo is the remaining cleanup there.
 - `trentet/connector-connector-mcp` (the renewer itself) and `trentet/dsm-connect` (its own OAuth 2.1 server, no Google API): exempt, with reasons in `registry/connectors.json` (`googleOAuthExemptions`).
