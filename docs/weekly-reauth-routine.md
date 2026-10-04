@@ -10,9 +10,16 @@ The earlier Routines ("TT-MCP weekly Google reauth", `trig_01StEcUJkmvxpfvYYHUh1
 not deleted, because deleting a Routine also deletes the sessions it started. A Routine's instructions can only be edited from the thread it posts into; to change the prompt below,
 change it here AND re-create the Routine from this thread (or ask in the home thread).
 
-**Coverage on 2026-10-03:** registry entries with a `googleOAuth` block: `helm-drive` (TT-MCP), `helm-audio-mcp` (+ the two test-tier entries). **Not covered:** `helm-vision-mcp`
-(uses `googleapis`, has no registry entry); `patchright-mcp` has `google-auth-library` in its package.json (purpose unchecked). Each needs a registry entry with a `googleOAuth`
-block (and, for vision, a decision on where its token lives and how it restarts) before it is renewed. The Routine's last step reports any such gap once per run.
+**Coverage on 2026-10-04** (audit of all 32 repos under github.com/trentet by `cc audit --google --github trentet`, which now runs after every scheduled renewal):
+registry entries with a `googleOAuth` block: `helm-drive` (repo `trentet/TT-MCP`), `helm-audio-mcp` (repo `trentet/helm-audio-mcp`) and the two test-tier entries. Every other repo is accounted for:
+- `trentet/helm-vision-mcp` uses Google Drive OAuth: **PENDING**. It is deployed on KNOTTYAI-PC but its Scheduled Tasks, `credentials.json` and `token.json` are not in place yet, and adding its block earlier would make
+  this weekly run report a failure. The finished block (facts taken from that repo's own README) is in `docs/pending-google-entries.md`; the guard reports it as `PENDING` on every run until it is added.
+- `trentet/patchright-mcp`: exempt, a leftover. Its `google-auth-library` dependency exists only for `scripts/tt-mcp-weekly-reauth.ts`, the old TT-MCP renewal that `cc reauth` replaced (nothing schedules it any more; the only
+  Google reauth task on the host is `cc-mcp Google Reauth`). patchright-mcp itself holds no Google grant. Removing that script and the dependency from the patchright-mcp repo is the remaining cleanup there.
+- `trentet/connector-connector-mcp` (the renewer itself) and `trentet/dsm-connect` (its own OAuth 2.1 server, no Google API): exempt, with reasons in `registry/connectors.json` (`googleOAuthExemptions`).
+- No other repo has a Google dependency or token files.
+A new Google connector can no longer be left out silently: every run of `scripts/run-reauth.ps1` ends with the coverage guard, and a repo that uses Google OAuth but has neither a `googleOAuth` block nor an exemption makes it
+log `GOOGLE COVERAGE GAP` and exit 3. A registry entry with a `googleOAuth` block must also carry `repo` (the guard matches repos to entries by it).
 
 Both schedulers can coexist: cc takes a per-connector lock, so two renewals never run at once (the second is reported as `skipped`).
 
@@ -43,5 +50,5 @@ connector repo. Standing approval: auto-arm every week without asking. Test-tier
 6. If it fails or never finishes, or any connector shows anything but ok: read the job log, the step's `.err.log` and cc's `reauth.log` (redacted; says which step failed: consent,
    scopes, delivery, restart, health). A failure is cc's to fix (in its own repo and flow), not the connector's. Otherwise tell the operator plainly which connector failed and why,
    and that each connector keeps a manual fallback (see its README).
-7. Coverage check, every run: if the operator's repos list a Google-OAuth connector that the dry run did NOT list (for example trentet/helm-vision-mcp, which uses googleapis but had no
-   registry entry on 2026-10-03), tell the operator once which one is not covered and that its registry entry needs a `googleOAuth` block in cc.
+7. Coverage check, every run: `node bin\cc.mjs audit --google --github trentet` in the same folder (exit 1 = a repo uses Google OAuth with no registry `googleOAuth` block and no exemption; `PENDING` lines are
+   known and not failures). If it prints `UNCOVERED`, tell the operator once which repo and that its registry entry needs a `googleOAuth` block (and a `repo` field) in cc; repeat `PENDING` lines in one line.

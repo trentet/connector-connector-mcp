@@ -51,9 +51,19 @@ export function validateRegistry(r: unknown): { registry?: Registry; errors: str
       if (!PLATFORMS.includes(pl as never)) errors.push(`${w}: urlByPlatform has unknown platform ${pl}`);
       checkSource(src, `${w}.urlByPlatform.${pl}`, errors);
     }
-    if (c.googleOAuth !== undefined) checkGoogleOAuth(c.googleOAuth, `${w}.googleOAuth`, errors);
+    if (c.repo !== undefined && !/^[\w.-]+\/[\w.-]+$/.test(c.repo)) errors.push(`${w}.repo: must look like owner/name`);
+    if (c.googleOAuth !== undefined) {
+      checkGoogleOAuth(c.googleOAuth, `${w}.googleOAuth`, errors);
+      if (!c.repo) errors.push(`${w}.repo: required when googleOAuth is set (the coverage guard matches repos to entries by it)`);
+    }
     checkSource(c.url as Source, `${w}.url`, errors);
     if (c.auth?.headerValue) checkSource(c.auth.headerValue, `${w}.auth.headerValue`, errors);
+  });
+  (reg.googleOAuthExemptions ?? []).forEach((x, i) => {
+    const w = `googleOAuthExemptions[${i}]`;
+    if (!x || typeof x.repo !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(x.repo)) errors.push(`${w}.repo: must look like owner/name`);
+    if (!x || (x.kind !== "exempt" && x.kind !== "pending")) errors.push(`${w}.kind: "exempt" or "pending"`);
+    if (!x || typeof x.reason !== "string" || x.reason.trim().length < 10) errors.push(`${w}.reason: say why (at least a sentence)`);
   });
   return errors.length ? { errors } : { registry: reg, errors };
 }

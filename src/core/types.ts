@@ -57,12 +57,19 @@ export interface ConnectorDef {
     oauthLogin?: { vaultLabel: string };
   };
   platforms: Platform[];
+  /** GitHub repo that holds this connector's code ("owner/name"). Lets `cc audit --google` match a repo to the entry that covers it. */
+  repo?: string;
   /** Present when this connector's server holds a Google OAuth grant that `cc reauth` must keep alive. */
   googleOAuth?: GoogleOAuthDef;
 }
 
+/** A repo the Google-coverage guard must not flag: it either legitimately has no connector grant to renew ("exempt") or is expected to get a googleOAuth block once it is deployed ("pending"). */
+export interface GoogleOAuthExemption { repo: string; kind: "exempt" | "pending"; reason: string }
+
 export interface Registry {
   version: 1;
+  /** Repos with Google-OAuth-looking code that have no googleOAuth block, and why (see src/googleCoverage.ts). */
+  googleOAuthExemptions?: GoogleOAuthExemption[];
   defaults?: { ifExisting?: "skip" | "update" | "fail" };
   connectors: ConnectorDef[];
 }
