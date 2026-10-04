@@ -123,6 +123,82 @@
       ]
     },
     {
+      "id": "helm-relay",
+      "name": "HELM Relay",
+      "description": "HELM Relay: routes shell_exec and shell_job_* to enrolled hosts (agents) over SSH; runs nothing locally. Two credentials: x-api-key header and shell_secret in the URL (token also in the URL for ChatGPT/Grok).",
+      "url": {
+        "type": "template",
+        "template": "https://relay.trentt.me/mcp?shell_secret={{shellSecret}}",
+        "variables": {
+          "shellSecret": {
+            "type": "envFile",
+            "paths": [
+              "C:/Users/Trent/AppData/Local/HELM/helm-relay/production/secrets/connector.env"
+            ],
+            "key": "SHELL_MCP_SHELL_SECRET"
+          }
+        }
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://relay.trentt.me/mcp?shell_secret={{shellSecret}}&token={{bearerToken}}",
+          "variables": {
+            "shellSecret": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-relay/production/secrets/connector.env"
+              ],
+              "key": "SHELL_MCP_SHELL_SECRET"
+            },
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-relay/production/secrets/connector.env"
+              ],
+              "key": "SHELL_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://relay.trentt.me/mcp?shell_secret={{shellSecret}}&token={{bearerToken}}",
+          "variables": {
+            "shellSecret": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-relay/production/secrets/connector.env"
+              ],
+              "key": "SHELL_MCP_SHELL_SECRET"
+            },
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-relay/production/secrets/connector.env"
+              ],
+              "key": "SHELL_MCP_BEARER_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/helm-relay/production/secrets/connector.env"
+          ],
+          "key": "SHELL_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ]
+    },
+    {
       "id": "vault-mcp",
       "name": "Vault MCP",
       "description": "Private HELM credential-reference MCP endpoint: lists credential labels and mints one-time entry links. Never returns secret values. Claude uses the x-api-key header; ChatGPT and Grok use a low-privilege ?token= (non-admin tools only).",
