@@ -19,7 +19,7 @@
           "variables": {
             "base": {
               "type": "fileRegex",
-              "path": "D:/GDrive/HELM/DEV-PROJECTS/Connectors/HELM Drive MCP Connector/Repos/TT-MCP/connector-info.txt",
+              "path": "D:/GDrive/HELM/DEV-PROJECTS/Connectors/HELM Drive MCP Connector/Repos/helm-drive-mcp/connector-info.txt",
               "pattern": "https://mcp\\.trentt\\.me/mcp\\?token=[^\\s\"'<>]+"
             }
           }
@@ -30,7 +30,7 @@
           "variables": {
             "base": {
               "type": "fileRegex",
-              "path": "D:/GDrive/HELM/DEV-PROJECTS/Connectors/HELM Drive MCP Connector/Repos/TT-MCP/connector-info.txt",
+              "path": "D:/GDrive/HELM/DEV-PROJECTS/Connectors/HELM Drive MCP Connector/Repos/helm-drive-mcp/connector-info.txt",
               "pattern": "https://mcp\\.trentt\\.me/mcp\\?token=[^\\s\"'<>]+"
             }
           }

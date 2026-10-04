@@ -11,7 +11,7 @@
       "description": "Private HELM Drive MCP endpoint",
       "url": {
         "type": "fileRegex",
-        "path": "D:/GDrive/HELM/DEV-PROJECTS/Connectors/HELM Drive MCP Connector/Repos/TT-MCP/connector-info.txt",
+        "path": "D:/GDrive/HELM/DEV-PROJECTS/Connectors/HELM Drive MCP Connector/Repos/helm-drive-mcp/connector-info.txt",
         "pattern": "https://mcp\\.trentt\\.me/mcp\\?token=[^\\s\"'<>]+"
       },
       "auth": {
@@ -27,7 +27,7 @@
         "grok": "HELMMCP"
       },
       "googleOAuth": {
-        "secretsDir": "%LOCALAPPDATA%\\HELM\\tt-mcp\\production\\secrets",
+        "secretsDir": "%LOCALAPPDATA%\\HELM\\helm-drive-mcp\\production\\secrets",
         "scopes": [
           "https://www.googleapis.com/auth/drive",
           "https://www.googleapis.com/auth/documents",
@@ -37,7 +37,7 @@
           "vaultLabel": "Google Account (trenterrolthomas@gmail.com)"
         },
         "restart": {
-          "command": "node %LOCALAPPDATA%\\HELM\\tt-mcp\\deploy\\production\\scripts\\restart.mjs production"
+          "command": "node %LOCALAPPDATA%\\HELM\\helm-drive-mcp\\deploy\\production\\scripts\\restart.mjs production"
         },
         "health": {
           "url": "http://127.0.0.1:8787/health",
@@ -559,7 +559,7 @@
             "bearerToken": {
               "type": "envFile",
               "paths": [
-                "C:/Users/Trent/AppData/Local/HELM/tt-mcp/test/secrets/connector.env"
+                "C:/Users/Trent/AppData/Local/HELM/helm-drive-mcp/test/secrets/connector.env"
               ],
               "key": "HELM_MCP_BEARER_TOKEN"
             }
@@ -572,7 +572,7 @@
             "bearerToken": {
               "type": "envFile",
               "paths": [
-                "C:/Users/Trent/AppData/Local/HELM/tt-mcp/test/secrets/connector.env"
+                "C:/Users/Trent/AppData/Local/HELM/helm-drive-mcp/test/secrets/connector.env"
               ],
               "key": "HELM_MCP_BEARER_TOKEN"
             }
@@ -585,7 +585,7 @@
         "headerValue": {
           "type": "envFile",
           "paths": [
-            "C:/Users/Trent/AppData/Local/HELM/tt-mcp/test/secrets/connector.env"
+            "C:/Users/Trent/AppData/Local/HELM/helm-drive-mcp/test/secrets/connector.env"
           ],
           "key": "HELM_MCP_BEARER_TOKEN"
         }
@@ -597,7 +597,7 @@
       ],
       "tier": "test",
       "googleOAuth": {
-        "secretsDir": "%LOCALAPPDATA%\\HELM\\tt-mcp\\test\\secrets",
+        "secretsDir": "%LOCALAPPDATA%\\HELM\\helm-drive-mcp\\test\\secrets",
         "scopes": [
           "https://www.googleapis.com/auth/drive",
           "https://www.googleapis.com/auth/documents",
@@ -607,7 +607,7 @@
           "vaultLabel": "Google Account (trenterrolthomas@gmail.com)"
         },
         "restart": {
-          "command": "node %LOCALAPPDATA%\\HELM\\tt-mcp\\deploy\\test\\scripts\\restart.mjs test"
+          "command": "node %LOCALAPPDATA%\\HELM\\helm-drive-mcp\\deploy\\test\\scripts\\restart.mjs test"
         },
         "health": {
           "url": "http://127.0.0.1:8789/health",
