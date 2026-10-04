@@ -6,15 +6,15 @@ is the prompt for it. Since 2026-10-03 it is a Routine of its own, **"cc weekly 
 home thread rooted in THIS repo (session `session_01EV1VWNSe2bGEu2eEoX8NjR`), so its instructions are edited from here and nothing about it lives in any connector repo. It runs
 `cc reauth --all`, i.e. **every production registry entry that has a `googleOAuth` block - for ALL connectors, not a fixed pair**: the operator keeps every Google-using connector's
 OAuth client in Testing status (no Production verification, by choice), so every one of them needs this weekly. A connector is covered the moment its registry entry has a block.
-The earlier Routines ("TT-MCP weekly Google reauth", `trig_01StEcUJkmvxpfvYYHUh1nMZ`, bound to a TT-MCP-rooted thread with a stale patchright-mcp prompt) is retired: renamed and paused,
+The earlier Routines ("helm-drive-mcp weekly Google reauth", `trig_01StEcUJkmvxpfvYYHUh1nMZ`, bound to a helm-drive-mcp-rooted thread with a stale patchright-mcp prompt) is retired: renamed and paused,
 not deleted, because deleting a Routine also deletes the sessions it started. A Routine's instructions can only be edited from the thread it posts into; to change the prompt below,
 change it here AND re-create the Routine from this thread (or ask in the home thread).
 
 **Coverage on 2026-10-04** (audit of all 32 repos under github.com/trentet by `cc audit --google --github trentet`, which now runs after every scheduled renewal):
-registry entries with a `googleOAuth` block: `helm-drive` (repo `trentet/TT-MCP`), `helm-audio-mcp` (repo `trentet/helm-audio-mcp`) and the two test-tier entries. Every other repo is accounted for:
+registry entries with a `googleOAuth` block: `helm-drive` (repo `trentet/helm-drive-mcp`), `helm-audio-mcp` (repo `trentet/helm-audio-mcp`) and the two test-tier entries. Every other repo is accounted for:
 - `trentet/helm-vision-mcp` uses Google Drive OAuth: **PENDING**. It is deployed on KNOTTYAI-PC but its Scheduled Tasks, `credentials.json` and `token.json` are not in place yet, and adding its block earlier would make
   this weekly run report a failure. The finished block (facts taken from that repo's own README) is in `docs/pending-google-entries.md`; the guard reports it as `PENDING` on every run until it is added.
-- `trentet/patchright-mcp`: exempt, a leftover. Its `google-auth-library` dependency exists only for `scripts/tt-mcp-weekly-reauth.ts`, the old TT-MCP renewal that `cc reauth` replaced (nothing schedules it any more; the only
+- `trentet/patchright-mcp`: exempt, a leftover. Its `google-auth-library` dependency exists only for `scripts/helm-drive-mcp-weekly-reauth.ts`, the old helm-drive-mcp renewal that `cc reauth` replaced (nothing schedules it any more; the only
   Google reauth task on the host is `cc-mcp Google Reauth`). patchright-mcp itself holds no Google grant. Removing that script and the dependency from the patchright-mcp repo is the remaining cleanup there.
 - `trentet/connector-connector-mcp` (the renewer itself) and `trentet/dsm-connect` (its own OAuth 2.1 server, no Google API): exempt, with reasons in `registry/connectors.json` (`googleOAuthExemptions`).
 - No other repo has a Google dependency or token files.
@@ -36,7 +36,7 @@ connector repo. Standing approval: auto-arm every week without asking. Test-tier
    `http://127.0.0.1:8810/health` is 200) and run `node bin\cc.mjs reauth --all --dry-run` in that folder: every line must read `dry-run`; note which connector ids it lists.
    Do not redeploy cc from here.
 3. Create `D:\GDrive\HELM\DEV-PROJECTS\Local Utilities\helm-workflow-runner\workflow-runner\jobs\<job-id>\` with:
-   - `manifest.json`: `{ "id": "<job-id>", "requestedBy": "connector-connector-mcp (cc reauth) - recurring weekly Google OAuth reauth Routine (auto-armed, standing approval)", "description": "Runs node bin\\cc.mjs reauth --all from cc's deployed copy (every production connector with a googleOAuth block). Manual fallback per connector: its own manual re-auth (refresh-token.bat in TT-MCP; README setup step 3 in helm-audio-mcp; see each connector's README).", "resourceLocks": ["cc-reauth"], "steps": [ { "name": "run-cc-reauth", "script": "run-cc-reauth.ps1", "timeoutSeconds": 900, "maxRetries": 1, "retryBackoffSeconds": 120 } ] }`
+   - `manifest.json`: `{ "id": "<job-id>", "requestedBy": "connector-connector-mcp (cc reauth) - recurring weekly Google OAuth reauth Routine (auto-armed, standing approval)", "description": "Runs node bin\\cc.mjs reauth --all from cc's deployed copy (every production connector with a googleOAuth block). Manual fallback per connector: its own manual re-auth (refresh-token.bat in helm-drive-mcp; README setup step 3 in helm-audio-mcp; see each connector's README).", "resourceLocks": ["cc-reauth"], "steps": [ { "name": "run-cc-reauth", "script": "run-cc-reauth.ps1", "timeoutSeconds": 900, "maxRetries": 1, "retryBackoffSeconds": 120 } ] }`
    - `run-cc-reauth.ps1`:
      ```powershell
      Set-Location (Join-Path $env:LOCALAPPDATA "HELM\connector-connector-mcp\deploy\production")
