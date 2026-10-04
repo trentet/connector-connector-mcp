@@ -896,11 +896,6 @@
       "repo": "trentet/dsm-connect",
       "kind": "exempt",
       "reason": "Its own OAuth 2.1 server issues refresh tokens to AI clients (server/auth.py); it calls no Google API and holds no Google grant."
-    },
-    {
-      "repo": "trentet/patchright-mcp",
-      "kind": "exempt",
-      "reason": "Leftover only: it still carries the old TT-MCP renewal script (scripts/tt-mcp-weekly-reauth.ts) and its google-auth-library dependency, which cc reauth replaced (nothing schedules the script any more). patchright-mcp itself holds no Google grant. Remove the script and dependency from that repo, then delete this exemption."
     }
   ]
 }
