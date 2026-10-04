@@ -2,6 +2,7 @@ import path from "node:path";
 import { loadRegistry } from "./core/registry.js";
 import { ADAPTERS } from "./adapters/index.js";
 import { audit } from "./audit.js";
+import { coverage, formatReport, scanGithub, scanLocal, type Finding } from "./googleCoverage.js";
 import { run } from "./core/runner.js";
 import { reauth } from "./core/reauth.js";
 import { checkMaster, seedMaster } from "./browser/seed.js";
@@ -10,6 +11,7 @@ import { PLATFORMS, type Op, type Platform } from "./core/types.js";
 const OPS: Op[] = ["add", "remove", "update", "list", "verify", "probe"];
 const USAGE = `cc browser seed [--from-port <port>]   (one-time: copy platform sign-ins from a signed-in Chrome into cc's cold master profile)
 cc browser check                          (clone the master into a throwaway browser and report which platforms are signed in)
+cc audit --google [--root <dir> ...] [--github <owner>] [--registry <path>] [--json]   (find repos that use Google OAuth but have no registry googleOAuth block)
 cc audit --scan <repo-root> [--json]     (find per-repo registration / Google-reauth scripts that cc replaces)
 cc reauth [connector-id ...|--all] [--include-test] [--dry-run] [--registry <path>] [--json]   (renew the Google OAuth token of connectors with a googleOAuth registry block)
 cc <op> [connector-id ...|--all] [--platform <claude|chatgpt|grok ...>|all] [--dry-run] [--include-test] [--registry <path>] [--if-existing skip|update|fail] [--json]
@@ -49,6 +51,17 @@ export function parseFlags(args: string[]): ParsedFlags | { error: string } {
 
 export async function main(argv: string[]): Promise<number> {
   const args = argv.slice();
+  if (args[0] === "audit" && args.includes("--google")) {
+    const roots: string[] = []; let owner: string | undefined; let regPath = path.resolve("registry", "connectors.json");
+    for (let i = 1; i < args.length; i++) { if (args[i] === "--root") roots.push(args[++i]); else if (args[i] === "--github") owner = args[++i]; else if (args[i] === "--registry") regPath = path.resolve(args[++i]); }
+    if (roots.length === 0 && !owner) { console.error("usage: cc audit --google [--root <dir> ...] [--github <owner>] [--registry <path>] [--json]"); return 2; }
+    const findings: Finding[] = scanLocal(roots), errors: string[] = [];
+    if (owner) { const g = scanGithub(owner); findings.push(...g.findings); errors.push(...g.errors); }
+    const rep = coverage(findings, loadRegistry(regPath));
+    if (args.includes("--json")) console.log(JSON.stringify({ ...rep, scanned: findings.length, errors }, null, 2));
+    else { console.log(`scanned ${findings.length} repo(s)`); for (const l of formatReport(rep)) console.log(l); for (const e of errors) console.log(`note       ${e}`); if (!rep.uncovered.length && !rep.problems.length) console.log("google coverage: every repo that uses Google OAuth is covered, exempt or pending"); }
+    return rep.uncovered.length || rep.problems.length ? 1 : 0;
+  }
   if (args[0] === "audit") {
     const i = args.indexOf("--scan");
     const root = i >= 0 ? args[i + 1] : undefined;

@@ -7,6 +7,7 @@
     {
       "id": "helm-drive",
       "name": "HELM Drive MCP Connector",
+      "repo": "trentet/TT-MCP",
       "description": "Private HELM Drive MCP endpoint",
       "url": {
         "type": "fileRegex",
@@ -232,6 +233,7 @@
     {
       "id": "helm-audio-mcp",
       "name": "HELM Audio Connector",
+      "repo": "trentet/helm-audio-mcp",
       "description": "HELM audio transcription, diarization and speech processing endpoint",
       "url": {
         "type": "literal",
@@ -362,6 +364,7 @@
     {
       "id": "helm-audio-mcp-test",
       "name": "HELM Audio Connector TEST",
+      "repo": "trentet/helm-audio-mcp",
       "description": "TEST environment of the HELM audio connector (audio-test.trentt.me)",
       "url": {
         "type": "literal",
@@ -542,6 +545,7 @@
     {
       "id": "helm-drive-mcp-test",
       "name": "HELM Drive Connector TEST",
+      "repo": "trentet/TT-MCP",
       "description": "TEST environment of the HELM Drive connector (mcp-test.trentt.me, on demand)",
       "url": {
         "type": "literal",
@@ -875,6 +879,28 @@
         "grok"
       ],
       "tier": "test"
+    }
+  ],
+  "googleOAuthExemptions": [
+    {
+      "repo": "trentet/helm-vision-mcp",
+      "kind": "pending",
+      "reason": "Uses Google Drive OAuth and is deployed on KNOTTYAI-PC, but its Scheduled Tasks, credentials.json and token.json are not in place yet (its README, 2026-10-04). Add the googleOAuth block from docs/pending-google-entries.md the moment they exist; adding it earlier makes the weekly cc reauth --all report a failure."
+    },
+    {
+      "repo": "trentet/connector-connector-mcp",
+      "kind": "exempt",
+      "reason": "cc is the renewer: it contains the Google consent and token-exchange code that renews other connectors' grants and holds no Google grant of its own."
+    },
+    {
+      "repo": "trentet/dsm-connect",
+      "kind": "exempt",
+      "reason": "Its own OAuth 2.1 server issues refresh tokens to AI clients (server/auth.py); it calls no Google API and holds no Google grant."
+    },
+    {
+      "repo": "trentet/patchright-mcp",
+      "kind": "exempt",
+      "reason": "Leftover only: it still carries the old TT-MCP renewal script (scripts/tt-mcp-weekly-reauth.ts) and its google-auth-library dependency, which cc reauth replaced (nothing schedules the script any more). patchright-mcp itself holds no Google grant. Remove the script and dependency from that repo, then delete this exemption."
     }
   ]
 }

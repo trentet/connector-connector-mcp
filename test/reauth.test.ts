@@ -82,7 +82,7 @@ describe("connector selection", () => {
 });
 
 describe("registry validation of googleOAuth", () => {
-  const base = (g: unknown) => ({ version: 1, connectors: [{ ...connector("a"), googleOAuth: g }] });
+  const base = (g: unknown) => ({ version: 1, connectors: [{ ...connector("a"), repo: "o/a", googleOAuth: g }] });
   it("accepts a good block and the shipped registry", () => {
     expect(validateRegistry(base(def())).errors).toEqual([]);
     expect(loadRegistry("registry/connectors.json").connectors.some((c) => c.googleOAuth)).toBe(true);

@@ -9,9 +9,11 @@
   new token was granted every declared scope, and it restores the previous token if the restarted server's health check fails.
   Logs: %LOCALAPPDATA%\HELM\connector-connector-mcp\logs\scheduled-reauth.log (this runner: start, finish, exit code, cc's redacted
   output) and ...\logs\reauth.log (cc's own step log). Never a token, authorization code or password.
-  Exit code: 0 all renewed (or nothing due), 1 any connector failed (see the log), 2 not deployed.
+  After the renewal it also runs the coverage guard (`cc audit --google --github <owner>`): a repo that uses Google OAuth but has no registry
+  googleOAuth block is logged as "GOOGLE COVERAGE GAP" so a new Google connector can never be silently left out of the weekly renewal.
+  Exit code: 0 all renewed (or nothing due) and no coverage gap, 1 any connector failed (see the log), 2 not deployed, 3 renewals fine but a coverage gap exists.
 #>
-param([ValidateSet("production", "test")][string]$Environment = "production", [switch]$IncludeTest, [switch]$DryRun)
+param([ValidateSet("production", "test")][string]$Environment = "production", [switch]$IncludeTest, [switch]$DryRun, [string]$GithubOwner = "trentet")
 $ErrorActionPreference = "Continue"
 $base = Join-Path $env:LOCALAPPDATA "HELM\connector-connector-mcp"
 $deploy = Join-Path $base "deploy\$Environment"
@@ -37,4 +39,16 @@ try {
 } finally { Pop-Location }
 foreach ($l in $out) { if ($l.Trim()) { Write-Log "  | $l" } }
 Write-Log "=== scheduled cc reauth finished (exit $code) ==="
+
+# Coverage guard: reads repos through the host's gh (no clones, no secrets); a gh problem is only a note, never a failure of the renewal itself.
+Push-Location $deploy
+try {
+    $gap = & node bin\cc.mjs audit --google --github $GithubOwner 2>&1 | ForEach-Object { "$_" }
+    $gapCode = $LASTEXITCODE
+} finally { Pop-Location }
+foreach ($l in $gap) { if ($l.Trim()) { Write-Log "  | coverage: $l" } }
+if ($gapCode -eq 1) {
+    Write-Log "GOOGLE COVERAGE GAP: a repo uses Google OAuth but no registry entry has a googleOAuth block for it (see the UNCOVERED lines above). Its token will expire in 7 days unless it is added."
+    if ($code -eq 0) { $code = 3 }
+}
 exit $code
