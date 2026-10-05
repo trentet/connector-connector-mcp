@@ -13,17 +13,17 @@ const USAGE = `cc browser seed [--from-port <port>]   (one-time: copy platform s
 cc browser check                          (clone the master into a throwaway browser and report which platforms are signed in)
 cc audit --google [--root <dir> ...] [--github <owner>] [--registry <path>] [--json]   (find repos that use Google OAuth but have no registry googleOAuth block)
 cc audit --scan <repo-root> [--json]     (find per-repo registration / Google-reauth scripts that cc replaces)
-cc reauth [connector-id ...|--all] [--include-test] [--dry-run] [--registry <path>] [--json]   (renew the Google OAuth token of connectors with a googleOAuth registry block)
+cc reauth [connector-id ...|--all] [--include-test] [--dry-run] [--only-if-older-than <days>] [--registry <path>] [--json]   (renew the Google OAuth token of connectors with a googleOAuth registry block; --only-if-older-than skips one renewed more recently, for a second renewer)
 cc <op> [connector-id ...|--all] [--platform <claude|chatgpt|grok ...>|all] [--dry-run] [--include-test] [--registry <path>] [--if-existing skip|update|fail] [--json]
 ops: ${OPS.join(", ")}`;
 
 
-export interface ParsedFlags { ids: string[]; platforms: Platform[]; dryRun: boolean; includeTest: boolean; json: boolean; ifExisting?: "skip" | "update" | "fail"; registryPath: string }
+export interface ParsedFlags { ids: string[]; platforms: Platform[]; dryRun: boolean; includeTest: boolean; json: boolean; ifExisting?: "skip" | "update" | "fail"; registryPath: string; onlyIfOlderThanDays?: number }
 
 /** --platform takes one or more platform names (or "all"); it stops at the first word that is not a platform, which is then a connector id. */
 export function parseFlags(args: string[]): ParsedFlags | { error: string } {
   const ids: string[] = [];
-  let platforms: Platform[] = PLATFORMS, dryRun = false, includeTest = false, json = false, ifExisting: ParsedFlags["ifExisting"];
+  let platforms: Platform[] = PLATFORMS, dryRun = false, includeTest = false, json = false, ifExisting: ParsedFlags["ifExisting"], onlyIfOlderThanDays: number | undefined;
   let registryPath = path.resolve("registry", "connectors.json");
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -32,6 +32,11 @@ export function parseFlags(args: string[]): ParsedFlags | { error: string } {
     else if (a === "--include-test") includeTest = true;
     else if (a === "--json") json = true;
     else if (a === "--registry") registryPath = path.resolve(args[++i]);
+    else if (a === "--only-if-older-than") {
+      const v = Number(args[++i]);
+      if (!Number.isFinite(v) || v <= 0) return { error: "--only-if-older-than needs a positive number of days, for example 4.75" };
+      onlyIfOlderThanDays = v;
+    }
     else if (a === "--if-existing") ifExisting = args[++i] as never;
     else if (a === "--platform") {
       const first = args[++i];
@@ -46,7 +51,7 @@ export function parseFlags(args: string[]): ParsedFlags | { error: string } {
     }
     else ids.push(a);
   }
-  return { ids, platforms, dryRun, includeTest, json, ifExisting, registryPath };
+  return { ids, platforms, dryRun, includeTest, json, ifExisting, registryPath, onlyIfOlderThanDays };
 }
 
 export async function main(argv: string[]): Promise<number> {
@@ -75,8 +80,8 @@ export async function main(argv: string[]): Promise<number> {
   if (args[0] === "reauth") {
     const parsed = parseFlags(args.slice(1));
     if ("error" in parsed) { console.error(parsed.error); return 2; }
-    if (parsed.ids.length === 0) { console.error("usage: cc reauth <connector-id ...|--all> [--include-test] [--dry-run] [--registry <path>] [--json]"); return 2; }
-    const res = await reauth(loadRegistry(parsed.registryPath), { connectors: parsed.ids, includeTest: parsed.includeTest, dryRun: parsed.dryRun });
+    if (parsed.ids.length === 0) { console.error("usage: cc reauth <connector-id ...|--all> [--include-test] [--dry-run] [--only-if-older-than <days>] [--registry <path>] [--json]"); return 2; }
+    const res = await reauth(loadRegistry(parsed.registryPath), { connectors: parsed.ids, includeTest: parsed.includeTest, dryRun: parsed.dryRun, onlyIfOlderThanDays: parsed.onlyIfOlderThanDays });
     if (parsed.json) console.log(JSON.stringify(res, null, 2));
     else for (const i of res.items) console.log(`${i.status.padEnd(8)} reauth ${i.connector}${i.detail ? " - " + i.detail : ""}`);
     return res.ok ? 0 : 1;
