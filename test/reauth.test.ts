@@ -294,3 +294,95 @@ describe("one renewal per connector at a time", () => {
     expect(held.size).toBe(0);
   });
 });
+
+describe("second renewer support (#39)", () => {
+  const NOW = Date.parse("2026-10-05T12:00:00Z");
+  const DAY = 86_400_000;
+  const RECORD = "/s/token.renewed.json";
+  // a clock fixed at NOW that still advances when cc sleeps, so health-check deadlines can pass
+  const withNow = (d: ReauthDeps & { run: Run }) => { let t = NOW; return Object.assign(d, { now: () => t, sleep: async (ms: number) => { t += ms; } }); };
+  const ago = (days: number, byHost = "host-a") => JSON.stringify({ renewedAt: new Date(NOW - days * DAY).toISOString(), byHost });
+  const baseFiles = (extra: Record<string, string> = {}) => ({ "/s/credentials.json": CREDS, "/s/token.json": "OLD", ...extra });
+
+  it("a fully successful renewal writes the record next to token.json (when and by which host, nothing secret)", async () => {
+    const h = fakeHost(baseFiles());
+    const { value: res, stderr } = await captured(() => reauth(registry(connector("a", def())), { connectors: ["a"] }, withNow(deps(h.t))));
+    expect(res.ok).toBe(true);
+    const rec = JSON.parse(h.files[RECORD]);
+    expect(rec.renewedAt).toBe(new Date(NOW).toISOString());
+    expect(typeof rec.byHost).toBe("string");
+    expect(h.files[RECORD]).not.toMatch(new RegExp([SECRET, CODE, REFRESH, ACCESS, PASSWORD].join("|")));
+    noSecrets(JSON.stringify(res) + stderr);
+  });
+
+  it("with no restart configured the record is still written; a failed health check or restart writes none", async () => {
+    const noRestart = fakeHost(baseFiles());
+    await captured(() => reauth(registry(connector("a", def({ restart: undefined, health: undefined }))), { connectors: ["a"] }, withNow(deps(noRestart.t))));
+    expect(noRestart.files[RECORD]).toBeDefined();
+
+    const badHealth = fakeHost(baseFiles(), { health: () => undefined });
+    const r1 = await captured(() => reauth(registry(connector("a", def({ health: { url: "http://127.0.0.1:1/h", contains: "ok", waitSeconds: 3 } }))), { connectors: ["a"] }, withNow(deps(badHealth.t))));
+    expect(r1.value.ok).toBe(false);
+    expect(badHealth.files[RECORD]).toBeUndefined();
+    expect(badHealth.files["/s/token.json"]).toBe("OLD");
+
+    const badRestart = fakeHost(baseFiles(), { restartCode: () => 1 });
+    await captured(() => reauth(registry(connector("a", def())), { connectors: ["a"] }, withNow(deps(badRestart.t))));
+    expect(badRestart.files[RECORD]).toBeUndefined();
+  });
+
+  it("--only-if-older-than: a recent record means skipped, with no vault lookup, no browser consent, no write and no restart", async () => {
+    const h = fakeHost(baseFiles({ [RECORD]: ago(2, "W540") }));
+    const d = withNow(deps(h.t, { vault: async () => { throw new Error("the vault must not be touched on a skip"); } }));
+    const { value: res } = await captured(() => reauth(registry(connector("a", def())), { connectors: ["a"], onlyIfOlderThanDays: 4.75 }, d));
+    expect(res).toMatchObject({ ok: true, items: [{ connector: "a", status: "skipped" }] });
+    expect(res.items[0].detail).toMatch(/renewed 2\.0 day\(s\) ago by W540; nothing to do/);
+    expect(d.run.consentCalls + d.run.exchanges).toBe(0);
+    expect(h.writes).toEqual([]);
+    expect(h.commands).toEqual([]);
+  });
+
+  it("an old, missing, unreadable or future-dated record all mean renew (fail toward renewing)", async () => {
+    for (const [label, rec] of [["old", ago(6)], ["missing", undefined], ["unreadable", "not json {"], ["no date", "{}"], ["future", ago(-3)]] as const) {
+      const h = fakeHost(baseFiles(rec === undefined ? {} : { [RECORD]: rec }));
+      const d = withNow(deps(h.t));
+      const { value: res } = await captured(() => reauth(registry(connector("a", def())), { connectors: ["a"], onlyIfOlderThanDays: 4.75 }, d));
+      expect(res.items[0].status, label).toBe("ok");
+      expect(d.run.consentCalls, label).toBe(1);
+      expect(JSON.parse(h.files[RECORD]).renewedAt, label).toBe(new Date(NOW).toISOString());
+    }
+  });
+
+  it("token.json's own expiry is never used: a fresh-looking token.json without a record is still renewed", async () => {
+    const h = fakeHost(baseFiles({ "/s/token.json": JSON.stringify({ expiry_date: NOW + 3_000_000, refresh_token: "x" }) }));
+    const { value: res } = await captured(() => reauth(registry(connector("a", def())), { connectors: ["a"], onlyIfOlderThanDays: 4.75 }, withNow(deps(h.t))));
+    expect(res.items[0].status).toBe("ok");
+  });
+
+  it("without the flag nothing is skipped, even with a fresh record", async () => {
+    const h = fakeHost(baseFiles({ [RECORD]: ago(0.1) }));
+    const { value: res } = await captured(() => reauth(registry(connector("a", def())), { connectors: ["a"] }, withNow(deps(h.t))));
+    expect(res.items[0].status).toBe("ok");
+  });
+
+  it("dry run says it would skip when the record is recent, and still opens nothing", async () => {
+    const h = fakeHost(baseFiles({ [RECORD]: ago(1) }));
+    const d = withNow(deps(h.t));
+    const { value: res } = await captured(() => reauth(registry(connector("a", def())), { connectors: ["a"], dryRun: true, onlyIfOlderThanDays: 4.75 }, d));
+    expect(res.items[0]).toMatchObject({ status: "dry-run" });
+    expect(res.items[0].detail).toMatch(/^would skip: renewed 1\.0 day/);
+    expect(d.run.consentCalls).toBe(0);
+    expect(h.writes).toEqual([]);
+  });
+
+  it("a Google-only entry (googleOAuth, platforms [], no url) is valid; platforms [] without googleOAuth, or missing platforms, are not", () => {
+    const robot = { id: "robot", name: "Robot", repo: "o/robot", platforms: [], auth: { mode: "none" }, googleOAuth: def() };
+    expect(validateRegistry({ version: 1, connectors: [robot] }).errors).toEqual([]);
+    expect(validateRegistry({ version: 1, connectors: [{ ...robot, googleOAuth: undefined }] }).errors.join("\n")).toMatch(/platforms must be a non-empty subset/);
+    expect(validateRegistry({ version: 1, connectors: [{ ...robot, platforms: undefined }] }).errors.join("\n")).toMatch(/platforms must be a non-empty subset/);
+    // an entry that does list a platform still needs its url
+    expect(validateRegistry({ version: 1, connectors: [{ ...robot, platforms: ["claude"] }] }).errors.join("\n")).toMatch(/url/);
+    const reg = validateRegistry({ version: 1, connectors: [robot] }).registry!;
+    expect(selectGoogleConnectors(reg, { connectors: ["*"] }).picked.map((c) => c.id)).toEqual(["robot"]);
+  });
+});

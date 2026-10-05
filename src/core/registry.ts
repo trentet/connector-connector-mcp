@@ -41,7 +41,9 @@ export function validateRegistry(r: unknown): { registry?: Registry; errors: str
     seen.add(c.id);
     if (!c.name) errors.push(`${w}: name required`);
     if (c.tier !== undefined && c.tier !== "production" && c.tier !== "test") errors.push(`${w}: tier must be "production" or "test"`);
-    if (!c.platforms?.length || c.platforms.some((p) => !PLATFORMS.includes(p))) errors.push(`${w}: platforms must be a non-empty subset of ${PLATFORMS.join("|")}`);
+    // A Google-only entry (a googleOAuth block, no MCP connector) has platforms [] and no url; every other entry needs both.
+    const googleOnly = c.googleOAuth !== undefined && Array.isArray(c.platforms) && c.platforms.length === 0;
+    if (!Array.isArray(c.platforms) || (!googleOnly && !c.platforms.length) || c.platforms.some((p) => !PLATFORMS.includes(p))) errors.push(`${w}: platforms must be a non-empty subset of ${PLATFORMS.join("|")} (only an entry with a googleOAuth block may use [] for a Google-only target)`);
     if (!c.auth || !["header", "oauth", "none"].includes(c.auth.mode)) errors.push(`${w}: auth.mode invalid`);
     if (c.auth?.oauthLogin !== undefined && (c.auth.mode !== "oauth" || !c.auth.oauthLogin.vaultLabel)) errors.push(`${w}: auth.oauthLogin needs mode "oauth" and a vaultLabel`);
     if (c.auth?.mode === "header" && !c.auth.headerName) errors.push(`${w}: header auth needs headerName`);
@@ -56,7 +58,7 @@ export function validateRegistry(r: unknown): { registry?: Registry; errors: str
       checkGoogleOAuth(c.googleOAuth, `${w}.googleOAuth`, errors);
       if (!c.repo) errors.push(`${w}.repo: required when googleOAuth is set (the coverage guard matches repos to entries by it)`);
     }
-    checkSource(c.url as Source, `${w}.url`, errors);
+    if (!googleOnly || c.url !== undefined) checkSource(c.url as Source, `${w}.url`, errors);
     if (c.auth?.headerValue) checkSource(c.auth.headerValue, `${w}.auth.headerValue`, errors);
   });
   (reg.googleOAuthExemptions ?? []).forEach((x, i) => {

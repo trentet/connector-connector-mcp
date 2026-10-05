@@ -20,3 +20,15 @@ describe("cli --platform", () => {
     expect(parseFlags(["x", "--platform", "--dry-run"])).toHaveProperty("error");
   });
 });
+
+describe("cli reauth --only-if-older-than", () => {
+  it("parses a positive number of days", () => {
+    expect(parseFlags(["robot", "--only-if-older-than", "4.75"])).toMatchObject({ ids: ["robot"], onlyIfOlderThanDays: 4.75 });
+    expect(parseFlags(["robot"])).toMatchObject({ onlyIfOlderThanDays: undefined });
+  });
+  it("rejects zero, negative, missing and non-numeric values", () => {
+    for (const bad of [["--only-if-older-than", "0"], ["--only-if-older-than", "-1"], ["--only-if-older-than"], ["--only-if-older-than", "soon"]]) {
+      expect(parseFlags(["robot", ...bad])).toHaveProperty("error");
+    }
+  });
+});

@@ -20,7 +20,8 @@ import { getCredential } from "./vaultClient.js";
  * connector runs elsewhere) -> restart -> health check. If the restart or health check fails, the previous token is restored.
  * A failure at any earlier step changes nothing. Output is redacted: the code, tokens and client secret never appear.
  */
-export interface ReauthRequest { connectors: string[]; includeTest?: boolean; dryRun?: boolean }
+/** `onlyIfOlderThanDays`: skip a connector whose renewal record (RENEWED_FILE next to its token.json) is newer than this; used by a second renewer that only acts when the first one has not. */
+export interface ReauthRequest { connectors: string[]; includeTest?: boolean; dryRun?: boolean; onlyIfOlderThanDays?: number }
 export interface ReauthItem { connector: string; status: "ok" | "skipped" | "dry-run" | "error"; detail?: string }
 export interface ReauthResult { ok: boolean; items: ReauthItem[] }
 
@@ -71,6 +72,24 @@ export function fileLock(dir = process.env.CC_LOCK_DIR ?? path.join(os.tmpdir(),
     }
     return undefined;
   };
+}
+
+/**
+ * Written next to token.json after a FULLY successful renewal (delivered, restarted and healthy, or delivered with no restart configured). It is the only
+ * record of "when" a second renewer can trust: token.json's own expiry_date and its file time change whenever a server saves a refreshed access token,
+ * which would make an old grant look fresh forever. A failed or restored renewal writes nothing.
+ */
+export const RENEWED_FILE = "token.renewed.json";
+
+/** Age of the last renewal in days, or undefined when the record is missing, unreadable or dated in the future (clock skew): then nothing is trusted and the caller renews. */
+export function renewalAge(raw: string | undefined, nowMs: number): { days: number; byHost?: string } | undefined {
+  if (raw === undefined) return undefined;
+  try {
+    const j = JSON.parse(raw) as { renewedAt?: unknown; byHost?: unknown };
+    const at = typeof j.renewedAt === "string" ? Date.parse(j.renewedAt) : NaN;
+    if (!Number.isFinite(at) || at > nowMs + 5 * 60_000) return undefined;
+    return { days: Math.max(0, nowMs - at) / 86_400_000, byHost: typeof j.byHost === "string" ? j.byHost : undefined };
+  } catch { return undefined; }
 }
 
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
@@ -205,6 +224,16 @@ async function reauthOne(c: ConnectorDef, g: GoogleOAuthDef, req: ReauthRequest,
   const dir = g.host ? g.secretsDir : expandEnv(g.secretsDir);
   const credsFile = t.join(dir, "credentials.json");
   const tokenFile = t.join(dir, "token.json");
+  const renewedFile = t.join(dir, RENEWED_FILE);
+
+  // A second renewer acts only when needed: one read over the same transport, before the vault or a browser is touched.
+  if (req.onlyIfOlderThanDays !== undefined) {
+    const prior = renewalAge(await t.readFile(renewedFile), deps.now());
+    if (prior && prior.days < req.onlyIfOlderThanDays) {
+      const detail = `renewed ${prior.days.toFixed(1)} day(s) ago${prior.byHost ? ` by ${prior.byHost}` : ""}; nothing to do (renews after ${req.onlyIfOlderThanDays} days)`;
+      return req.dryRun ? { status: "dry-run", detail: `would skip: ${detail}` } : { status: "skipped", detail };
+    }
+  }
 
   const raw = await t.readFile(credsFile);
   if (raw === undefined) throw new Error(`credentials.json not found at ${t.where}:${dir}`);
@@ -249,7 +278,11 @@ async function reauthOne(c: ConnectorDef, g: GoogleOAuthDef, req: ReauthRequest,
   const previous = await t.readFile(tokenFile);
   await t.replaceFile(tokenFile, next);
   log(`${c.id}: new token.json delivered to ${t.where}`);
-  if (!g.restart) return { status: "ok", detail: `renewed; new token delivered to ${t.where} (no restart configured: the server must pick it up itself)` };
+  const record = async (): Promise<void> => {
+    try { await t.replaceFile(renewedFile, JSON.stringify({ renewedAt: new Date(deps.now()).toISOString(), byHost: os.hostname() }, null, 2)); }
+    catch (e) { log(`${c.id}: renewed, but could not write ${RENEWED_FILE} (${(e as Error).message}); a --only-if-older-than job will renew again`); }
+  };
+  if (!g.restart) { await record(); return { status: "ok", detail: `renewed; new token delivered to ${t.where} (no restart configured: the server must pick it up itself)` }; }
 
   const restartCmd = g.host ? g.restart.command : expandEnv(g.restart.command);
   const restartAndCheck = async (): Promise<string | undefined> => {
@@ -266,7 +299,7 @@ async function reauthOne(c: ConnectorDef, g: GoogleOAuthDef, req: ReauthRequest,
   };
   log(`${c.id}: restarting on ${t.where}`);
   const problem = await restartAndCheck();
-  if (!problem) return { status: "ok", detail: `renewed; new token delivered to ${t.where}; restarted${g.health ? "; health ok" : ""}` };
+  if (!problem) { await record(); return { status: "ok", detail: `renewed; new token delivered to ${t.where}; restarted${g.health ? "; health ok" : ""}` }; }
 
   // The new token did not bring the server back: put the old one back (it is still valid until it expires) and restart again.
   if (previous !== undefined) {
