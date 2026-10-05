@@ -138,7 +138,9 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
 }
 
 async function resolveConnector(c: ConnectorDef, platform: Platform, red: Redactor, deps: ResolveDeps): Promise<ResolvedConnector> {
-  const url = await resolve(c.urlByPlatform?.[platform] ?? c.url, red, deps);
+  const source = c.urlByPlatform?.[platform] ?? c.url;
+  if (!source) throw new Error(`${c.id} has no url for ${platform}`);
+  const url = await resolve(source, red, deps);
   red.add(url.includes("?") ? url.slice(url.indexOf("?") + 1) : undefined);
   const headerValue = c.auth.mode === "header" && c.auth.headerValue ? await resolve(c.auth.headerValue, red, deps) : undefined;
   return { def: c, name: c.nameByPlatform?.[platform] ?? c.name, url, headerValue };

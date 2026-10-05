@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildConsentUrl, fileLock, reauth, selectGoogleConnectors, withPort, type ReauthDeps, type TokenResponse } from "../src/core/reauth.js";
+import { buildConsentUrl, fileLock, reauth, renewalAgeDays, RENEWAL_RECORD, selectGoogleConnectors, withPort, type ReauthDeps, type TokenResponse } from "../src/core/reauth.js";
 import { loadRegistry, validateRegistry } from "../src/core/registry.js";
 import { expandEnv, SshTransport, type ExecResult, type Transport } from "../src/core/transport.js";
 import type { ConnectorDef, GoogleOAuthDef, Registry } from "../src/core/types.js";
@@ -53,6 +53,7 @@ function deps(t: Transport, o: { vault?: ReauthDeps["vault"]; tokens?: TokenResp
     exchange: async () => { run.exchanges++; return o.tokens ?? { access_token: ACCESS, refresh_token: REFRESH, scope: SCOPES.join(" "), token_type: "Bearer", expires_in: 3599 }; },
     sleep: async () => { clock += 3000; },
     now: () => (clock += 10),
+    hostname: () => "test-host",
     state: () => "state-fixed-123",
     logFile: null,
   };
@@ -225,6 +226,107 @@ describe("cc reauth", () => {
     expect(res.items.map((i) => `${i.connector}:${i.status}`)).toEqual(["bad:error", "good:ok"]);
     expect(res.ok).toBe(false);
     expect(d.run.closed).toBe(1);
+  });
+});
+
+describe("cc reauth --only-if-older-than (the renewal record)", () => {
+  const DAY = 86_400_000;
+  const RECORD = `/s/${RENEWAL_RECORD}`;
+  const recordAt = (daysAgo: number, byHost = "primary-host") => JSON.stringify({ renewedAt: new Date(1_000_000 - daysAgo * DAY).toISOString(), byHost });
+  const base = (record?: string) => ({ "/s/credentials.json": CREDS, "/s/token.json": "OLD", ...(record === undefined ? {} : { [RECORD]: record }) });
+  type Host = ReturnType<typeof fakeHost>;
+  const go = async (files: Record<string, string>, req: { onlyIfOlderThanDays?: number; dryRun?: boolean } = {}, o: { g?: GoogleOAuthDef; host?: Host; vault?: ReauthDeps["vault"] } = {}) => {
+    const h = o.host ?? fakeHost(files);
+    const d = deps(h.t, { vault: o.vault });
+    const { value: res, stderr } = await captured(() => reauth(registry(connector("a", o.g ?? def())), { connectors: ["a"], ...req }, d));
+    return { h, d, res, stderr };
+  };
+
+  it("a record younger than the limit skips: one record read, no vault, no browser, no write, no restart", async () => {
+    let vaultCalls = 0;
+    const reads: string[] = [];
+    const h = fakeHost(base(recordAt(1.8)));
+    const read = h.t.readFile; h.t.readFile = async (f) => { reads.push(f); return read(f); };
+    const { res, d } = await go({}, { onlyIfOlderThanDays: 4.75 }, { host: h, vault: async () => { vaultCalls++; return { username: "u", password: PASSWORD }; } });
+    expect(res).toMatchObject({ ok: true, items: [{ connector: "a", status: "skipped", detail: "renewed 1.8 days ago by primary-host (renews only when older than 4.75 days)" }] });
+    expect(reads).toEqual([RECORD]);
+    expect(vaultCalls).toBe(0);
+    expect(d.run.consentCalls + d.run.exchanges).toBe(0);
+    expect(h.writes).toEqual([]); expect(h.commands).toEqual([]);
+  });
+
+  it("an older record renews, and the new record says when and by which host", async () => {
+    const { res, h } = await go(base(recordAt(5)), { onlyIfOlderThanDays: 4.75 });
+    expect(res.items[0].status).toBe("ok");
+    const rec = JSON.parse(h.files[RECORD]);
+    expect(rec).toEqual({ renewedAt: expect.any(String), byHost: "test-host" });
+    expect(Number.isFinite(Date.parse(rec.renewedAt))).toBe(true);
+    expect(h.writes).toEqual(["/s/token.json", RECORD]);
+    expect(JSON.parse(h.files["/s/token.json"]).refresh_token).toBe(REFRESH); // the record sits beside token.json, never inside it
+  });
+
+  it("fails toward renewing: a missing, unreadable, malformed or future-dated record renews", async () => {
+    for (const rec of [undefined, "", "not json", "{}", JSON.stringify({ renewedAt: "yesterday" }), JSON.stringify({ renewedAt: 42 }), recordAt(-3)]) {
+      expect((await go(base(rec), { onlyIfOlderThanDays: 4.75 })).res.items[0].status).toBe("ok");
+    }
+  });
+
+  it("without the flag the record is ignored: a fresh record does not stop a renewal", async () => {
+    const { res, h } = await go(base(recordAt(0.1)));
+    expect(res.items[0].status).toBe("ok");
+    expect(h.writes).toContain(RECORD);
+  });
+
+  it("a renewal that is rolled back (health fails) or whose restart fails leaves the old record alone", async () => {
+    const old = recordAt(6);
+    const sick = fakeHost(base(old), { health: () => undefined });
+    const r1 = await go({}, { onlyIfOlderThanDays: 4.75 }, { host: sick, g: def({ health: { url: "http://127.0.0.1:1/health", contains: "ok", waitSeconds: 1 } }) });
+    expect(r1.res.items[0].status).toBe("error");
+    expect(sick.files[RECORD]).toBe(old);
+    const dead = fakeHost(base(old), { restartCode: () => 1 });
+    const r2 = await go({}, { onlyIfOlderThanDays: 4.75 }, { host: dead });
+    expect(r2.res.items[0].status).toBe("error");
+    expect(dead.files[RECORD]).toBe(old);
+  });
+
+  it("a connector with no restart configured still gets its record once the token is delivered", async () => {
+    const { res, h } = await go(base(), {}, { g: def({ restart: undefined, health: undefined }) });
+    expect(res.items[0].status).toBe("ok");
+    expect(JSON.parse(h.files[RECORD]).byHost).toBe("test-host");
+  });
+
+  it("a failed record write does not fail a successful renewal; it says so", async () => {
+    const h = fakeHost(base());
+    const replace = h.t.replaceFile;
+    h.t.replaceFile = async (f, c) => { if (f === RECORD) throw new Error("disk full"); return replace(f, c); };
+    const { res, stderr } = await go({}, {}, { host: h });
+    expect(res).toMatchObject({ ok: true, items: [{ status: "ok" }] });
+    expect(res.items[0].detail).toMatch(/WARNING: token\.renewed\.json could not be written/);
+    expect(stderr).toMatch(/could not write token\.renewed\.json: disk full/);
+  });
+
+  it("a dry run still checks every prerequisite, writes nothing, and says what a real run would do", async () => {
+    const skip = await go(base(recordAt(1)), { onlyIfOlderThanDays: 4.75, dryRun: true });
+    expect(skip.res.items[0].status).toBe("dry-run");
+    expect(skip.res.items[0].detail).toMatch(/vault entry "Google Account" found.*would skip: renewed 1\.0 days ago by primary-host/);
+    const renew = await go(base(recordAt(6)), { onlyIfOlderThanDays: 4.75, dryRun: true });
+    expect(renew.res.items[0].detail).toMatch(/would renew: no usable renewal record, or older than 4\.75 days/);
+    expect(skip.h.writes).toEqual([]); expect(renew.h.writes).toEqual([]);
+    expect(skip.h.commands).toEqual([]);
+  });
+
+  it("renewalAgeDays: the age in days, the host named, odd hosts tolerated", () => {
+    const now = 10 * DAY;
+    expect(renewalAgeDays(JSON.stringify({ renewedAt: new Date(7 * DAY).toISOString(), byHost: "h" }), now)).toEqual({ ageDays: 3, byHost: "h" });
+    expect(renewalAgeDays(JSON.stringify({ renewedAt: new Date(7 * DAY).toISOString() }), now)?.byHost).toBe("an unknown host");
+    expect(renewalAgeDays(undefined, now)).toBeUndefined();
+    expect(renewalAgeDays(JSON.stringify({ renewedAt: new Date(11 * DAY).toISOString() }), now)).toBeUndefined();
+  });
+
+  it("the record never contains a secret", async () => {
+    const { h, stderr, res } = await go(base());
+    for (const s of [SECRET, CODE, REFRESH, ACCESS, PASSWORD]) expect(h.files[RECORD]).not.toContain(s);
+    noSecrets(JSON.stringify(res) + stderr);
   });
 });
 

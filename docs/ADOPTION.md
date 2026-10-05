@@ -7,7 +7,7 @@ Connector repos do not register themselves anywhere. Put this in the repo's READ
 > (id, display name, URL, auth, secret *references*), then run `cc add <id> --platform all` followed by `cc verify <id> --platform all`.
 
 ## What a registry entry needs
-id (kebab-case) · name (and `nameByPlatform` if a platform shows a different name) · url · `urlByPlatform` for header-less platforms
+id (kebab-case) · name (and `nameByPlatform` if a platform shows a different name) · url (omit it, and platforms, only on a Google-only entry: a `googleOAuth` block with nothing to register on a platform) · `urlByPlatform` for header-less platforms
 (ChatGPT and Grok cannot send a custom header: the server must accept a token in the URL, e.g. `?token=`) · auth mode · secret references · enabled platforms.
 
 ## Server requirement for ChatGPT and Grok

@@ -40,8 +40,8 @@ export interface ConnectorDef {
   /** Display name differs on some platforms (verified: claude.ai calls the Drive connector by a shorter name). */
   nameByPlatform?: Partial<Record<Platform, string>>;
   description?: string;
-  /** Default server URL. May be a template that embeds a secret (tokenized URL). */
-  url: Source;
+  /** Default server URL. May be a template that embeds a secret (tokenized URL). Absent only on a Google-only entry (no platforms, a googleOAuth block). */
+  url?: Source;
   /** Per-platform URL override, e.g. ChatGPT cannot send headers so it needs a tokenized URL. */
   urlByPlatform?: Partial<Record<Platform, Source>>;
   /** header = custom request header (claude.ai); none = auth lives in the URL or the server is open; oauth = platform-driven. */
@@ -56,6 +56,7 @@ export interface ConnectorDef {
      */
     oauthLogin?: { vaultLabel: string };
   };
+  /** Platforms the connector is registered on. Empty (or absent in the file) only on a Google-only entry: a googleOAuth block with nothing to register anywhere. */
   platforms: Platform[];
   /** GitHub repo that holds this connector's code ("owner/name"). Lets `cc audit --google` match a repo to the entry that covers it. */
   repo?: string;

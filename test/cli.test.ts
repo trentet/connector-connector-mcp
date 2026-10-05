@@ -20,3 +20,18 @@ describe("cli --platform", () => {
     expect(parseFlags(["x", "--platform", "--dry-run"])).toHaveProperty("error");
   });
 });
+
+describe("cli --only-if-older-than", () => {
+  it("takes a number of days and leaves the other flags alone", () => {
+    expect(parseFlags(["a", "b", "--only-if-older-than", "4.75", "--dry-run"])).toMatchObject({ ids: ["a", "b"], onlyIfOlderThan: 4.75, dryRun: true });
+    expect(parseFlags(["a", "--only-if-older-than", "5"])).toMatchObject({ ids: ["a"], onlyIfOlderThan: 5 });
+    expect(parseFlags(["a"])).toMatchObject({ onlyIfOlderThan: undefined });
+  });
+  it("rejects a missing, zero, negative or non-numeric value instead of renewing on a guess", () => {
+    for (const v of [undefined, "0", "-1", "abc", "4,75", "1e3", "", "Infinity", "--dry-run"]) {
+      const argv = v === undefined ? ["a", "--only-if-older-than"] : ["a", "--only-if-older-than", v];
+      expect(parseFlags(argv)).toEqual({ error: "--only-if-older-than needs a number of days greater than 0, e.g. 4.75" });
+    }
+  });
+});
+
