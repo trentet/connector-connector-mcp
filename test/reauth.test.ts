@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildConsentUrl, fileLock, reauth, selectGoogleConnectors, withPort, type ReauthDeps, type TokenResponse } from "../src/core/reauth.js";
+import { buildConsentUrl, fileLock, reauth, renewalAge, selectGoogleConnectors, withPort, type ReauthDeps, type TokenResponse } from "../src/core/reauth.js";
 import { loadRegistry, validateRegistry } from "../src/core/registry.js";
 import { expandEnv, SshTransport, type ExecResult, type Transport } from "../src/core/transport.js";
 import type { ConnectorDef, GoogleOAuthDef, Registry } from "../src/core/types.js";
@@ -87,7 +87,7 @@ describe("registry validation of googleOAuth", () => {
     expect(validateRegistry(base(def())).errors).toEqual([]);
     expect(loadRegistry("registry/connectors.json").connectors.some((c) => c.googleOAuth)).toBe(true);
   });
-  it("rejects missing dir, non-Google scopes, no vault label, bad ssh, health without restart", () => {
+  it("rejects missing dir, non-Google scopes, no vault label, bad ssh, a bad health url", () => {
     const errs = validateRegistry(base({ secretsDir: "", scopes: ["https://evil.example/x"], account: {}, host: { ssh: "nope", keyFile: "" }, health: { url: "ftp://x" } })).errors.join("\n");
     expect(errs).toMatch(/secretsDir: required/);
     expect(errs).toMatch(/scopes: a non-empty list/);
@@ -95,7 +95,11 @@ describe("registry validation of googleOAuth", () => {
     expect(errs).toMatch(/host.ssh: must look like user@host/);
     expect(errs).toMatch(/host.keyFile: required/);
     expect(errs).toMatch(/health.url: must be an http/);
-    expect(errs).toMatch(/only meaningful together with restart/);
+    expect(errs).not.toMatch(/only meaningful together with restart/); // health without restart is allowed since #43
+  });
+  it("accepts a health block without restart; expectRenewedAt must be a boolean", () => {
+    expect(validateRegistry(base(def({ restart: undefined, health: { url: "http://127.0.0.1:9/health", contains: "ok", waitSeconds: 120, expectRenewedAt: true } }))).errors).toEqual([]);
+    expect(validateRegistry(base(def({ restart: undefined, health: { url: "http://127.0.0.1:9/health", expectRenewedAt: "yes" as never } }))).errors.join("\n")).toMatch(/expectRenewedAt: true or false/);
   });
 });
 
@@ -384,5 +388,82 @@ describe("second renewer support (#39)", () => {
     expect(validateRegistry({ version: 1, connectors: [{ ...robot, platforms: ["claude"] }] }).errors.join("\n")).toMatch(/url/);
     const reg = validateRegistry({ version: 1, connectors: [robot] }).registry!;
     expect(selectGoogleConnectors(reg, { connectors: ["*"] }).picked.map((c) => c.id)).toEqual(["robot"]);
+  });
+});
+
+describe("health check without a restart, and proof that the new token was loaded (#43)", () => {
+  const NOW = Date.parse("2026-10-09T12:00:00Z");
+  const RECORD = "/s/token.renewed.json";
+  // a clock that advances when cc sleeps, so a health wait can run out
+  const withNow = (d: ReauthDeps & { run: Run }) => { let t = NOW; return Object.assign(d, { now: () => t, sleep: async (ms: number) => { t += ms; } }); };
+  const files = (extra: Record<string, string> = {}) => ({ "/s/credentials.json": CREDS, "/s/token.json": "OLD-TOKEN", ...extra });
+  const noRestart = (health: NonNullable<GoogleOAuthDef["health"]>) => def({ restart: undefined, health });
+  const H = (over: Partial<NonNullable<GoogleOAuthDef["health"]>> = {}) => ({ url: "http://127.0.0.1:9/health", contains: '"drive":"ok"', waitSeconds: 9, ...over });
+
+  it("no restart, health ok: delivers, runs no command, polls health, writes the record, says it was re-read", async () => {
+    const h = fakeHost(files(), { health: () => '{"drive":"ok"}' });
+    const { value: res } = await captured(() => reauth(registry(connector("a", noRestart(H()))), { connectors: ["a"] }, withNow(deps(h.t))));
+    expect(res.items[0].status).toBe("ok");
+    expect(res.items[0].detail).toMatch(/re-read by the server \(no restart\); health ok/);
+    expect(h.commands).toEqual([]);
+    expect(JSON.parse(h.files["/s/token.json"]).refresh_token).toBe(REFRESH);
+    expect(JSON.parse(h.files[RECORD]).renewedAt).toBe(new Date(NOW).toISOString());
+  });
+
+  it("no restart, health never ok: the previous token is restored, no record is written, and the error says so", async () => {
+    const h = fakeHost(files(), { health: () => undefined });
+    const { value: res } = await captured(() => reauth(registry(connector("a", noRestart(H({ waitSeconds: 6 })))), { connectors: ["a"] }, withNow(deps(h.t))));
+    expect(res.ok).toBe(false);
+    expect(res.items[0].detail).toMatch(/health check did not pass within 6s; the previous token was restored but the server still did not come back/);
+    expect(h.files["/s/token.json"]).toBe("OLD-TOKEN");
+    expect(h.files[RECORD]).toBeUndefined();
+    expect(h.commands).toEqual([]);
+  });
+
+  it("a health page that is already ok on the OLD token passes a plain check at once (why expectRenewedAt exists)", async () => {
+    const h = fakeHost(files(), { health: () => '{"drive":"ok","renewedAt":"2026-10-01T00:00:00.000Z"}' });
+    const { value: res } = await captured(() => reauth(registry(connector("a", noRestart(H()))), { connectors: ["a"] }, withNow(deps(h.t))));
+    expect(res.items[0].status).toBe("ok");
+  });
+
+  it("expectRenewedAt: a stale ok does not pass; the record is put back; the token is restored", async () => {
+    const OLD_RECORD = JSON.stringify({ renewedAt: "2026-10-01T00:00:00.000Z", byHost: "old-host" });
+    const h = fakeHost(files({ [RECORD]: OLD_RECORD }), { health: () => '{"drive":"ok","renewedAt":"2026-10-01T00:00:00.000Z"}' });
+    const { value: res } = await captured(() => reauth(registry(connector("a", noRestart(H({ waitSeconds: 6, expectRenewedAt: true })))), { connectors: ["a"] }, withNow(deps(h.t))));
+    expect(res.ok).toBe(false);
+    expect(res.items[0].detail).toMatch(/did not show the new renewal record/);
+    expect(res.items[0].detail).toMatch(/previous token was restored and the server is running again/); // the plain check passes on the old token
+    expect(h.files["/s/token.json"]).toBe("OLD-TOKEN");
+    expect(h.files[RECORD]).toBe(OLD_RECORD);
+  });
+
+  it("expectRenewedAt: passes only once the page echoes the new renewedAt (the server loads it a few polls later)", async () => {
+    const h = fakeHost(files(), { health: () => undefined });
+    let polls = 0;
+    h.t.fetchText = async () => {
+      polls++;
+      const rec = h.files[RECORD] ? JSON.parse(h.files[RECORD]) : {};
+      return polls < 3 ? '{"drive":"ok","renewedAt":"2026-10-01T00:00:00.000Z"}' : JSON.stringify({ drive: "ok", renewedAt: rec.renewedAt });
+    };
+    const { value: res } = await captured(() => reauth(registry(connector("a", noRestart(H({ waitSeconds: 30, expectRenewedAt: true })))), { connectors: ["a"] }, withNow(deps(h.t))));
+    expect(res.items[0].status).toBe("ok");
+    expect(res.items[0].detail).toMatch(/health ok, showing the new renewal/);
+    expect(polls).toBe(3);
+    expect(JSON.parse(h.files[RECORD]).renewedAt).toBe(new Date(NOW).toISOString());
+  });
+
+  it("expectRenewedAt with no previous record: a failed renewal leaves an undated record, which counts as 'renew' for --only-if-older-than", async () => {
+    const h = fakeHost(files(), { health: () => undefined });
+    await captured(() => reauth(registry(connector("a", noRestart(H({ waitSeconds: 6, expectRenewedAt: true })))), { connectors: ["a"] }, withNow(deps(h.t))));
+    expect(h.files["/s/token.json"]).toBe("OLD-TOKEN");
+    expect(renewalAge(h.files[RECORD], NOW)).toBeUndefined();
+  });
+
+  it("with a restart configured, expectRenewedAt also applies (restart, then the page must show the new record)", async () => {
+    const h = fakeHost(files());
+    h.t.fetchText = async () => { const rec = h.files[RECORD] ? JSON.parse(h.files[RECORD]) : {}; return JSON.stringify({ drive: "ok", renewedAt: rec.renewedAt }); };
+    const { value: res } = await captured(() => reauth(registry(connector("a", def({ health: H({ expectRenewedAt: true }) }))), { connectors: ["a"] }, withNow(deps(h.t))));
+    expect(res.items[0].status).toBe("ok");
+    expect(h.commands).toEqual(["restart-it"]);
   });
 });
