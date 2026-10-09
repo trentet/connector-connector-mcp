@@ -276,32 +276,44 @@ async function reauthOne(c: ConnectorDef, g: GoogleOAuthDef, req: ReauthRequest,
 
   const next = JSON.stringify({ access_token: tokens.access_token ?? null, refresh_token: tokens.refresh_token, scope: tokens.scope, token_type: tokens.token_type ?? "Bearer", expiry_date: deps.now() + (tokens.expires_in ?? 3600) * 1000 }, null, 2);
   const previous = await t.readFile(tokenFile);
+  const expect = g.health?.expectRenewedAt === true;
+  const previousRecord = expect ? await t.readFile(renewedFile) : undefined;
+  const renewedAt = new Date(deps.now()).toISOString();
   await t.replaceFile(tokenFile, next);
   log(`${c.id}: new token.json delivered to ${t.where}`);
   const record = async (): Promise<void> => {
-    try { await t.replaceFile(renewedFile, JSON.stringify({ renewedAt: new Date(deps.now()).toISOString(), byHost: os.hostname() }, null, 2)); }
+    try { await t.replaceFile(renewedFile, JSON.stringify({ renewedAt, byHost: os.hostname() }, null, 2)); }
     catch (e) { log(`${c.id}: renewed, but could not write ${RENEWED_FILE} (${(e as Error).message}); a --only-if-older-than job will renew again`); }
   };
-  if (!g.restart) { await record(); return { status: "ok", detail: `renewed; new token delivered to ${t.where} (no restart configured: the server must pick it up itself)` }; }
+  if (!g.restart && !g.health) { await record(); return { status: "ok", detail: `renewed; new token delivered to ${t.where} (no restart configured: the server must pick it up itself)` }; }
 
-  const restartCmd = g.host ? g.restart.command : expandEnv(g.restart.command);
-  const restartAndCheck = async (): Promise<string | undefined> => {
-    const r = await t.exec(restartCmd, 180_000);
-    if (r.code !== 0) return `restart command exited ${r.code}`;
+  const restartCmd = g.restart ? (g.host ? g.restart.command : expandEnv(g.restart.command)) : undefined;
+  // `stamp`: the renewedAt the health body must show (proof the server loaded the NEW token); the check after a restore asks only for plain health.
+  const restartAndCheck = async (stamp?: string): Promise<string | undefined> => {
+    if (restartCmd) {
+      const r = await t.exec(restartCmd, 180_000);
+      if (r.code !== 0) return `restart command exited ${r.code}`;
+    }
     if (!g.health) return undefined;
     const end = deps.now() + (g.health.waitSeconds ?? 60) * 1000;
     for (;;) {
       const body = await t.fetchText(g.health.url);
-      if (body !== undefined && (!g.health.contains || body.includes(g.health.contains))) return undefined;
-      if (deps.now() >= end) return `health check did not pass within ${g.health.waitSeconds ?? 60}s`;
+      if (body !== undefined && (!g.health.contains || body.includes(g.health.contains)) && (!stamp || body.includes(stamp))) return undefined;
+      if (deps.now() >= end) return `health check did not pass within ${g.health.waitSeconds ?? 60}s${stamp ? " (the health page did not show the new renewal record)" : ""}`;
       await deps.sleep(3000);
     }
   };
-  log(`${c.id}: restarting on ${t.where}`);
-  const problem = await restartAndCheck();
-  if (!problem) { await record(); return { status: "ok", detail: `renewed; new token delivered to ${t.where}; restarted${g.health ? "; health ok" : ""}` }; }
+  // The record goes first when the health page must echo it; a failed renewal puts the previous record back (an undated one if there was none, which reads as "renew").
+  if (expect) await record();
+  log(restartCmd ? `${c.id}: restarting on ${t.where}` : `${c.id}: no restart configured; waiting for the server to re-read the token (health check on ${t.where})`);
+  const problem = await restartAndCheck(expect ? renewedAt : undefined);
+  if (!problem) {
+    if (!expect) await record();
+    return { status: "ok", detail: `renewed; new token delivered to ${t.where}; ${restartCmd ? "restarted" : "re-read by the server (no restart)"}${g.health ? "; health ok" : ""}${expect ? ", showing the new renewal" : ""}` };
+  }
+  if (expect) { try { await t.replaceFile(renewedFile, previousRecord ?? "{}"); } catch { /* the token restore below still matters most */ } }
 
-  // The new token did not bring the server back: put the old one back (it is still valid until it expires) and restart again.
+  // The new token did not bring the server back: put the old one back (it is still valid until it expires) and restart again (or just re-check, with no restart).
   if (previous !== undefined) {
     await t.replaceFile(tokenFile, previous);
     const again = await restartAndCheck();

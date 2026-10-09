@@ -29,7 +29,12 @@ export interface GoogleOAuthDef {
   /** Run on the connector's host after the new token is in place (servers read token.json at start). */
   restart?: { command: string };
   /** Checked on the connector's host after the restart; if it fails, the previous token is restored. */
-  health?: { url: string; contains?: string; waitSeconds?: number };
+  /**
+   * Checked on the connector's host after the new token is in place (and after the restart, when there is one); if it fails, the previous token is restored.
+   * Without `restart` the server re-reads the file itself. A page that already says ok on the OLD token would then pass at once, so `expectRenewedAt`
+   * makes cc write the renewal record first and require the health body to contain that record's `renewedAt`: proof the server loaded the NEW token.
+   */
+  health?: { url: string; contains?: string; waitSeconds?: number; expectRenewedAt?: boolean };
 }
 
 export interface ConnectorDef {
