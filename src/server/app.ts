@@ -6,6 +6,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import { loadRegistry } from "../core/registry.js";
 import { run as coreRun } from "../core/runner.js";
+import { reauth as coreReauth, type ReauthRequest, type ReauthResult } from "../core/reauth.js";
 import { PLATFORMS, type Registry, type RunRequest, type RunResult } from "../core/types.js";
 
 export interface AppOptions {
@@ -15,6 +16,8 @@ export interface AppOptions {
   allowedHosts?: string[];
   /** Injectable for tests; defaults to the real runner (same code path as the CLI). */
   runFn?: (reg: Registry, req: RunRequest) => Promise<RunResult>;
+  /** Injectable for tests; defaults to the real renewal (same code path as `cc reauth`). */
+  reauthFn?: (reg: Registry, req: ReauthRequest) => Promise<ReauthResult>;
   version?: string;
 }
 
@@ -37,12 +40,6 @@ function requireToken(expected: string) {
   };
 }
 
-/** One browser, one run at a time: concurrent callers queue instead of fighting over tabs. */
-function serialize(): <T>(fn: () => Promise<T>) => Promise<T> {
-  let tail: Promise<unknown> = Promise.resolve();
-  return <T>(fn: () => Promise<T>): Promise<T> => { const p = tail.then(fn, fn) as Promise<T>; tail = p.catch(() => {}); return p; };
-}
-
 /**
  * Tools take registry IDS only. There is deliberately no url/token/secret argument anywhere: anything passed as an MCP
  * argument lands in the calling session's context. `.strict()` makes unknown fields an error, not silently ignored.
@@ -56,7 +53,13 @@ const runInput = z.object({
   if_existing: z.enum(["skip", "update", "fail"]).optional(),
 }).strict();
 
-const ALLOWED_ARGS: Record<string, string[]> = { cc_run: Object.keys(runInput.shape), cc_list_registry: [] };
+const reauthInput = z.object({
+  connectors: z.array(z.string().regex(/^(\*|[a-z0-9][a-z0-9-]*)$/)).min(1).max(50).describe('Registry ids of connectors that have a googleOAuth block, or ["*"] for all production ones.'),
+  include_test: z.boolean().default(false).describe('With connectors ["*"], also include tier "test" connectors.'),
+  dry_run: z.boolean().default(false).describe("Check every prerequisite (credentials, vault entry, SSH reachability) without opening a browser or changing anything."),
+}).strict();
+
+const ALLOWED_ARGS: Record<string, string[]> = { cc_run: Object.keys(runInput.shape), cc_reauth: Object.keys(reauthInput.shape), cc_list_registry: [] };
 
 /** The SDK silently strips unknown fields; reject them loudly instead, so a caller that passes a url/token learns it must not. */
 export function unknownArgs(body: unknown): string[] | undefined {
@@ -71,7 +74,7 @@ export function unknownArgs(body: unknown): string[] | undefined {
   return undefined;
 }
 
-export function buildMcpServer(opts: AppOptions, queue: <T>(fn: () => Promise<T>) => Promise<T>): McpServer {
+export function buildMcpServer(opts: AppOptions): McpServer {
   const server = new McpServer({ name: "connector-connector-mcp", version: opts.version ?? "0.0.1" });
   const runFn = opts.runFn ?? ((reg, req) => import("../adapters/index.js").then(({ ADAPTERS }) => coreRun(reg, req, { adapters: ADAPTERS })));
   server.registerTool(
@@ -94,7 +97,24 @@ export function buildMcpServer(opts: AppOptions, queue: <T>(fn: () => Promise<T>
     async (args) => {
       const a = runInput.parse(args);
       const reg = loadRegistry(opts.registryPath);
-      const res = await queue(() => runFn(reg, { op: a.op, connectors: a.connectors, platforms: a.platforms as RunRequest["platforms"], dryRun: a.dry_run, includeTest: a.include_test, ifExisting: a.if_existing }));
+      const res = await runFn(reg, { op: a.op, connectors: a.connectors, platforms: a.platforms as RunRequest["platforms"], dryRun: a.dry_run, includeTest: a.include_test, ifExisting: a.if_existing });
+      return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }], isError: !res.ok };
+    },
+  );
+  const reauthFn = opts.reauthFn ?? ((reg, req) => coreReauth(reg, req));
+  server.registerTool(
+    "cc_reauth",
+    {
+      description:
+        "Renew the Google OAuth token (7-day expiry while the OAuth app is in Testing status) of connectors whose registry entry has a googleOAuth block: " +
+        "drives Google's consent in cc's own browser, delivers the new token.json to the connector's host, restarts it and checks its health; restores the old token if that fails. " +
+        "Takes registry ids only; secrets are resolved inside the server and never returned. Use dry_run first if unsure. A real run can exceed a client's 60 s timeout (it still completes).",
+      inputSchema: reauthInput.shape,
+    },
+    async (args) => {
+      const a = reauthInput.parse(args);
+      const reg = loadRegistry(opts.registryPath);
+      const res = await reauthFn(reg, { connectors: a.connectors, includeTest: a.include_test, dryRun: a.dry_run });
       return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     },
   );
@@ -104,7 +124,6 @@ export function buildMcpServer(opts: AppOptions, queue: <T>(fn: () => Promise<T>
 export function buildApp(opts: AppOptions) {
   const host = opts.host ?? "127.0.0.1";
   const app = createMcpExpressApp({ host, allowedHosts: opts.allowedHosts });
-  const queue = serialize();
   app.get("/health", (_req, res) => { res.status(200).json({ status: "ok", service: "connector-connector-mcp", version: opts.version ?? "0.0.1" }); });
   app.post("/mcp", requireToken(opts.token), async (req, res) => {
     const extra = unknownArgs(req.body);
@@ -112,7 +131,7 @@ export function buildApp(opts: AppOptions) {
       res.status(200).json({ jsonrpc: "2.0", id: (req.body as { id?: unknown })?.id ?? null, error: { code: -32602, message: `Invalid params: unknown argument(s): ${extra.join(", ")}. cc takes registry ids only; never pass urls, tokens or secrets as arguments.` } });
       return;
     }
-    const server = buildMcpServer(opts, queue);
+    const server = buildMcpServer(opts);
     try {
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
       await server.connect(transport);

@@ -5,7 +5,7 @@ export interface AuditHit { file: string; reasons: string[] }
 
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "logs", "browser-profile", "artifacts", ".next", "coverage"]);
 const CODE_EXT = /\.(mjs|cjs|js|ts|ps1|py|bat|cmd|sh)$/i;
-const NAME_RX = /(register-?connectors?|chatgpt-register|register-?mcp|add-?connector)/i;
+const NAME_RX = /(register-?connectors?|chatgpt-register|register-?mcp|add-?connector|(weekly-|run-)?[\w-]*re-?auth(orize)?\b|renew-google)/i;
 // Strong signatures of code that drives a platform's add-connector UI.
 const SIGNATURES: [RegExp, string][] = [
   [/claude\.ai\/customize\/connectors/i, "drives claude.ai connector UI"],
@@ -13,6 +13,8 @@ const SIGNATURES: [RegExp, string][] = [
   [/chatgpt\.com\/plugins/i, "drives ChatGPT plugins UI"],
   [/Create MCP App/i, "ChatGPT 'Create MCP App' flow"],
   [/grok\.com\/connectors/i, "drives grok.com connectors UI"],
+  // Google OAuth token renewal is also cc's job (`cc reauth`): a connector repo must not drive Google's consent screen itself.
+  [/accounts\.google\.com\/(o\/oauth2|signin\/oauth)|\/signin\/oauth\/v2\/consentsummary|oauth2\.googleapis\.com\/token[\s\S]{0,400}refresh_token[\s\S]{0,400}(patchright|playwright|chromium)|(patchright|playwright|chromium)[\s\S]{0,2000}accounts\.google\.com/i, "drives Google's OAuth consent screen (cc reauth replaces this)"],
 ];
 
 /** Find files in `root` that look like per-repo connector registration scripts (which cc replaces). */

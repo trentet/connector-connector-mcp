@@ -7,10 +7,11 @@
     {
       "id": "helm-drive",
       "name": "HELM Drive MCP Connector",
+      "repo": "trentet/helm-drive-mcp",
       "description": "Private HELM Drive MCP endpoint",
       "url": {
         "type": "fileRegex",
-        "path": "D:/GDrive/HELM/DEV-PROJECTS/Connectors/HELM Drive MCP Connector/Repos/TT-MCP/connector-info.txt",
+        "path": "D:/GDrive/HELM/DEV-PROJECTS/Connectors/HELM Drive MCP Connector/Repos/helm-drive-mcp/connector-info.txt",
         "pattern": "https://mcp\\.trentt\\.me/mcp\\?token=[^\\s\"'<>]+"
       },
       "auth": {
@@ -24,6 +25,26 @@
       "nameByPlatform": {
         "claude": "HELM Drive Connector",
         "grok": "HELMMCP"
+      },
+      "googleOAuth": {
+        "secretsDir": "%LOCALAPPDATA%\\HELM\\helm-drive-mcp\\production\\secrets",
+        "scopes": [
+          "https://www.googleapis.com/auth/drive",
+          "https://www.googleapis.com/auth/documents",
+          "https://www.googleapis.com/auth/spreadsheets",
+          "https://www.googleapis.com/auth/gmail.readonly"
+        ],
+        "account": {
+          "vaultLabel": "Google Account (trenterrolthomas@gmail.com)"
+        },
+        "restart": {
+          "command": "node %LOCALAPPDATA%\\HELM\\helm-drive-mcp\\deploy\\production\\scripts\\restart.mjs production"
+        },
+        "health": {
+          "url": "http://127.0.0.1:8787/health",
+          "contains": "\"status\":\"ok\"",
+          "waitSeconds": 60
+        }
       }
     },
     {
@@ -103,12 +124,63 @@
       ]
     },
     {
-      "id": "vault-mcp",
-      "name": "Vault MCP",
-      "description": "Private HELM credential-reference MCP endpoint. Claude only: verified 2026-10-02 that this server rejects ?token= in the URL (401) and accepts only the x-api-key header, so it cannot work on header-less platforms (ChatGPT, Grok) until the server accepts a URL token.",
+      "id": "helm-relay",
+      "name": "HELM Relay",
+      "description": "HELM Relay: routes shell_exec and shell_job_* to enrolled hosts (agents) over SSH; runs nothing locally. Two credentials: x-api-key header and shell_secret in the URL (token also in the URL for ChatGPT/Grok).",
       "url": {
-        "type": "literal",
-        "value": "https://vault.trentt.me/mcp"
+        "type": "template",
+        "template": "https://relay.trentt.me/mcp?shell_secret={{shellSecret}}",
+        "variables": {
+          "shellSecret": {
+            "type": "envFile",
+            "paths": [
+              "C:/Users/Trent/AppData/Local/HELM/helm-relay/production/secrets/connector.env"
+            ],
+            "key": "SHELL_MCP_SHELL_SECRET"
+          }
+        }
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://relay.trentt.me/mcp?shell_secret={{shellSecret}}&token={{bearerToken}}",
+          "variables": {
+            "shellSecret": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-relay/production/secrets/connector.env"
+              ],
+              "key": "SHELL_MCP_SHELL_SECRET"
+            },
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-relay/production/secrets/connector.env"
+              ],
+              "key": "SHELL_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://relay.trentt.me/mcp?shell_secret={{shellSecret}}&token={{bearerToken}}",
+          "variables": {
+            "shellSecret": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-relay/production/secrets/connector.env"
+              ],
+              "key": "SHELL_MCP_SHELL_SECRET"
+            },
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-relay/production/secrets/connector.env"
+              ],
+              "key": "SHELL_MCP_BEARER_TOKEN"
+            }
+          }
+        }
       },
       "auth": {
         "mode": "header",
@@ -116,18 +188,129 @@
         "headerValue": {
           "type": "envFile",
           "paths": [
-            "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Vault MCP Connector/Repos/vault-mcp/.env"
+            "C:/Users/Trent/AppData/Local/HELM/helm-relay/production/secrets/connector.env"
+          ],
+          "key": "SHELL_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ]
+    },
+    {
+      "id": "vault-mcp",
+      "name": "Vault MCP",
+      "description": "Private HELM credential-reference MCP endpoint: lists credential labels and mints one-time entry links. Never returns secret values. Claude uses the x-api-key header; ChatGPT and Grok use a low-privilege ?token= (non-admin tools only).",
+      "url": {
+        "type": "literal",
+        "value": "https://vault.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://vault.trentt.me/mcp?token={{queryToken}}",
+          "variables": {
+            "queryToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/vault-mcp/production/secrets/connector.env"
+              ],
+              "key": "VAULT_MCP_QUERY_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://vault.trentt.me/mcp?token={{queryToken}}",
+          "variables": {
+            "queryToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/vault-mcp/production/secrets/connector.env"
+              ],
+              "key": "VAULT_MCP_QUERY_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/vault-mcp/production/secrets/connector.env"
           ],
           "key": "VAULT_MCP_BEARER_TOKEN"
         }
       },
       "platforms": [
-        "claude"
-      ]
+        "claude",
+        "chatgpt",
+        "grok"
+      ],
+      "tier": "production"
+    },
+    {
+      "id": "vault-mcp-test",
+      "name": "Vault MCP TEST",
+      "description": "TEST environment of the Vault MCP connector (vault-test.trentt.me). Shares the one real vault backend. Do not register unless actively testing.",
+      "url": {
+        "type": "literal",
+        "value": "https://vault-test.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://vault-test.trentt.me/mcp?token={{queryToken}}",
+          "variables": {
+            "queryToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/vault-mcp/test/secrets/connector.env"
+              ],
+              "key": "VAULT_MCP_QUERY_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://vault-test.trentt.me/mcp?token={{queryToken}}",
+          "variables": {
+            "queryToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/vault-mcp/test/secrets/connector.env"
+              ],
+              "key": "VAULT_MCP_QUERY_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/vault-mcp/test/secrets/connector.env"
+          ],
+          "key": "VAULT_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ],
+      "tier": "test"
     },
     {
       "id": "helm-audio-mcp",
       "name": "HELM Audio Connector",
+      "repo": "trentet/helm-audio-mcp",
       "description": "HELM audio transcription, diarization and speech processing endpoint",
       "url": {
         "type": "literal",
@@ -176,7 +359,31 @@
         "claude",
         "chatgpt",
         "grok"
-      ]
+      ],
+      "googleOAuth": {
+        "secretsDir": "C:\\Users\\KnottyAI\\AppData\\Local\\HELM\\helm-audio-mcp\\production\\secrets",
+        "scopes": [
+          "https://www.googleapis.com/auth/drive",
+          "https://www.googleapis.com/auth/documents",
+          "https://www.googleapis.com/auth/spreadsheets"
+        ],
+        "account": {
+          "vaultLabel": "Google Account (trenterrolthomas@gmail.com)"
+        },
+        "host": {
+          "ssh": "KnottyAI@192.168.23.200",
+          "keyFile": "%USERPROFILE%\\.ssh\\knottyai-pc_helm-shell",
+          "os": "windows"
+        },
+        "restart": {
+          "command": "powershell -NoProfile -NonInteractive -Command Stop-ScheduledTask -TaskName 'helm-audio-mcp Server'; Start-Sleep -Seconds 3; Start-ScheduledTask -TaskName 'helm-audio-mcp Server'"
+        },
+        "health": {
+          "url": "http://127.0.0.1:8791/health",
+          "contains": "\"status\":\"ok\"",
+          "waitSeconds": 90
+        }
+      }
     },
     {
       "id": "patchright-mcp",
@@ -234,6 +441,7 @@
     {
       "id": "helm-audio-mcp-test",
       "name": "HELM Audio Connector TEST",
+      "repo": "trentet/helm-audio-mcp",
       "description": "TEST environment of the HELM audio connector (audio-test.trentt.me)",
       "url": {
         "type": "literal",
@@ -283,7 +491,183 @@
         "chatgpt",
         "grok"
       ],
-      "tier": "test"
+      "tier": "test",
+      "googleOAuth": {
+        "secretsDir": "%LOCALAPPDATA%\\HELM\\helm-audio-mcp\\test\\secrets",
+        "scopes": [
+          "https://www.googleapis.com/auth/drive",
+          "https://www.googleapis.com/auth/documents",
+          "https://www.googleapis.com/auth/spreadsheets"
+        ],
+        "account": {
+          "vaultLabel": "Google Account (trenterrolthomas@gmail.com)"
+        },
+        "restart": {
+          "command": "node %LOCALAPPDATA%\\HELM\\helm-audio-mcp\\deploy\\test\\scripts\\restart.mjs test"
+        },
+        "health": {
+          "url": "http://127.0.0.1:8792/health",
+          "contains": "\"status\":\"ok\"",
+          "waitSeconds": 60
+        }
+      }
+    },
+    {
+      "id": "helm-vision-mcp",
+      "name": "HELM Vision Connector",
+      "repo": "trentet/helm-vision-mcp",
+      "description": "HELM vision connector: document OCR, video/GIF frame extraction, image-sequence assembly",
+      "url": {
+        "type": "literal",
+        "value": "https://vision.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://vision.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-vision-mcp/production/secrets/connector.env"
+              ],
+              "key": "HELM_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://vision.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-vision-mcp/production/secrets/connector.env"
+              ],
+              "key": "HELM_MCP_BEARER_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/helm-vision-mcp/production/secrets/connector.env"
+          ],
+          "key": "HELM_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ],
+      "googleOAuth": {
+        "secretsDir": "C:\\Users\\KnottyAI\\AppData\\Local\\HELM\\helm-vision-mcp\\production\\secrets",
+        "scopes": [
+          "https://www.googleapis.com/auth/drive",
+          "https://www.googleapis.com/auth/documents",
+          "https://www.googleapis.com/auth/spreadsheets"
+        ],
+        "account": {
+          "vaultLabel": "Google Account (trenterrolthomas@gmail.com)"
+        },
+        "host": {
+          "ssh": "KnottyAI@192.168.23.200",
+          "keyFile": "%USERPROFILE%\\.ssh\\knottyai-pc_helm-shell",
+          "os": "windows"
+        },
+        "restart": {
+          "command": "powershell -NoProfile -NonInteractive -Command Stop-ScheduledTask -TaskName 'helm-vision-mcp Server'; Start-Sleep -Seconds 3; Start-ScheduledTask -TaskName 'helm-vision-mcp Server'"
+        },
+        "health": {
+          "url": "http://127.0.0.1:8797/health",
+          "contains": "\"status\":\"ok\"",
+          "waitSeconds": 90
+        }
+      }
+    },
+    {
+      "id": "helm-vision-mcp-test",
+      "name": "HELM Vision Connector TEST",
+      "repo": "trentet/helm-vision-mcp",
+      "description": "TEST environment of the HELM vision connector (vision-test.trentt.me)",
+      "url": {
+        "type": "literal",
+        "value": "https://vision-test.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://vision-test.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-vision-mcp/test/secrets/connector.env"
+              ],
+              "key": "HELM_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://vision-test.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-vision-mcp/test/secrets/connector.env"
+              ],
+              "key": "HELM_MCP_BEARER_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/helm-vision-mcp/test/secrets/connector.env"
+          ],
+          "key": "HELM_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ],
+      "tier": "test",
+      "googleOAuth": {
+        "secretsDir": "C:\\Users\\KnottyAI\\AppData\\Local\\HELM\\helm-vision-mcp\\test\\secrets",
+        "scopes": [
+          "https://www.googleapis.com/auth/drive",
+          "https://www.googleapis.com/auth/documents",
+          "https://www.googleapis.com/auth/spreadsheets"
+        ],
+        "account": {
+          "vaultLabel": "Google Account (trenterrolthomas@gmail.com)"
+        },
+        "host": {
+          "ssh": "KnottyAI@192.168.23.200",
+          "keyFile": "%USERPROFILE%\\.ssh\\knottyai-pc_helm-shell",
+          "os": "windows"
+        },
+        "restart": {
+          "command": "powershell -NoProfile -NonInteractive -Command Stop-ScheduledTask -TaskName 'helm-vision-mcp-test Server'; Start-Sleep -Seconds 3; Start-ScheduledTask -TaskName 'helm-vision-mcp-test Server'"
+        },
+        "health": {
+          "url": "http://127.0.0.1:8798/health",
+          "contains": "\"status\":\"ok\"",
+          "waitSeconds": 90
+        }
+      }
     },
     {
       "id": "connector-connector",
@@ -395,6 +779,7 @@
     {
       "id": "helm-drive-mcp-test",
       "name": "HELM Drive Connector TEST",
+      "repo": "trentet/helm-drive-mcp",
       "description": "TEST environment of the HELM Drive connector (mcp-test.trentt.me, on demand)",
       "url": {
         "type": "literal",
@@ -408,7 +793,7 @@
             "bearerToken": {
               "type": "envFile",
               "paths": [
-                "C:/Users/Trent/AppData/Local/HELM/tt-mcp/test/secrets/connector.env"
+                "C:/Users/Trent/AppData/Local/HELM/helm-drive-mcp/test/secrets/connector.env"
               ],
               "key": "HELM_MCP_BEARER_TOKEN"
             }
@@ -421,7 +806,7 @@
             "bearerToken": {
               "type": "envFile",
               "paths": [
-                "C:/Users/Trent/AppData/Local/HELM/tt-mcp/test/secrets/connector.env"
+                "C:/Users/Trent/AppData/Local/HELM/helm-drive-mcp/test/secrets/connector.env"
               ],
               "key": "HELM_MCP_BEARER_TOKEN"
             }
@@ -434,7 +819,7 @@
         "headerValue": {
           "type": "envFile",
           "paths": [
-            "C:/Users/Trent/AppData/Local/HELM/tt-mcp/test/secrets/connector.env"
+            "C:/Users/Trent/AppData/Local/HELM/helm-drive-mcp/test/secrets/connector.env"
           ],
           "key": "HELM_MCP_BEARER_TOKEN"
         }
@@ -444,7 +829,26 @@
         "chatgpt",
         "grok"
       ],
-      "tier": "test"
+      "tier": "test",
+      "googleOAuth": {
+        "secretsDir": "%LOCALAPPDATA%\\HELM\\helm-drive-mcp\\test\\secrets",
+        "scopes": [
+          "https://www.googleapis.com/auth/drive",
+          "https://www.googleapis.com/auth/documents",
+          "https://www.googleapis.com/auth/spreadsheets"
+        ],
+        "account": {
+          "vaultLabel": "Google Account (trenterrolthomas@gmail.com)"
+        },
+        "restart": {
+          "command": "node %LOCALAPPDATA%\\HELM\\helm-drive-mcp\\deploy\\test\\scripts\\restart.mjs test"
+        },
+        "health": {
+          "url": "http://127.0.0.1:8789/health",
+          "contains": "\"status\":\"ok\"",
+          "waitSeconds": 60
+        }
+      }
     },
     {
       "id": "patchright-mcp-test",
@@ -553,6 +957,228 @@
         "grok"
       ],
       "tier": "test"
+    },
+    {
+      "id": "fleet-connect-test",
+      "name": "Fleet Connect TEST",
+      "description": "TEST environment of the Fleet Connect cross-platform fleet bootstrap/remote-execution connector (fleet-test.trentt.me). One token accepted identically via x-api-key header or ?token= on every platform.",
+      "url": {
+        "type": "literal",
+        "value": "https://fleet-test.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://fleet-test.trentt.me/mcp?token={{queryToken}}",
+          "variables": {
+            "queryToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/fleet-connect/test/secrets/connector.env"
+              ],
+              "key": "FLEET_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://fleet-test.trentt.me/mcp?token={{queryToken}}",
+          "variables": {
+            "queryToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/fleet-connect/test/secrets/connector.env"
+              ],
+              "key": "FLEET_MCP_BEARER_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/fleet-connect/test/secrets/connector.env"
+          ],
+          "key": "FLEET_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ],
+      "tier": "test"
+    },
+    {
+      "id": "arr-test",
+      "name": "arr-mcp-connector TEST",
+      "description": "TEST environment of the Sonarr/Radarr/Prowlarr/Jellyseerr media-automation connector (arr-test.trentt.me). Claude uses the x-api-key header; ChatGPT and Grok use the same token via ?token=, but the server rejects ?token= specifically for the one destructive tool (remove_from_queue) regardless of value - verified live 2026-10-02 (header: 200, ?token=-only: 403).",
+      "url": {
+        "type": "literal",
+        "value": "https://arr-test.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://arr-test.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/arr-mcp-connector/test/secrets/connector.env"
+              ],
+              "key": "ARR_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://arr-test.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/arr-mcp-connector/test/secrets/connector.env"
+              ],
+              "key": "ARR_MCP_BEARER_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/arr-mcp-connector/test/secrets/connector.env"
+          ],
+          "key": "ARR_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ],
+      "tier": "test"
+    },
+    {
+      "id": "fleet-connect",
+      "name": "Fleet Connect",
+      "description": "Fleet Connect: cross-platform fleet bootstrap/remote-execution MCP connector (Windows/Linux/Synology DSM), one connector addressing many machines by target_id. One token accepted identically via x-api-key header or ?token= on every platform.",
+      "url": {
+        "type": "literal",
+        "value": "https://fleet.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://fleet.trentt.me/mcp?token={{queryToken}}",
+          "variables": {
+            "queryToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/fleet-connect/production/secrets/connector.env"
+              ],
+              "key": "FLEET_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://fleet.trentt.me/mcp?token={{queryToken}}",
+          "variables": {
+            "queryToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/fleet-connect/production/secrets/connector.env"
+              ],
+              "key": "FLEET_MCP_BEARER_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/fleet-connect/production/secrets/connector.env"
+          ],
+          "key": "FLEET_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ],
+      "tier": "production"
+    },
+    {
+      "id": "dsm-connect",
+      "name": "DSM Connect",
+      "description": "DSM Connect: HELM file/memory layer and Docker/Container Manager administration on the Synology NAS (dsm.trentt.me). OAuth 2.1 (PKCE + dynamic client registration) with a single-principal consent step; no header or ?token= is used, so claude.ai, ChatGPT and Grok all go through the platform's own sign-in. The authorization page is a login form; cc signs in to it with the vault credential named in auth.oauthLogin (nobody is at the host).",
+      "url": {
+        "type": "literal",
+        "value": "https://dsm.trentt.me/mcp"
+      },
+      "auth": {
+        "mode": "oauth",
+        "oauthLogin": {
+          "vaultLabel": "DSM-Connect-deployment-secrets"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ],
+      "tier": "production",
+      "urlByPlatform": {
+        "claude": {
+          "type": "literal",
+          "value": "https://dsm.trentt.me/mcp?client=claude"
+        }
+      }
+    },
+    {
+      "id": "dsm-connect-test",
+      "name": "DSM Connect TEST",
+      "description": "TEST environment of DSM Connect (dsm-test.trentt.me): separate data volume, no Docker tools. OAuth 2.1 (PKCE + dynamic client registration) with a single-principal consent step; no header or ?token= is used, so claude.ai, ChatGPT and Grok all go through the platform's own sign-in. The authorization page is a login form; cc signs in to it with the vault credential named in auth.oauthLogin (nobody is at the host).",
+      "url": {
+        "type": "literal",
+        "value": "https://dsm-test.trentt.me/mcp"
+      },
+      "auth": {
+        "mode": "oauth",
+        "oauthLogin": {
+          "vaultLabel": "DSM-Connect-deployment-secrets"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ],
+      "tier": "test"
+    }
+  ],
+  "googleOAuthExemptions": [
+    {
+      "repo": "trentet/connector-connector-mcp",
+      "kind": "exempt",
+      "reason": "cc is the renewer: it contains the Google consent and token-exchange code that renews other connectors' grants and holds no Google grant of its own."
+    },
+    {
+      "repo": "trentet/dsm-connect",
+      "kind": "exempt",
+      "reason": "Its own OAuth 2.1 server issues refresh tokens to AI clients (server/auth.py); it calls no Google API and holds no Google grant."
     }
   ]
 }

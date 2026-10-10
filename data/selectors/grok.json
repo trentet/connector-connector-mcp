@@ -35,5 +35,18 @@
   "remove": {
     "disconnectButton": "^disconnect$",
     "confirmButton": "^(disconnect|remove|delete|confirm|yes)$"
+  },
+  "auth": {
+    "cookie": "sso",
+    "hosts": [
+      "grok.com",
+      "x.ai"
+    ],
+    "ssoHosts": [],
+    "_note": "Browser-layer facts: which cookie proves a signed-in session (name or name prefix), which cookies are merged back into the master when a run rotates them (refresh), which hosts hold session state, and which SSO hosts are carried along when seeding.",
+    "refresh": [
+      "sso",
+      "sso-rw"
+    ]
   }
 }

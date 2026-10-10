@@ -1,14 +1,20 @@
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/server/app.js";
+import type { ReauthRequest } from "../src/core/reauth.js";
 import type { RunRequest } from "../src/core/types.js";
 
 const TOKEN = "t".repeat(40);
 let base = "", close: () => void = () => {};
 const seen: RunRequest[] = [];
+const seenReauth: ReauthRequest[] = [];
 
 beforeAll(async () => {
-  const app = buildApp({ token: TOKEN, registryPath: "registry/connectors.json", allowedHosts: ["localhost", "127.0.0.1"], runFn: async (_reg, req) => { seen.push(req); return { ok: true, items: [{ connector: req.connectors[0] ?? "*", platform: req.platforms[0], op: req.op, status: "dry-run", detail: "stub" }] }; } });
+  const app = buildApp({
+    token: TOKEN, registryPath: "registry/connectors.json", allowedHosts: ["localhost", "127.0.0.1"],
+    runFn: async (_reg, req) => { seen.push(req); return { ok: true, items: [{ connector: req.connectors[0] ?? "*", platform: req.platforms[0], op: req.op, status: "dry-run", detail: "stub" }] }; },
+    reauthFn: async (_reg, req) => { seenReauth.push(req); return { ok: true, items: req.connectors.map((c) => ({ connector: c, status: "dry-run" as const, detail: "stub" })) }; },
+  });
   const srv = app.listen(0, "127.0.0.1");
   await new Promise((r) => srv.once("listening", r));
   base = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
@@ -28,13 +34,26 @@ describe("http front door", () => {
     expect((await rpc(init, { "x-api-key": TOKEN })).status).toBe(200);
     expect((await fetch(base + `/mcp?token=${TOKEN}`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify(init) })).status).toBe(200);
   });
-  it("lists exactly the two tools, and cc_run exposes no url/token/secret argument", async () => {
+  it("lists exactly the three tools, and cc_run / cc_reauth expose no url/token/secret argument", async () => {
     const r = await parse(await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list" }, { "x-api-key": TOKEN }));
     const names = r.result.tools.map((t: { name: string }) => t.name).sort();
-    expect(names).toEqual(["cc_list_registry", "cc_run"]);
+    expect(names).toEqual(["cc_list_registry", "cc_reauth", "cc_run"]);
     const props = Object.keys(r.result.tools.find((t: { name: string }) => t.name === "cc_run").inputSchema.properties);
     expect(props.sort()).toEqual(["connectors", "dry_run", "if_existing", "include_test", "op", "platforms"]);
     expect(props.join(" ")).not.toMatch(/url|token|secret|password|header/i);
+    const rprops = Object.keys(r.result.tools.find((t: { name: string }) => t.name === "cc_reauth").inputSchema.properties);
+    expect(rprops.sort()).toEqual(["connectors", "dry_run", "include_test"]);
+    expect(rprops.join(" ")).not.toMatch(/url|token|secret|password|header|code/i);
+  });
+  it("cc_reauth reaches the shared renewal with registry ids only; smuggled fields are rejected", async () => {
+    const ok = await parse(await rpc({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "cc_reauth", arguments: { connectors: ["helm-audio-mcp"], dry_run: true } } }, { "x-api-key": TOKEN }));
+    expect(ok.result.isError).toBeFalsy();
+    expect(seenReauth.at(-1)).toMatchObject({ connectors: ["helm-audio-mcp"], dryRun: true, includeTest: false });
+    const bad = await parse(await rpc({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "cc_reauth", arguments: { connectors: ["x"], code: "4/0evil", secretsDir: "C:/elsewhere" } } }, { "x-api-key": TOKEN }));
+    expect(JSON.stringify(bad)).toContain("unknown argument(s): code, secretsDir");
+    expect(seenReauth.every((r) => !JSON.stringify(r).includes("evil"))).toBe(true);
+    const badId = await parse(await rpc({ jsonrpc: "2.0", id: 8, method: "tools/call", params: { name: "cc_reauth", arguments: { connectors: ["../etc/passwd"] } } }, { "x-api-key": TOKEN }));
+    expect(JSON.stringify(badId)).toMatch(/invalid|error/i);
   });
   it("cc_run reaches the shared runner; unknown fields (e.g. a smuggled token) are rejected", async () => {
     const ok = await parse(await rpc({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "cc_run", arguments: { op: "verify", connectors: ["helm-drive"], platforms: ["claude"], dry_run: true } } }, { "x-api-key": TOKEN }));

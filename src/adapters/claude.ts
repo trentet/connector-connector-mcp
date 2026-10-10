@@ -10,16 +10,23 @@ const rx = (p: string) => new RegExp(p, "i");
 
 export class DuplicateUrlError extends Error {}
 
-export interface Row { name: string; custom: boolean; connected: boolean }
+const squash = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
+/** True when `text` mentions `name`, ignoring case, spaces and punctuation. Exported for tests. */
+export const sameName = (text: string, name: string) => squash(text).includes(squash(name));
+
+export interface Row { name: string; custom: boolean; connected: boolean; /** Raw status text when it is neither "Connected" nor "Connect" (e.g. a re-authorise state), so the row is still found and can be removed. */ status?: string }
 
 /** Parse the connector table text ("Name Web [Custom] Connected|Connect"). */
 export function parseRow(text: string): Row | undefined {
   // claude.ai renders icons from a private-use font (U+E000-F8FF) inside the row text; they are not whitespace.
   const t = text.replace(/[\uE000-\uF8FF\u200B-\u200D\u2060\uFEFF]/g, " ").trim().replace(/\s+/g, " ");
   if (!t || /^connector type status$/i.test(t)) return undefined;
-  const m = /^(.*?)\s+Web\b(\s+Custom)?\s*(Connected|Connect)?$/i.exec(t);
+  const m = /^(.*?)\s+Web\b(\s+Custom)?\s*(.*)$/i.exec(t);
   if (!m) return undefined;
-  return { name: m[1].trim(), custom: !!m[2], connected: /^connected$/i.test(m[3] ?? "") };
+  const status = (m[3] ?? "").trim();
+  const row: Row = { name: m[1].trim(), custom: !!m[2], connected: /^connected$/i.test(status) };
+  if (status && !/^(connected|connect)$/i.test(status)) row.status = status;
+  return row;
 }
 
 async function assertSignedIn(page: Page): Promise<void> {
@@ -114,9 +121,15 @@ async function connectIfNeeded(ctx: AdapterContext, name: string): Promise<Row |
   const s = await ctx.session();
   await s.page.goto(sel.listUrl, { waitUntil: "domcontentloaded" });
   await s.page.waitForSelector(sel.listRow, { timeout: 20000 }).catch(() => {});
-  const row = s.page.locator(sel.listRow, { hasText: name }).first();
-  const btn = row.getByRole("button", { name: rx(sel.add.rowConnectButton) });
-  if (await btn.count()) { await domClick(btn.first()); await sleep(5000); }
+  // Same substring-match hazard as remove() (fixed above): hasText on a plain string matches
+  // "name" as a prefix too, so this must resolve the exact row by parsed name, not loose hasText.
+  const rowTexts = await s.page.$$eval(sel.listRow, (rs) => rs.map((r) => (r as HTMLElement).innerText));
+  const rowIndex = rowTexts.findIndex((t) => parseRow(t)?.name === name);
+  if (rowIndex >= 0) {
+    const row = s.page.locator(sel.listRow).nth(rowIndex);
+    const btn = row.getByRole("button", { name: rx(sel.add.rowConnectButton) });
+    if (await btn.count()) { await domClick(btn.first()); await sleep(5000); }
+  }
   return (await readRows(ctx)).find((r) => r.name === name);
 }
 
@@ -124,7 +137,7 @@ export function claudeAdapter(): PlatformAdapter {
   const find = async (ctx: AdapterContext, name: string) => (await readRows(ctx)).find((r) => r.name === name);
   return {
     platform: "claude",
-    async list(ctx) { return { names: (await readRows(ctx)).map((r) => r.name + (r.custom ? " (custom)" : "") + (r.connected ? "" : " [not connected]")) }; },
+    async list(ctx) { return { names: (await readRows(ctx)).map((r) => r.name + (r.custom ? " (custom)" : "") + (r.connected ? "" : r.status ? ` [not connected: ${r.status}]` : " [not connected]")) }; },
     async probe(ctx) { const rows = await readRows(ctx); return { status: "ok", detail: `signed in; ${rows.length} connectors listed` }; },
     async verify(ctx, c): Promise<AdapterOutcome> {
       const r = await find(ctx, c.name);
@@ -159,13 +172,27 @@ export function claudeAdapter(): PlatformAdapter {
       await g("open-detail", async () => {
         await page.goto(sel.listUrl, { waitUntil: "domcontentloaded" });
         await page.waitForSelector(sel.listRow, { timeout: 20000 });
-        const tr = page.locator(sel.listRow, { hasText: c.name }).first();
+        // hasText on a plain string is a SUBSTRING match - unsafe whenever one connector's name is a
+        // prefix of another's (e.g. a production connector's name vs. its own "... TEST" tier
+        // variant): it would pick whichever row DOM order puts first, regardless of which one was
+        // asked for, and could delete the wrong connector outright. Confirmed live 2026-10-02: this
+        // exact collision deleted a TEST-tier connector while trying to repair its production
+        // counterpart. Use the same exact-name match parseRow()/find() already use elsewhere in this
+        // file instead.
+        const rowTexts = await page.$$eval(sel.listRow, (rs) => rs.map((r) => (r as HTMLElement).innerText));
+        const rowIndex = rowTexts.findIndex((t) => parseRow(t)?.name === c.name);
+        if (rowIndex < 0) throw new Error(`row for "${c.name}" not found (listed ${rowTexts.length} rows)`);
+        const tr = page.locator(sel.listRow).nth(rowIndex);
         await tr.click();
         await page.waitForURL(/\/yours\/id\//, { timeout: 15000 });
         await sleep(1500);
         // guard against clicking the wrong connector's detail page
         const heading = (await page.locator("main").innerText()).replace(/[\uE000-\uF8FF]/g, " ");
-        if (!heading.includes(c.name)) throw new Error(`opened a detail page that does not mention "${c.name}"`);
+        // Case/punctuation-insensitive: a connector in an error state can show the server's own name instead of the display name.
+        // The row was already picked by exact name above, so this is only a second guard against a mis-click.
+        // An errored connector's page shows its URL instead of its name (seen live): accept the connector's own host as well (host only, never the query).
+        let host = ""; try { host = new URL(c.url).host.toLowerCase(); } catch { /* keep empty */ }
+        if (!sameName(heading, c.name) && !(host && heading.toLowerCase().includes(host))) throw new Error(`opened a detail page that does not mention "${c.name}". Page text: ${heading.replace(/\s+/g, " ").slice(0, 300)}`);
       });
       await g("open-menu", async () => { await page.locator("main").getByRole("button", { name: rx(r.moreButton) }).first().click(); await sleep(800); });
       await g("click-remove", async () => { await page.getByRole("menuitem", { name: rx(r.removeMenuItem) }).first().click(); await sleep(1200); });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseRow } from "../src/adapters/claude.js";
+import { parseRow, sameName } from "../src/adapters/claude.js";
 import { run } from "../src/core/runner.js";
 import { loadRegistry } from "../src/core/registry.js";
 import type { PlatformAdapter } from "../src/adapters/types.js";
@@ -9,6 +9,11 @@ describe("claude list parsing (rows captured live 2026-10-01)", () => {
     expect(parseRow("Gmail\n\t\nWeb\n\t\n\uE03B\nConnected")).toEqual({ name: "Gmail", custom: false, connected: true });
     expect(parseRow("Figma\n\t\nWeb\n\t\n\uE055\nConnect")).toEqual({ name: "Figma", custom: false, connected: false });
   });
+  it("still finds a row whose status is neither Connected nor Connect (e.g. a re-authorise state), and reports it", () => {
+    expect(parseRow("DSM Connect Web Custom Reconnect")).toEqual({ name: "DSM Connect", custom: true, connected: false, status: "Reconnect" });
+    expect(parseRow("DSM Connect Web Custom Needs authentication")).toMatchObject({ name: "DSM Connect", connected: false, status: "Needs authentication" });
+    expect(parseRow("Gmail Web Connected")).toEqual({ name: "Gmail", custom: false, connected: true });
+  });
   it("parses built-in, custom, and not-connected rows; ignores the header", () => {
     expect(parseRow("Connector Type Status")).toBeUndefined();
     expect(parseRow("Gmail Web  Connected")).toEqual({ name: "Gmail", custom: false, connected: true });
@@ -16,6 +21,14 @@ describe("claude list parsing (rows captured live 2026-10-01)", () => {
     expect(parseRow("Scholar Gateway Web Custom Connect")).toEqual({ name: "Scholar Gateway", custom: true, connected: false });
     expect(parseRow("Fathom – Your Meeting Intelligence Layer Web Connect")).toEqual({ name: "Fathom – Your Meeting Intelligence Layer", custom: false, connected: false });
     expect(parseRow("HELM Drive Connector TEST Web Custom  Connected")?.name).toBe("HELM Drive Connector TEST");
+  });
+});
+
+describe("detail-page name guard", () => {
+  it("accepts the display name or the server's own spelling, rejects other connectors", () => {
+    expect(sameName("DSM Connect\nCustom connector", "DSM Connect")).toBe(true);
+    expect(sameName("dsm-connect\nReconnect", "DSM Connect")).toBe(true);
+    expect(sameName("Fleet Connect", "DSM Connect")).toBe(false);
   });
 });
 

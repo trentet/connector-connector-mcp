@@ -9,9 +9,7 @@
   Also copies cloudflared.exe to <base>\tools\. Does NOT deploy or start anything: see scripts\deploy.mjs and scripts\install-tasks.ps1.
 #>
 param(
-    [Parameter(Mandatory = $true)][ValidateSet("production", "test")][string]$Environment,
-    [string]$ChromeProfile = "D:\GDrive\HELM\DEV-PROJECTS\Connectors\Remote Terminal MCP Connector\Repos\helm-terminal-mcp\tools\browser-profile"
-)
+    [Parameter(Mandatory = $true)][ValidateSet("production", "test")][string]$Environment)
 $ErrorActionPreference = "Stop"
 $spec = @{
     production = @{ Tunnel = "cc-mcp";      Hostname = "cc.trentt.me";      Port = 8810 }
@@ -72,7 +70,7 @@ if (-not (Test-Path $secrets)) {
     $bytes = New-Object byte[] 32
     [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
     $token = ($bytes | ForEach-Object { $_.ToString("x2") }) -join ""
-    "CC_MCP_BEARER_TOKEN=$token`nCC_CHROME_PROFILE=$ChromeProfile`n" | Set-Content -Path $secrets -Encoding ascii
+    "CC_MCP_BEARER_TOKEN=$token`n" | Set-Content -Path $secrets -Encoding ascii
     Write-Host "Created $secrets (token generated, not shown)."
 } else { Write-Host "Kept existing $secrets" }
 

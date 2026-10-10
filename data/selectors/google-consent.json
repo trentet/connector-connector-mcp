@@ -1,0 +1,31 @@
+{
+  "_note": "Facts about Google's own sign-in and OAuth consent screens, used by `cc reauth` (src/browser/googleConsent.ts). Data, not code: when Google changes a screen, fix it here (or the step in googleConsent.ts) and re-run the live exit test. NOT a platform file: it has no `auth` block, so the browser layer's platform sign-in specs ignore it.",
+  "emailInput": "input[type=\"email\"], #identifierId, input[name=\"identifier\"], input[autocomplete=\"username\"]",
+  "emailNext": "#identifierNext",
+  "passwordInput": "input[type=\"password\"], input[name=\"Passwd\"], input[name=\"password\"]",
+  "passwordNext": "#passwordNext",
+  "nextText": "^Next$",
+  "advancedText": "^Advanced$",
+  "goToAppText": "Go to .* \\(unsafe\\)",
+  "continueText": "^Continue$",
+  "allowText": "^Allow$",
+  "selectAllText": "^Select all$",
+  "paths": {
+    "accountChooser": "/accountchooser",
+    "consent": "/signin/oauth/(v\\d+/)?consent(summary)?",
+    "challenge": "/signin/challenge/"
+  },
+  "accountChooserChrome": "^(Scroll down|Help|Privacy|Terms|Use another account|Resend it|Try another way|Sign in with a different account|Got it)$",
+  "accountSwitcherChipAria": "^Google Account:",
+  "googleHosts": [
+    "accounts.google.com",
+    "google.com"
+  ],
+  "limits": {
+    "maxSteps": 20,
+    "settleMs": 1200,
+    "overallTimeoutMs": 180000,
+    "twoFaGraceMs": 90000,
+    "sameUrlStreak": 6
+  }
+}
