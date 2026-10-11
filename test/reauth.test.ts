@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildConsentUrl, fileLock, reauth, renewalAge, selectGoogleConnectors, withPort, type ReauthDeps, type TokenResponse } from "../src/core/reauth.js";
 import { loadRegistry, validateRegistry } from "../src/core/registry.js";
-import { expandEnv, SshTransport, type ExecResult, type Transport } from "../src/core/transport.js";
+import { expandEnv, GateTransport, SshTransport, transportFor, type ExecResult, type Transport } from "../src/core/transport.js";
 import type { ConnectorDef, GoogleOAuthDef, Registry } from "../src/core/types.js";
 
 const SECRET = "client-SECRET-abc123", CODE = "4/0AUTHCODE-xyz789", REFRESH = "1//refresh-TOKEN-qwe456", ACCESS = "ya29.access-TOKEN-asd", PASSWORD = "pw-GOOGLE-7777";
@@ -407,8 +407,120 @@ describe("the handoff robot's shipped registry entry (#45)", () => {
     expect(g.restart).toBeUndefined();
     expect(g.host).toMatchObject({ os: "posix" });
     expect(g.host?.port).toBeUndefined();
+    expect(g.host?.gate).toEqual({ container: "helm-handoff-orchestrator-production", localDir: "%LOCALAPPDATA%\\HELM\\cc\\gate\\helm-handoff-orchestrator-production" });
+    expect(transportFor(g)).toBeInstanceOf(GateTransport);
     expect(g.health).toEqual({ url: "http://127.0.0.1:8651/health", contains: "\"drive\":\"ok\"", waitSeconds: 120, expectRenewedAt: true });
     expect(selectGoogleConnectors(loaded, { connectors: ["*"] }).picked.map((c) => c.id)).toContain("helm-handoff-robot");
+  });
+});
+
+describe("gate login: only put and health (#45)", () => {
+  type Call = { args: string[]; input?: string };
+  /** A fake NAS gate behind ssh: `put <container> <file>` stores stdin, `health <container>` answers a JSON body that echoes the stored record's renewedAt. */
+  function fakeGate(o: { putCode?: () => number; healthStatus?: () => number; echoRecord?: boolean } = {}) {
+    const calls: Call[] = [], stored: Record<string, string> = {};
+    const runner = async (_file: string, args: string[], opts: { input?: string } = {}): Promise<ExecResult> => {
+      calls.push({ args, input: opts.input });
+      const cmd = args[args.length - 1]; const [verb, container, name] = cmd.split(" ");
+      if (verb === "put") {
+        if (o.putCode?.()) return { code: o.putCode(), stdout: "refused", stderr: "Permission denied (publickey)" };
+        stored[name] = opts.input ?? ""; return { code: 0, stdout: `ok ${(opts.input ?? "").length}\n`, stderr: "" };
+      }
+      if (verb === "health" && container) {
+        const rec = stored["token.renewed.json"] ? (JSON.parse(stored["token.renewed.json"]) as { renewedAt?: string }).renewedAt : undefined;
+        const body = JSON.stringify({ status: "ok", token: "loaded", drive: "ok", renewedAt: o.echoRecord === false ? null : rec ?? null }).replace(/"drive":"ok"/, '"drive":"ok"');
+        return { code: 0, stdout: `${body}\nHTTP ${o.healthStatus?.() ?? 200}\n`, stderr: "" };
+      }
+      return { code: 3, stdout: "refused", stderr: "" };
+    };
+    return { runner, calls, stored };
+  }
+  const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "cc-gate-"));
+  const host = (localDir: string) => ({ ssh: "helm-renew@nas", keyFile: "/k/key", os: "posix" as const, gate: { container: "helm-handoff-orchestrator-production", localDir } });
+
+  it("delivers a file with put (stdin, no scp, no remote shell), mirrors it locally, and reads credentials.json from the local dir", async () => {
+    const dir = tmp(), g = fakeGate();
+    fs.writeFileSync(path.join(dir, "credentials.json"), CREDS);
+    const t = new GateTransport(host(dir), g.runner as never);
+    expect(t.join("/volume1/helm-secrets/x", "token.json")).toBe("/volume1/helm-secrets/x/token.json");
+    expect(await t.readFile(t.join("/volume1/x", "credentials.json"))).toBe(CREDS);
+    expect(await t.readFile(t.join("/volume1/x", "token.json"))).toBeUndefined();
+    await t.replaceFile(t.join("/volume1/x", "token.json"), '{"a":1}');
+    expect(g.calls).toHaveLength(1);
+    expect(g.calls[0].args.slice(-2)).toEqual(["helm-renew@nas", "put helm-handoff-orchestrator-production token.json"]);
+    expect(g.calls[0].args).toContain("BatchMode=yes");
+    expect(g.calls[0].input).toBe('{"a":1}');
+    expect(g.stored["token.json"]).toBe('{"a":1}');
+    expect(await t.readFile("/volume1/x/token.json")).toBe('{"a":1}');
+  });
+
+  it("a refused put throws and writes no local mirror; permission denied says tell the operator and not to retry", async () => {
+    const dir = tmp(), g = fakeGate({ putCode: () => 255 });
+    const t = new GateTransport(host(dir), g.runner as never);
+    await expect(t.replaceFile("/x/token.json", "{}")).rejects.toThrow(/permission denied.*tell the operator.*do not retry/);
+    expect(fs.existsSync(path.join(dir, "token.json"))).toBe(false);
+  });
+
+  it("refuses names and sizes the gate would refuse, before any ssh call", async () => {
+    const g = fakeGate();
+    const t = new GateTransport(host(tmp()), g.runner as never);
+    await expect(t.replaceFile("/x/.hidden", "{}")).rejects.toThrow(/does not accept the file name/);
+    await expect(t.replaceFile("/x/ok.json", "a".repeat(64 * 1024 + 1))).rejects.toThrow(/64 KiB/);
+    expect(g.calls).toEqual([]);
+  });
+
+  it("health: returns the body without the HTTP line; a non-2xx answer or a missing container counts as no answer; renewedAt comes from the body", async () => {
+    const g = fakeGate(); const t = new GateTransport(host(tmp()), g.runner as never);
+    await t.replaceFile("/x/token.renewed.json", JSON.stringify({ renewedAt: "2026-10-11T12:00:00.000Z", byHost: "h" }));
+    const body = await t.fetchText();
+    expect(body).toContain('"drive":"ok"');
+    expect(body).toContain("2026-10-11T12:00:00.000Z");
+    expect(body).not.toMatch(/HTTP \d{3}/);
+    expect(g.calls[g.calls.length - 1].args.slice(-1)).toEqual(["health helm-handoff-orchestrator-production"]);
+    expect(JSON.parse((await t.readFile("/x/token.renewed.json"))!)).toEqual({ renewedAt: "2026-10-11T12:00:00.000Z" });
+    const bad = fakeGate({ healthStatus: () => 503 }); const t2 = new GateTransport(host(tmp()), bad.runner as never);
+    expect(await t2.fetchText()).toBeUndefined();
+    expect(await t2.readFile("/x/token.renewed.json")).toBeUndefined(); // no usable record: a second renewer renews
+  });
+
+  it("cannot run commands", async () => {
+    const t = new GateTransport(host(tmp()), fakeGate().runner as never);
+    await expect(t.exec()).rejects.toThrow(/only put and health/);
+  });
+
+  it("registry: the gate needs a container and a local dir and cannot be combined with restart", () => {
+    const base = (g: unknown) => ({ version: 1, connectors: [{ id: "r", name: "R", repo: "o/r", platforms: [], auth: { mode: "none" }, googleOAuth: g }] });
+    const ok = def({ restart: undefined, host: host("/l") as never });
+    expect(validateRegistry(base(ok)).errors).toEqual([]);
+    expect(validateRegistry(base({ ...ok, host: { ...host("/l"), gate: { container: "Bad Name", localDir: "" } } })).errors.join("\n")).toMatch(/gate.container[^]*gate.localDir/);
+    expect(validateRegistry(base({ ...ok, restart: { command: "x" } })).errors.join("\n")).toMatch(/cannot be combined with restart/);
+  });
+
+  it("a whole renewal through the gate: credentials from the local dir, token then record put, health must echo the new renewedAt, no secret printed", async () => {
+    const dir = tmp(), g = fakeGate();
+    fs.writeFileSync(path.join(dir, "credentials.json"), CREDS);
+    const gd = def({ restart: undefined, host: host(dir) as never, health: { url: "http://127.0.0.1:8651/health", contains: '"drive":"ok"', waitSeconds: 9, expectRenewedAt: true } });
+    const d = deps(new GateTransport(gd.host as never, g.runner as never));
+    const { value: res, stderr } = await captured(() => reauth(registry(connector("a", gd)), { connectors: ["a"] }, d));
+    expect(res.items[0]).toMatchObject({ status: "ok" });
+    expect(res.items[0].detail).toMatch(/showing the new renewal/);
+    expect(Object.keys(g.stored)).toEqual(["token.json", "token.renewed.json"]);
+    expect(JSON.parse(g.stored["token.json"]).refresh_token).toBe(REFRESH);
+    expect(fs.readFileSync(path.join(dir, "token.json"), "utf8")).toBe(g.stored["token.json"]);
+    noSecrets(stderr);
+  });
+
+  it("if the server never echoes the new renewedAt, the previous token (the local mirror) and an undated record are put back", async () => {
+    const dir = tmp(), g = fakeGate({ echoRecord: false });
+    fs.writeFileSync(path.join(dir, "credentials.json"), CREDS);
+    fs.writeFileSync(path.join(dir, "token.json"), '{"refresh_token":"old"}');
+    const gd = def({ restart: undefined, host: host(dir) as never, health: { url: "http://127.0.0.1:8651/health", contains: '"drive":"ok"', waitSeconds: 6, expectRenewedAt: true } });
+    const d = deps(new GateTransport(gd.host as never, g.runner as never));
+    const { value: res } = await captured(() => reauth(registry(connector("a", gd)), { connectors: ["a"] }, d));
+    expect(res.items[0].status).toBe("error");
+    expect(res.items[0].detail).toMatch(/previous token was restored/);
+    expect(g.stored["token.json"]).toBe('{"refresh_token":"old"}');
+    expect(g.stored["token.renewed.json"]).toBe("{}");
   });
 });
 

@@ -25,7 +25,15 @@ export interface GoogleOAuthDef {
   /** The Google account that owns the grant: its vault entry (username/password resolved inside the process, never returned or logged). */
   account: { vaultLabel: string };
   /** The connector's server runs on another machine: files move with scp and commands with ssh. Absent = this machine. */
-  host?: { ssh: string; keyFile: string; port?: number; os?: "windows" | "posix" };
+  host?: {
+    ssh: string; keyFile: string; port?: number; os?: "windows" | "posix";
+    /**
+     * The ssh login is a forced-command gate that offers only `put <container> <file>` (content on stdin) and `health <container>`: no scp, no remote shell, no curl, no read-back.
+     * cc then keeps credentials.json and a mirror of what it last delivered in `localDir` on THIS machine, delivers files with `put`, asks `health` instead of curl,
+     * and reads the last renewal time from the `renewedAt` the health body echoes. A gate login cannot have a `restart` command.
+     */
+    gate?: { container: string; localDir: string };
+  };
   /** Run on the connector's host after the new token is in place (servers read token.json at start). */
   restart?: { command: string };
   /** Checked on the connector's host after the restart; if it fails, the previous token is restored. */

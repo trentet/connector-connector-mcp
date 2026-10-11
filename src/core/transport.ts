@@ -106,6 +106,72 @@ export class SshTransport implements Transport {
   }
 }
 
+const GATE_FILE = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/;
+const GATE_MAX_BYTES = 64 * 1024;
+const RENEWED_RECORD = "token.renewed.json";
+
+/**
+ * A forced-command ssh login (the NAS `helm-renew` gate) that allows exactly `put <container> <file>` (content on stdin, written atomically by the gate)
+ * and `health <container>` (the body of the container's /health, then a last line `HTTP <code>`). Nothing can be read back and no command can run, so:
+ * credentials.json and a mirror of every file cc delivered live in `gate.localDir` on this machine, and the last renewal time is the `renewedAt`
+ * the health body echoes (the one fact only the server knows). A "permission denied" from the login means the gate needs repair: cc does not retry it.
+ */
+export class GateTransport implements Transport {
+  readonly where: string;
+  private readonly local: string;
+  private readonly container: string;
+  constructor(private readonly host: NonNullable<GoogleOAuthDef["host"]>, private readonly runner = run) {
+    if (!host.gate) throw new Error("GateTransport needs host.gate");
+    this.where = host.ssh;
+    this.container = host.gate.container;
+    this.local = expandEnv(host.gate.localDir);
+  }
+  private get opts(): string[] {
+    return ["-i", expandEnv(this.host.keyFile), "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes", "-o", "ConnectTimeout=15", ...(this.host.port ? ["-p", String(this.host.port)] : [])];
+  }
+  join(dir: string, name: string): string { return `${dir.replace(/\/+$/, "")}/${name}`; }
+  private nameOf(file: string): string { return path.posix.basename(file.replace(/\\/g, "/")); }
+  private gate(command: string, input?: string, timeoutMs = 60_000): Promise<ExecResult> { return this.runner("ssh", [...this.opts, this.host.ssh, command], { timeoutMs, input }); }
+  /** The body of the container's /health, or undefined when the gate or the container did not answer 2xx. */
+  private async health(): Promise<string | undefined> {
+    const r = await this.gate(`health ${this.container}`, undefined, 30_000);
+    if (r.code !== 0) return undefined;
+    const lines = r.stdout.replace(/\s+$/, "").split(/\r?\n/);
+    const m = /^HTTP (\d{3})$/.exec(lines[lines.length - 1] ?? "");
+    if (!m || m[1][0] !== "2") return undefined;
+    const body = lines.slice(0, -1).join("\n");
+    return body.trim() ? body : undefined;
+  }
+  async readFile(file: string): Promise<string | undefined> {
+    const name = this.nameOf(file);
+    if (name === RENEWED_RECORD) {
+      const body = await this.health();
+      if (body === undefined) return undefined;
+      try { const at = (JSON.parse(body) as { renewedAt?: unknown }).renewedAt; return typeof at === "string" ? JSON.stringify({ renewedAt: at }) : undefined; } catch { return undefined; }
+    }
+    const f = path.join(this.local, name);
+    return fs.existsSync(f) ? fs.readFileSync(f, "utf8") : undefined;
+  }
+  async replaceFile(file: string, content: string): Promise<void> {
+    const name = this.nameOf(file);
+    if (!GATE_FILE.test(name)) throw new Error(`the gate does not accept the file name "${name}"`);
+    if (Buffer.byteLength(content, "utf8") > GATE_MAX_BYTES) throw new Error(`${name} is over the gate's 64 KiB limit`);
+    const r = await this.gate(`put ${this.container} ${name}`, content);
+    if (r.code !== 0 || !/^ok\b/.test(r.stdout.trim())) {
+      const denied = /permission denied/i.test(r.stderr);
+      throw new Error(`the gate on ${this.where} did not accept ${name} (exit ${r.code}${denied ? ", permission denied: the login needs repair, tell the operator, do not retry" : ""})`);
+    }
+    fs.mkdirSync(this.local, { recursive: true });
+    const tmp = path.join(this.local, `${name}.new`);
+    fs.writeFileSync(tmp, content, { encoding: "utf8", mode: 0o600 });
+    fs.renameSync(tmp, path.join(this.local, name));
+  }
+  async exec(): Promise<ExecResult> { throw new Error(`the login on ${this.where} is a gate: it allows only put and health, so no command can be run through it`); }
+  /** The health URL in the registry is the container's own; the gate always asks its own container, so the URL is not used. */
+  async fetchText(): Promise<string | undefined> { return this.health(); }
+}
+
 export function transportFor(def: GoogleOAuthDef): Transport {
+  if (def.host?.gate) return new GateTransport(def.host);
   return def.host ? new SshTransport(def.host) : new LocalTransport();
 }

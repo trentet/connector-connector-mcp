@@ -1189,7 +1189,11 @@
         "host": {
           "ssh": "helm-renew@192.168.23.186",
           "keyFile": "%LOCALAPPDATA%\\HELM\\helm-renew\\helm_renew_ed25519",
-          "os": "posix"
+          "os": "posix",
+          "gate": {
+            "container": "helm-handoff-orchestrator-production",
+            "localDir": "%LOCALAPPDATA%\\HELM\\cc\\gate\\helm-handoff-orchestrator-production"
+          }
         },
         "health": {
           "url": "http://127.0.0.1:8651/health",
