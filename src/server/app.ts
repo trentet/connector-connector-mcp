@@ -57,6 +57,7 @@ const reauthInput = z.object({
   connectors: z.array(z.string().regex(/^(\*|[a-z0-9][a-z0-9-]*)$/)).min(1).max(50).describe('Registry ids of connectors that have a googleOAuth block, or ["*"] for all production ones.'),
   include_test: z.boolean().default(false).describe('With connectors ["*"], also include tier "test" connectors.'),
   dry_run: z.boolean().default(false).describe("Check every prerequisite (credentials, vault entry, SSH reachability) without opening a browser or changing anything."),
+  only_if_older_than_days: z.number().finite().positive().optional().describe("Skip a connector whose last successful renewal is newer than this many days (a positive number, for example 4.75); for a second renewer that only acts when the first has not."),
 }).strict();
 
 const ALLOWED_ARGS: Record<string, string[]> = { cc_run: Object.keys(runInput.shape), cc_reauth: Object.keys(reauthInput.shape), cc_list_registry: [] };
@@ -114,7 +115,7 @@ export function buildMcpServer(opts: AppOptions): McpServer {
     async (args) => {
       const a = reauthInput.parse(args);
       const reg = loadRegistry(opts.registryPath);
-      const res = await reauthFn(reg, { connectors: a.connectors, includeTest: a.include_test, dryRun: a.dry_run });
+      const res = await reauthFn(reg, { connectors: a.connectors, includeTest: a.include_test, dryRun: a.dry_run, onlyIfOlderThanDays: a.only_if_older_than_days });
       return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     },
   );

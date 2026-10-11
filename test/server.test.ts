@@ -42,7 +42,7 @@ describe("http front door", () => {
     expect(props.sort()).toEqual(["connectors", "dry_run", "if_existing", "include_test", "op", "platforms"]);
     expect(props.join(" ")).not.toMatch(/url|token|secret|password|header/i);
     const rprops = Object.keys(r.result.tools.find((t: { name: string }) => t.name === "cc_reauth").inputSchema.properties);
-    expect(rprops.sort()).toEqual(["connectors", "dry_run", "include_test"]);
+    expect(rprops.sort()).toEqual(["connectors", "dry_run", "include_test", "only_if_older_than_days"]);
     expect(rprops.join(" ")).not.toMatch(/url|token|secret|password|header|code/i);
   });
   it("cc_reauth reaches the shared renewal with registry ids only; smuggled fields are rejected", async () => {
@@ -54,6 +54,20 @@ describe("http front door", () => {
     expect(seenReauth.every((r) => !JSON.stringify(r).includes("evil"))).toBe(true);
     const badId = await parse(await rpc({ jsonrpc: "2.0", id: 8, method: "tools/call", params: { name: "cc_reauth", arguments: { connectors: ["../etc/passwd"] } } }, { "x-api-key": TOKEN }));
     expect(JSON.stringify(badId)).toMatch(/invalid|error/i);
+  });
+  it("cc_reauth passes only_if_older_than_days through as onlyIfOlderThanDays and rejects non-positive values like the CLI", async () => {
+    const ok = await parse(await rpc({ jsonrpc: "2.0", id: 20, method: "tools/call", params: { name: "cc_reauth", arguments: { connectors: ["helm-audio-mcp"], dry_run: true, only_if_older_than_days: 4.75 } } }, { "x-api-key": TOKEN }));
+    expect(ok.result.isError).toBeFalsy();
+    expect(seenReauth.at(-1)).toMatchObject({ connectors: ["helm-audio-mcp"], onlyIfOlderThanDays: 4.75 });
+    const none = await parse(await rpc({ jsonrpc: "2.0", id: 21, method: "tools/call", params: { name: "cc_reauth", arguments: { connectors: ["helm-audio-mcp"], dry_run: true } } }, { "x-api-key": TOKEN }));
+    expect(none.result.isError).toBeFalsy();
+    expect(seenReauth.at(-1)?.onlyIfOlderThanDays).toBeUndefined();
+    for (const [i, v] of [0, -1, "soon"].entries()) {
+      const before = seenReauth.length;
+      const bad = await parse(await rpc({ jsonrpc: "2.0", id: 22 + i, method: "tools/call", params: { name: "cc_reauth", arguments: { connectors: ["helm-audio-mcp"], only_if_older_than_days: v } } }, { "x-api-key": TOKEN }));
+      expect(JSON.stringify(bad)).toMatch(/invalid|error|greater than 0/i);
+      expect(seenReauth.length).toBe(before);
+    }
   });
   it("cc_run reaches the shared runner; unknown fields (e.g. a smuggled token) are rejected", async () => {
     const ok = await parse(await rpc({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "cc_run", arguments: { op: "verify", connectors: ["helm-drive"], platforms: ["claude"], dry_run: true } } }, { "x-api-key": TOKEN }));
