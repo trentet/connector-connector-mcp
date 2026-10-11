@@ -18,7 +18,8 @@
   Exit code: 0 all renewed (or nothing due) and no coverage gap, 1 any connector failed (see the log), 2 not deployed, 3 renewals fine but a coverage gap exists.
 #>
 param([ValidateSet("production", "test")][string]$Environment = "production", [switch]$IncludeTest, [switch]$DryRun, [string]$GithubOwner = "trentet",
-    [string]$Connectors = "", [double]$OnlyIfOlderThanDays = 0, [switch]$SkipCoverage)
+    [ValidatePattern('^$|^[a-z0-9][a-z0-9-]*([, ]+[a-z0-9][a-z0-9-]*)*$')][string]$Connectors = "",
+    [ValidateRange(0, 6)][double]$OnlyIfOlderThanDays = 0, [switch]$SkipCoverage)
 $ErrorActionPreference = "Continue"
 $base = Join-Path $env:LOCALAPPDATA "HELM\connector-connector-mcp"
 $deploy = Join-Path $base "deploy\$Environment"

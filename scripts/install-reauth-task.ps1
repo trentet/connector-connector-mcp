@@ -7,13 +7,19 @@
   The defaults register the primary renewer ('cc-mcp Google Reauth', every 5 days, all connectors). A SECOND renewer on another host registers its own
   task, for example: -TaskName 'cc-mcp Google Reauth (second)' -DaysInterval 1 -At 15:30 -Connectors <robot-id> -OnlyIfOlderThanDays 4.75 -SkipCoverage
 
+  Inputs are checked before anything is registered: -DaysInterval 1 to 6 (never past Google's 7-day limit), -OnlyIfOlderThanDays 0 to 6, -TaskName letters/digits/space/()._- only,
+  -Connectors kebab-case ids (they end up on a command line).
+
   Retires the legacy 'HELM TT-MCP Google Reauth' task if present: it ran a script that lived in patchright-mcp, which cc reauth replaced
   (docs/SPEC.md section 10); that script no longer exists, so the task would only fail.
   Also switches on Task Scheduler history (Microsoft-Windows-TaskScheduler/Operational) - the setup standard for any host that runs
   Scheduled Tasks; needs an elevated shell once, otherwise it warns with the exact command and carries on.
 #>
 param([ValidateSet("production", "test")][string]$Environment = "production", [string]$At = "03:30", [switch]$Start,
-    [string]$TaskName = "cc-mcp Google Reauth", [int]$DaysInterval = 5, [string]$Connectors = "", [double]$OnlyIfOlderThanDays = 0, [switch]$SkipCoverage)
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9 ()._-]{0,79}$')][string]$TaskName = "cc-mcp Google Reauth",
+    [ValidateRange(1, 6)][int]$DaysInterval = 5,
+    [ValidatePattern('^$|^[a-z0-9][a-z0-9-]*([, ]+[a-z0-9][a-z0-9-]*)*$')][string]$Connectors = "",
+    [ValidateRange(0, 6)][double]$OnlyIfOlderThanDays = 0, [switch]$SkipCoverage)
 $ErrorActionPreference = "Stop"
 $base = Join-Path $env:LOCALAPPDATA "HELM\connector-connector-mcp"
 $runner = Join-Path $base "deploy\$Environment\scripts\run-reauth.ps1"

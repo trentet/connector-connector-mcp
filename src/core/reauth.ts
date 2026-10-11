@@ -225,10 +225,12 @@ async function reauthOne(c: ConnectorDef, g: GoogleOAuthDef, req: ReauthRequest,
   const credsFile = t.join(dir, "credentials.json");
   const tokenFile = t.join(dir, "token.json");
   const renewedFile = t.join(dir, RENEWED_FILE);
+  let renewNote = "";
 
   // A second renewer acts only when needed: one read over the same transport, before the vault or a browser is touched.
   if (req.onlyIfOlderThanDays !== undefined) {
     const prior = renewalAge(await t.readFile(renewedFile), deps.now());
+    renewNote = prior ? `would renew: last renewal ${prior.days.toFixed(1)} day(s) ago, older than ${req.onlyIfOlderThanDays} days; ` : "would renew: no usable renewal record; ";
     if (prior && prior.days < req.onlyIfOlderThanDays) {
       const detail = `renewed ${prior.days.toFixed(1)} day(s) ago${prior.byHost ? ` by ${prior.byHost}` : ""}; nothing to do (renews after ${req.onlyIfOlderThanDays} days)`;
       return req.dryRun ? { status: "dry-run", detail: `would skip: ${detail}` } : { status: "skipped", detail };
@@ -250,7 +252,7 @@ async function reauthOne(c: ConnectorDef, g: GoogleOAuthDef, req: ReauthRequest,
 
   const hadToken = (await t.readFile(tokenFile)) !== undefined;
   if (req.dryRun) {
-    return { status: "dry-run", detail: `credentials.json readable on ${t.where}; OAuth client present; vault entry "${g.account.vaultLabel}" found (username ${cred.username ? "present" : "MISSING"}, password ${cred.password ? "present" : "MISSING"}); token.json ${hadToken ? "present" : "absent"}; ${g.scopes.length} scope(s); restart ${g.restart ? "configured" : "none"}; health ${g.health ? "configured" : "none"}` };
+    return { status: "dry-run", detail: `${renewNote}credentials.json readable on ${t.where}; OAuth client present; vault entry "${g.account.vaultLabel}" found (username ${cred.username ? "present" : "MISSING"}, password ${cred.password ? "present" : "MISSING"}); token.json ${hadToken ? "present" : "absent"}; ${g.scopes.length} scope(s); restart ${g.restart ? "configured" : "none"}; health ${g.health ? "configured" : "none"}` };
   }
 
   const state = deps.state();
@@ -281,11 +283,15 @@ async function reauthOne(c: ConnectorDef, g: GoogleOAuthDef, req: ReauthRequest,
   const renewedAt = new Date(deps.now()).toISOString();
   await t.replaceFile(tokenFile, next);
   log(`${c.id}: new token.json delivered to ${t.where}`);
+  let warning = "";
   const record = async (): Promise<void> => {
     try { await t.replaceFile(renewedFile, JSON.stringify({ renewedAt, byHost: os.hostname() }, null, 2)); }
-    catch (e) { log(`${c.id}: renewed, but could not write ${RENEWED_FILE} (${(e as Error).message}); a --only-if-older-than job will renew again`); }
+    catch (e) {
+      log(`${c.id}: renewed, but could not write ${RENEWED_FILE} (${(e as Error).message}); a --only-if-older-than job will renew again`);
+      warning = `; WARNING: could not write ${RENEWED_FILE} (${(e as Error).message}), so a --only-if-older-than job will renew again`;
+    }
   };
-  if (!g.restart && !g.health) { await record(); return { status: "ok", detail: `renewed; new token delivered to ${t.where} (no restart configured: the server must pick it up itself)` }; }
+  if (!g.restart && !g.health) { await record(); return { status: "ok", detail: `renewed; new token delivered to ${t.where} (no restart configured: the server must pick it up itself)${warning}` }; }
 
   const restartCmd = g.restart ? (g.host ? g.restart.command : expandEnv(g.restart.command)) : undefined;
   // `stamp`: the renewedAt the health body must show (proof the server loaded the NEW token); the check after a restore asks only for plain health.
@@ -309,7 +315,7 @@ async function reauthOne(c: ConnectorDef, g: GoogleOAuthDef, req: ReauthRequest,
   const problem = await restartAndCheck(expect ? renewedAt : undefined);
   if (!problem) {
     if (!expect) await record();
-    return { status: "ok", detail: `renewed; new token delivered to ${t.where}; ${restartCmd ? "restarted" : "re-read by the server (no restart)"}${g.health ? "; health ok" : ""}${expect ? ", showing the new renewal" : ""}` };
+    return { status: "ok", detail: `renewed; new token delivered to ${t.where}; ${restartCmd ? "restarted" : "re-read by the server (no restart)"}${g.health ? "; health ok" : ""}${expect ? ", showing the new renewal" : ""}${warning}` };
   }
   if (expect) { try { await t.replaceFile(renewedFile, previousRecord ?? "{}"); } catch { /* the token restore below still matters most */ } }
 
