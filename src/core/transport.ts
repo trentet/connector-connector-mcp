@@ -108,13 +108,14 @@ export class SshTransport implements Transport {
 
 const GATE_NAME = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
 const GATE_MAX_BYTES = 64 * 1024;
+const RENEWED_RECORD = "token.renewed.json"; // = RENEWED_FILE in reauth.ts (not imported: reauth.ts imports this file)
 
 /**
  * A NAS login whose ssh key is bound to a forced command ("the gate") that allows exactly two requests: `put <container> <file>` (content on stdin, up to 64 KiB,
  * written under a temporary name and renamed in one step; answers `ok <bytes>`) and `health <container>` (answers the /health body, then a last line `HTTP <code>`).
  * Anything else is refused by the gate (exit 3); this class never even sends it. There is no read: `credentials.json` is read from a local file, and the files cc itself
  * delivered are mirrored locally (mode 0600) so the previous token and renewal record can be put back, and `--only-if-older-than` has a record to read.
- * The mirror is per machine: a second renewer sees only what it delivered itself.
+ * The mirror is per machine and used only to put the previous token back; the last renewal time is read from the health body's `renewedAt`, so both renewers share it.
  */
 export class GateTransport implements Transport {
   readonly where: string;
@@ -150,7 +151,14 @@ export class GateTransport implements Transport {
       const f = expandEnv(this.def.host!.credentialsFile ?? "");
       return fs.existsSync(f) ? fs.readFileSync(f, "utf8") : undefined;
     }
-    const m = path.join(this.mirror, n);
+    // The renewal record is the SERVER's fact: the health body echoes the renewedAt of the record it loaded, so every renewer sees the same time (a per-machine mirror would
+    // never show the other renewer's renewal). No answer, or no renewedAt in it, reads as "no record" and the caller renews (the safe direction).
+    if (n === RENEWED_RECORD) {
+      const body = await this.fetchText("");
+      if (body === undefined) return undefined;
+      try { const at = (JSON.parse(body) as { renewedAt?: unknown }).renewedAt; return typeof at === "string" ? JSON.stringify({ renewedAt: at }) : undefined; } catch { return undefined; }
+    }
+    const m = path.join(this.mirror, n); // only what this machine delivered itself: the previous token, put back when a new one fails
     return fs.existsSync(m) ? fs.readFileSync(m, "utf8") : undefined;
   }
   async replaceFile(file: string, content: string): Promise<void> {

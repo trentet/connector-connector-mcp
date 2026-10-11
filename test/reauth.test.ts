@@ -651,7 +651,7 @@ describe("gate transport (forced-command login: only put and health)", () => {
     const { value, stderr } = await captured(() => reauth(registry(connector("a", h.g)), { connectors: ["a"] }, d));
     return { ...h, res: value, stderr, d };
   };
-  const echo = (n: number, stored: Record<string, string>) => `{"status":"ok","drive":"ok","renewedAt":"${JSON.parse(stored["token.renewed.json"]).renewedAt}"}\nHTTP 200\n`;
+  const echo = (n: number, stored: Record<string, string>) => `{"status":"ok","drive":"ok","renewedAt":${stored["token.renewed.json"] ? `"${JSON.parse(stored["token.renewed.json"]).renewedAt}"` : "null"}}\nHTTP 200\n`;
 
   it("renewal over the gate: token.json then the record are put, health must show the new renewedAt; ok; no secret in output; exec never used", async () => {
     const ssh: ReturnType<typeof fakeSsh> = fakeSsh({ health: () => echo(0, ssh.stored) });
@@ -659,8 +659,9 @@ describe("gate transport (forced-command login: only put and health)", () => {
     const { value: res, stderr } = await captured(() => reauth(registry(connector("a", h2.g)), { connectors: ["a"] }, deps(h2.t)));
     expect(res).toMatchObject({ ok: true, items: [{ status: "ok", detail: expect.stringMatching(/showing the new renewal/) }] });
     const verbs = ssh.calls.map((c) => c.args.at(-1)!.split(" ").slice(0, 3).join(" "));
-    expect(verbs.slice(0, 2)).toEqual(["put orch-prod token.json", "put orch-prod token.renewed.json"]);
-    expect(verbs.slice(2).every((v) => v.startsWith("health orch-prod"))).toBe(true);
+    // first a health call reads the record the server holds now (put back if the renewal fails), then the token and the record are put, then health is polled
+    expect(verbs.slice(0, 3)).toEqual(["health orch-prod", "put orch-prod token.json", "put orch-prod token.renewed.json"]);
+    expect(verbs.slice(3).every((v) => v.startsWith("health orch-prod"))).toBe(true);
     expect(JSON.parse(ssh.stored["token.json"]).refresh_token).toBe(REFRESH);
     noSecrets(stderr); noSecrets(JSON.stringify(res));
   });
@@ -670,7 +671,8 @@ describe("gate transport (forced-command login: only put and health)", () => {
     expect(r.res.ok).toBe(false);
     expect(r.res.items[0].detail).toMatch(/did not show the new renewal record.*previous token was restored/);
     expect(r.ssh.stored["token.json"]).toBe(prior.token);
-    expect(r.ssh.stored["token.renewed.json"]).toBe(prior.record);
+    // the record put back is what the server itself showed before the renewal (its renewedAt), not this machine's mirror
+    expect(JSON.parse(r.ssh.stored["token.renewed.json"])).toEqual({ renewedAt: "2026-01-01T00:00:00.000Z" });
     expect(await r.t.readFile("/d/token.json")).toBe(prior.token);
     noSecrets(r.stderr);
   });
@@ -679,13 +681,31 @@ describe("gate transport (forced-command login: only put and health)", () => {
     expect(r.res.items[0]).toMatchObject({ status: "error", detail: expect.stringMatching(/no previous token to restore/) });
     expect(r.ssh.calls.every((c) => /^(put|health) /.test(c.args.at(-1)!))).toBe(true);
   });
-  it("only-if-older-than reads the local mirror of the record the same machine delivered", async () => {
-    const recent = JSON.stringify({ renewedAt: new Date(1_000_000 - 3600_000).toISOString(), byHost: "w540" });
-    const ssh = fakeSsh(); const h = make({}, ssh);
-    fs.mkdirSync(path.join(h.mirrorRoot, "orch-prod"), { recursive: true });
-    fs.writeFileSync(path.join(h.mirrorRoot, "orch-prod", "token.renewed.json"), recent);
-    const { value } = await captured(() => reauth(registry(connector("a", h.g)), { connectors: ["a"], onlyIfOlderThanDays: 4.75 }, deps(h.t)));
-    expect(value.items[0]).toMatchObject({ status: "skipped" });
-    expect(ssh.calls).toEqual([]);
+  describe("only-if-older-than reads the renewedAt the health body echoes, not a per-machine mirror", () => {
+    const NOW = 1_000_000;
+    const body = (at: string | null) => `{"status":"ok","drive":"ok","renewedAt":${at === null ? "null" : `"${at}"`}}\nHTTP 200\n`;
+    const once = async (health: () => string, dry = false) => {
+      const ssh = fakeSsh({ health }); const h = make({}, ssh); // an empty mirror: this machine never renewed anything
+      const { value } = await captured(() => reauth(registry(connector("a", h.g)), { connectors: ["a"], onlyIfOlderThanDays: 4.75, dryRun: dry }, deps(h.t)));
+      return { item: value.items[0], ssh };
+    };
+    it("a renewal by the OTHER renewer (shown by the server) is seen: skipped, one health call, nothing else", async () => {
+      const r = await once(() => body(new Date(NOW - 3600_000).toISOString()));
+      expect(r.item).toMatchObject({ status: "skipped" });
+      expect(r.ssh.calls.map((c) => c.args.at(-1))).toEqual(["health orch-prod"]);
+    });
+    it("an old record, no renewedAt, a non-2xx answer or no answer all mean renew (dry run: would renew)", async () => {
+      for (const h of [() => body(new Date(NOW - 6 * 86400_000).toISOString()), () => body(null), () => "boom\nHTTP 503\n", () => "curl: (7) Failed to connect\n"]) {
+        const r = await once(h, true);
+        expect(r.item).toMatchObject({ status: "dry-run", detail: expect.stringMatching(/would renew/) });
+      }
+    });
+    it("a stale local mirror cannot make a job skip: only the server's renewedAt counts", async () => {
+      const ssh = fakeSsh({ health: () => body(null) }); const h = make({}, ssh);
+      fs.mkdirSync(path.join(h.mirrorRoot, "orch-prod"), { recursive: true });
+      fs.writeFileSync(path.join(h.mirrorRoot, "orch-prod", "token.renewed.json"), JSON.stringify({ renewedAt: new Date(NOW - 3600_000).toISOString() }));
+      const { value } = await captured(() => reauth(registry(connector("a", h.g)), { connectors: ["a"], onlyIfOlderThanDays: 4.75, dryRun: true }, deps(h.t)));
+      expect(value.items[0]).toMatchObject({ status: "dry-run", detail: expect.stringMatching(/would renew/) });
+    });
   });
 });
