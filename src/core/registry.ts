@@ -10,7 +10,7 @@ function checkSource(s: unknown, where: string, errs: string[]): void {
 }
 
 function checkGoogleOAuth(g: unknown, where: string, errs: string[]): void {
-  const o = g as { secretsDir?: unknown; scopes?: unknown; account?: { vaultLabel?: unknown }; host?: { ssh?: unknown; keyFile?: unknown; port?: unknown; os?: unknown }; restart?: { command?: unknown }; health?: { url?: unknown; waitSeconds?: unknown; expectRenewedAt?: unknown } };
+  const o = g as { secretsDir?: unknown; scopes?: unknown; account?: { vaultLabel?: unknown }; host?: { ssh?: unknown; keyFile?: unknown; port?: unknown; os?: unknown; transport?: unknown; credentialsFile?: unknown }; restart?: { command?: unknown }; health?: { url?: unknown; waitSeconds?: unknown; expectRenewedAt?: unknown } };
   if (!o || typeof o !== "object") { errs.push(`${where}: must be an object`); return; }
   if (typeof o.secretsDir !== "string" || !o.secretsDir.trim()) errs.push(`${where}.secretsDir: required`);
   if (!Array.isArray(o.scopes) || o.scopes.length === 0 || o.scopes.some((s) => typeof s !== "string" || !/^https:\/\/www\.googleapis\.com\/auth\/[\w.-]+$/.test(s))) errs.push(`${where}.scopes: a non-empty list of https://www.googleapis.com/auth/... scopes`);
@@ -20,7 +20,13 @@ function checkGoogleOAuth(g: unknown, where: string, errs: string[]): void {
     if (typeof o.host.keyFile !== "string" || !o.host.keyFile) errs.push(`${where}.host.keyFile: required`);
     if (o.host.port !== undefined && !(Number.isInteger(o.host.port) && (o.host.port as number) > 0 && (o.host.port as number) < 65536)) errs.push(`${where}.host.port: invalid`);
     if (o.host.os !== undefined && o.host.os !== "windows" && o.host.os !== "posix") errs.push(`${where}.host.os: "windows" or "posix"`);
-  }
+    if (o.host.transport !== undefined && o.host.transport !== "ssh" && o.host.transport !== "gate") errs.push(`${where}.host.transport: "ssh" or "gate"`);
+    if (o.host.transport === "gate") {
+      if (typeof o.host.credentialsFile !== "string" || !o.host.credentialsFile.trim()) errs.push(`${where}.host.credentialsFile: required for the gate transport (the gate offers no reads; credentials.json is read on this machine)`);
+      if (o.restart !== undefined) errs.push(`${where}.restart: not allowed with the gate transport (the gate runs no commands except put and health)`);
+      if (typeof o.secretsDir === "string" && !/^\/.*\/[A-Za-z0-9_][A-Za-z0-9._-]*\/?$/.test(o.secretsDir)) errs.push(`${where}.secretsDir: with the gate transport the last folder is the container name (letters, digits, dot, dash, underscore)`);
+    } else if (o.host.credentialsFile !== undefined) errs.push(`${where}.host.credentialsFile: only meaningful with transport "gate"`);
+  } 
   if (o.restart !== undefined && (typeof o.restart.command !== "string" || !o.restart.command.trim())) errs.push(`${where}.restart.command: required when restart is given`);
   if (o.health !== undefined) {
     if (typeof o.health.url !== "string" || !/^https?:\/\//.test(o.health.url)) errs.push(`${where}.health.url: must be an http(s) URL`);

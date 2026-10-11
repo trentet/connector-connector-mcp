@@ -106,6 +106,78 @@ export class SshTransport implements Transport {
   }
 }
 
+const GATE_NAME = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
+const GATE_MAX_BYTES = 64 * 1024;
+
+/**
+ * A NAS login whose ssh key is bound to a forced command ("the gate") that allows exactly two requests: `put <container> <file>` (content on stdin, up to 64 KiB,
+ * written under a temporary name and renamed in one step; answers `ok <bytes>`) and `health <container>` (answers the /health body, then a last line `HTTP <code>`).
+ * Anything else is refused by the gate (exit 3); this class never even sends it. There is no read: `credentials.json` is read from a local file, and the files cc itself
+ * delivered are mirrored locally (mode 0600) so the previous token and renewal record can be put back, and `--only-if-older-than` has a record to read.
+ * The mirror is per machine: a second renewer sees only what it delivered itself.
+ */
+export class GateTransport implements Transport {
+  readonly where: string;
+  readonly container: string;
+  private readonly mirror: string;
+  constructor(private readonly def: GoogleOAuthDef, private readonly runner = run, mirrorRoot = process.env.CC_GATE_MIRROR ?? path.join(os.homedir(), ".cc", "gate-mirror")) {
+    const host = def.host!;
+    this.where = host.ssh;
+    this.container = def.secretsDir.replace(/\/+$/, "").split("/").pop() ?? "";
+    if (!GATE_NAME.test(this.container)) throw new Error(`gate transport: "${def.secretsDir}" does not end in a container folder name`);
+    this.mirror = path.join(mirrorRoot, this.container);
+  }
+  private get opts(): string[] {
+    const h = this.def.host!;
+    return ["-i", expandEnv(h.keyFile), "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes", "-o", "ConnectTimeout=15", ...(h.port ? ["-p", String(h.port)] : [])];
+  }
+  join(dir: string, name: string): string { return `${dir.replace(/\/+$/, "")}/${name}`; }
+  private nameOf(file: string): string {
+    const n = file.split(/[\\/]/).pop() ?? "";
+    if (!GATE_NAME.test(n)) throw new Error(`the gate accepts only plain file names (letters, digits, dot, dash, underscore), not "${n}"`);
+    return n;
+  }
+  /** One request to the gate. Only `put` and `health` can be built here. */
+  private async gate(verb: "put" | "health", args: string[], input?: string, timeoutMs = 60_000): Promise<ExecResult> {
+    const r = await this.runner("ssh", [...this.opts, this.where, [verb, this.container, ...args].join(" ")], { timeoutMs, input });
+    if (/permission denied/i.test(r.stderr)) throw new Error(`the gate login on ${this.where} refused the key (permission denied): tell the operator, do not retry (it can also mean the NAS restarted less than two minutes ago)`);
+    if (r.code === 3) throw new Error(`the gate on ${this.where} refused the request (exit 3)`);
+    return r;
+  }
+  async readFile(file: string): Promise<string | undefined> {
+    const n = this.nameOf(file);
+    if (n === "credentials.json") {
+      const f = expandEnv(this.def.host!.credentialsFile ?? "");
+      return fs.existsSync(f) ? fs.readFileSync(f, "utf8") : undefined;
+    }
+    const m = path.join(this.mirror, n);
+    return fs.existsSync(m) ? fs.readFileSync(m, "utf8") : undefined;
+  }
+  async replaceFile(file: string, content: string): Promise<void> {
+    const n = this.nameOf(file);
+    const bytes = Buffer.byteLength(content, "utf8");
+    if (bytes === 0 || bytes > GATE_MAX_BYTES) throw new Error(`the gate accepts 1 to ${GATE_MAX_BYTES} bytes, not ${bytes}`);
+    const r = await this.gate("put", [n], content);
+    if (r.code !== 0 || r.stdout.trim() !== `ok ${bytes}`) throw new Error(`could not put ${n} through the gate on ${this.where} (exit ${r.code}${r.stdout.trim() ? `, answer "${r.stdout.trim().slice(0, 40)}"` : ""})`);
+    fs.mkdirSync(this.mirror, { recursive: true, mode: 0o700 });
+    const m = path.join(this.mirror, n);
+    fs.writeFileSync(`${m}.new`, content, { encoding: "utf8", mode: 0o600 });
+    fs.renameSync(`${m}.new`, m);
+  }
+  /** The gate runs no commands. */
+  async exec(command: string): Promise<ExecResult> { return { code: 3, stdout: "", stderr: `refused: the gate allows only put and health, not "${command.split(/\s/)[0]}"` }; }
+  /** `health <container>`: the gate knows the port; the URL in the registry is not sent. A non-2xx answer counts as no answer. */
+  async fetchText(_url: string): Promise<string | undefined> {
+    const r = await this.gate("health", [], undefined, 30_000);
+    if (r.code !== 0) return undefined;
+    const lines = r.stdout.replace(/\s+$/, "").split(/\r?\n/);
+    const m = /^HTTP (\d{3})$/.exec(lines.pop() ?? "");
+    const body = lines.join("\n");
+    return m && m[1].startsWith("2") && body.trim() ? body : undefined;
+  }
+}
+
 export function transportFor(def: GoogleOAuthDef): Transport {
+  if (def.host?.transport === "gate") return new GateTransport(def);
   return def.host ? new SshTransport(def.host) : new LocalTransport();
 }

@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildConsentUrl, fileLock, reauth, renewalAge, selectGoogleConnectors, withPort, type ReauthDeps, type TokenResponse } from "../src/core/reauth.js";
 import { loadRegistry, validateRegistry } from "../src/core/registry.js";
-import { expandEnv, SshTransport, type ExecResult, type Transport } from "../src/core/transport.js";
+import { expandEnv, GateTransport, LocalTransport, SshTransport, transportFor, type ExecResult, type Transport } from "../src/core/transport.js";
 import type { ConnectorDef, GoogleOAuthDef, Registry } from "../src/core/types.js";
 
 const SECRET = "client-SECRET-abc123", CODE = "4/0AUTHCODE-xyz789", REFRESH = "1//refresh-TOKEN-qwe456", ACCESS = "ya29.access-TOKEN-asd", PASSWORD = "pw-GOOGLE-7777";
@@ -533,5 +533,159 @@ describe("leftovers of closed PR #41 (#44): dry-run renew wording and the record
       const { value: res } = await captured(() => reauth(registry(connector("a", def())), { connectors: ["a"], onlyIfOlderThanDays: 4.75 }, withNow(deps(h.t))));
       expect(res.items[0].status, String(age)).toBe(status);
     }
+  });
+});
+
+describe("gate transport (forced-command login: only put and health)", () => {
+  const gdef = (over: Partial<NonNullable<GoogleOAuthDef["host"]>> = {}): GoogleOAuthDef => def({
+    secretsDir: "/volume1/secrets/orch-prod", restart: undefined,
+    host: { ssh: "gate@nas", keyFile: "/k/key", port: 2222, os: "posix", transport: "gate", credentialsFile: "", ...over },
+    health: { url: "http://127.0.0.1:8651/health", contains: "\"drive\":\"ok\"", waitSeconds: 5, expectRenewedAt: true },
+  });
+  const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "cc-gate-"));
+  /** A fake ssh: records each call, plays the gate's side of `put` (stdin kept) and `health` (a switchable answer). */
+  function fakeSsh(o: { health?: (n: number) => string; putAnswer?: (bytes: number) => ExecResult; stderr?: string } = {}) {
+    const calls: { file: string; args: string[]; input?: string }[] = []; const stored: Record<string, string> = {}; let h = 0;
+    const runner = async (file: string, args: string[], opts?: { input?: string }): Promise<ExecResult> => {
+      calls.push({ file, args, input: opts?.input });
+      const [verb, , name] = args.at(-1)!.split(" ");
+      if (o.stderr) return { code: 255, stdout: "", stderr: o.stderr };
+      if (verb === "put") { const b = Buffer.byteLength(opts?.input ?? ""); if (o.putAnswer) return o.putAnswer(b); stored[name] = opts?.input ?? ""; return { code: 0, stdout: `ok ${b}\n`, stderr: "" }; }
+      if (verb === "health") return { code: 0, stdout: o.health ? o.health(h++) : "{\"drive\":\"ok\"}\nHTTP 200\n", stderr: "" };
+      return { code: 3, stdout: "refused\n", stderr: "" };
+    };
+    return { runner, calls, stored };
+  }
+  function make(over: Parameters<typeof gdef>[0] = {}, ssh = fakeSsh()) {
+    const mirrorRoot = tmp(); const creds = path.join(tmp(), "credentials.json"); fs.writeFileSync(creds, CREDS);
+    const g = gdef({ credentialsFile: creds, ...over });
+    return { g, ssh, mirrorRoot, t: new GateTransport(g, ssh.runner as never, mirrorRoot) };
+  }
+
+  it("registry: gate needs credentialsFile, refuses restart, needs a container folder; a plain ssh host may not carry credentialsFile; the shipped robot entry is a valid gate entry", () => {
+    const base = (g: unknown) => ({ version: 1, connectors: [{ ...connector("a"), repo: "o/a", googleOAuth: g }] });
+    expect(validateRegistry(base(gdef({ credentialsFile: "/c.json" }))).errors).toEqual([]);
+    expect(validateRegistry(base(gdef({ credentialsFile: undefined }))).errors.join("\n")).toMatch(/credentialsFile: required for the gate/);
+    expect(validateRegistry(base({ ...gdef({ credentialsFile: "/c" }), restart: { command: "x" } })).errors.join("\n")).toMatch(/restart: not allowed with the gate/);
+    expect(validateRegistry(base({ ...gdef({ credentialsFile: "/c" }), secretsDir: "orch" })).errors.join("\n")).toMatch(/last folder is the container name/);
+    expect(validateRegistry(base(gdef({ transport: "ftp" as never, credentialsFile: "/c" }))).errors.join("\n")).toMatch(/transport: "ssh" or "gate"/);
+    expect(validateRegistry(base(def({ host: { ssh: "a@b", keyFile: "/k", credentialsFile: "/c" } }))).errors.join("\n")).toMatch(/only meaningful with transport "gate"/);
+    const robot = loadRegistry("registry/connectors.json").connectors.find((c) => c.id === "helm-handoff-robot")!.googleOAuth!;
+    expect(robot.host?.transport).toBe("gate");
+    expect(robot.restart).toBeUndefined();
+  });
+  it("transportFor picks the gate only when asked; the default (ssh) is unchanged", () => {
+    expect(transportFor(gdef({ credentialsFile: "/c" }))).toBeInstanceOf(GateTransport);
+    expect(transportFor(def({ host: { ssh: "a@b", keyFile: "/k" } }))).toBeInstanceOf(SshTransport);
+    expect(transportFor(def())).toBeInstanceOf(LocalTransport);
+  });
+  it("put: only ssh, the key options, `put <container> <file>`, content on stdin, no scp; the answer is checked and the file mirrored (0600)", async () => {
+    const { t, ssh, mirrorRoot } = make();
+    await t.replaceFile(t.join("/volume1/secrets/orch-prod", "token.json"), "{\"a\":1}");
+    expect(ssh.calls.map((c) => c.file)).toEqual(["ssh"]);
+    const c = ssh.calls[0];
+    expect(c.args).toEqual(["-i", "/k/key", "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes", "-o", "ConnectTimeout=15", "-p", "2222", "gate@nas", "put orch-prod token.json"]);
+    expect(c.input).toBe("{\"a\":1}");
+    expect(ssh.stored["token.json"]).toBe("{\"a\":1}");
+    const m = path.join(mirrorRoot, "orch-prod", "token.json");
+    expect(await t.readFile("/x/token.json")).toBe("{\"a\":1}");
+    if (process.platform !== "win32") expect(fs.statSync(m).mode & 0o777).toBe(0o600);
+  });
+  it("put: a wrong byte count, a non-zero exit, an oversize or empty body, and a name with a path are refused and nothing is mirrored", async () => {
+    const bad = make({}, fakeSsh({ putAnswer: () => ({ code: 0, stdout: "ok 1\n", stderr: "" }) }));
+    await expect(bad.t.replaceFile("/d/token.json", "{\"a\":1}")).rejects.toThrow(/could not put token.json/);
+    expect(await bad.t.readFile("/d/token.json")).toBeUndefined();
+    const exit = make({}, fakeSsh({ putAnswer: () => ({ code: 1, stdout: "", stderr: "" }) }));
+    await expect(exit.t.replaceFile("/d/token.json", "x")).rejects.toThrow(/exit 1/);
+    const { t, ssh } = make();
+    await expect(t.replaceFile("/d/token.json", "x".repeat(64 * 1024 + 1))).rejects.toThrow(/1 to 65536 bytes/);
+    await expect(t.replaceFile("/d/token.json", "")).rejects.toThrow(/1 to 65536 bytes/);
+    await expect(t.replaceFile("/d/.hidden", "x")).rejects.toThrow(/plain file names/);
+    await expect(t.replaceFile("/d/a b", "x")).rejects.toThrow(/plain file names/);
+    expect(ssh.calls).toEqual([]);
+  });
+  it("exec: refuses every command without calling ssh (the gate runs nothing but put and health)", async () => {
+    const { t, ssh } = make();
+    for (const cmd of ["id", "ls /", "sudo reboot", "put orch-prod token.json", "health orch-prod; id", "restart-it"]) {
+      const r = await t.exec(cmd);
+      expect(r.code).toBe(3);
+      expect(r.stderr).toMatch(/only put and health/);
+    }
+    expect(ssh.calls).toEqual([]);
+  });
+  it("health: sends `health <container>`, returns the body when the last line is HTTP 2xx, nothing otherwise", async () => {
+    const answers = ["{\"drive\":\"ok\"}\nHTTP 200\n", "boom\nHTTP 500\n", "no status line", "curl: (7) Failed to connect\n", "\nHTTP 200\n"];
+    for (const a of answers) {
+      const { t, ssh } = make({}, fakeSsh({ health: () => a }));
+      const body = await t.fetchText("http://127.0.0.1:8651/health");
+      expect(ssh.calls[0].args.at(-1)).toBe("health orch-prod");
+      expect(ssh.calls[0].input).toBeUndefined();
+      expect(body).toBe(a === answers[0] ? "{\"drive\":\"ok\"}" : undefined);
+    }
+  });
+  it("a key the NAS refuses is a clear 'tell the operator' error, not a retry; an exit-3 refusal is an error too", async () => {
+    const denied = make({}, fakeSsh({ stderr: "helm-renew@nas: Permission denied (publickey)." }));
+    await expect(denied.t.replaceFile("/d/token.json", "x")).rejects.toThrow(/permission denied.*tell the operator/);
+    await expect(denied.t.fetchText("u")).rejects.toThrow(/permission denied/);
+    const refused = make({}, fakeSsh({ putAnswer: () => ({ code: 3, stdout: "refused", stderr: "" }) }));
+    await expect(refused.t.replaceFile("/d/token.json", "x")).rejects.toThrow(/refused the request/);
+  });
+  it("credentials.json is read from the local file (never through the gate); a missing file reads as absent; other reads come from the mirror only", async () => {
+    const { t, ssh } = make();
+    expect(await t.readFile("/volume1/secrets/orch-prod/credentials.json")).toBe(CREDS);
+    expect(await t.readFile("/volume1/secrets/orch-prod/token.json")).toBeUndefined();
+    const none = make({ credentialsFile: path.join(tmp(), "missing.json") });
+    expect(await none.t.readFile("/d/credentials.json")).toBeUndefined();
+    expect(ssh.calls).toEqual([]);
+  });
+  it("a secretsDir that does not end in a container folder is rejected at construction", () => {
+    expect(() => new GateTransport({ ...gdef({ credentialsFile: "/c" }), secretsDir: "/" }, undefined, tmp())).toThrow(/container folder/);
+  });
+
+  // End to end through the real reauth() with the fake ssh playing the NAS and the orchestrator.
+  const run = async (health: (n: number) => string, prior?: { token: string; record: string }) => {
+    const ssh = fakeSsh({ health });
+    const h = make({}, ssh);
+    if (prior) { fs.mkdirSync(path.join(h.mirrorRoot, "orch-prod"), { recursive: true }); fs.writeFileSync(path.join(h.mirrorRoot, "orch-prod", "token.json"), prior.token); fs.writeFileSync(path.join(h.mirrorRoot, "orch-prod", "token.renewed.json"), prior.record); ssh.stored["token.json"] = prior.token; ssh.stored["token.renewed.json"] = prior.record; }
+    const d = deps(h.t);
+    const { value, stderr } = await captured(() => reauth(registry(connector("a", h.g)), { connectors: ["a"] }, d));
+    return { ...h, res: value, stderr, d };
+  };
+  const echo = (n: number, stored: Record<string, string>) => `{"status":"ok","drive":"ok","renewedAt":"${JSON.parse(stored["token.renewed.json"]).renewedAt}"}\nHTTP 200\n`;
+
+  it("renewal over the gate: token.json then the record are put, health must show the new renewedAt; ok; no secret in output; exec never used", async () => {
+    const ssh: ReturnType<typeof fakeSsh> = fakeSsh({ health: () => echo(0, ssh.stored) });
+    const h2 = make({}, ssh);
+    const { value: res, stderr } = await captured(() => reauth(registry(connector("a", h2.g)), { connectors: ["a"] }, deps(h2.t)));
+    expect(res).toMatchObject({ ok: true, items: [{ status: "ok", detail: expect.stringMatching(/showing the new renewal/) }] });
+    const verbs = ssh.calls.map((c) => c.args.at(-1)!.split(" ").slice(0, 3).join(" "));
+    expect(verbs.slice(0, 2)).toEqual(["put orch-prod token.json", "put orch-prod token.renewed.json"]);
+    expect(verbs.slice(2).every((v) => v.startsWith("health orch-prod"))).toBe(true);
+    expect(JSON.parse(ssh.stored["token.json"]).refresh_token).toBe(REFRESH);
+    noSecrets(stderr); noSecrets(JSON.stringify(res));
+  });
+  it("restore on failure: health never shows the new record -> the previous token and record are put back, error reported", async () => {
+    const prior = { token: JSON.stringify({ refresh_token: "OLD-REFRESH" }), record: JSON.stringify({ renewedAt: "2026-01-01T00:00:00.000Z", byHost: "w540" }) };
+    const r = await run(() => "{\"drive\":\"ok\",\"renewedAt\":\"2026-01-01T00:00:00.000Z\"}\nHTTP 200\n", prior);
+    expect(r.res.ok).toBe(false);
+    expect(r.res.items[0].detail).toMatch(/did not show the new renewal record.*previous token was restored/);
+    expect(r.ssh.stored["token.json"]).toBe(prior.token);
+    expect(r.ssh.stored["token.renewed.json"]).toBe(prior.record);
+    expect(await r.t.readFile("/d/token.json")).toBe(prior.token);
+    noSecrets(r.stderr);
+  });
+  it("failure with no previous token (first delivery): reported, nothing to restore, no exec", async () => {
+    const r = await run(() => "{\"drive\":\"ok\"}\nHTTP 200\n");
+    expect(r.res.items[0]).toMatchObject({ status: "error", detail: expect.stringMatching(/no previous token to restore/) });
+    expect(r.ssh.calls.every((c) => /^(put|health) /.test(c.args.at(-1)!))).toBe(true);
+  });
+  it("only-if-older-than reads the local mirror of the record the same machine delivered", async () => {
+    const recent = JSON.stringify({ renewedAt: new Date(1_000_000 - 3600_000).toISOString(), byHost: "w540" });
+    const ssh = fakeSsh(); const h = make({}, ssh);
+    fs.mkdirSync(path.join(h.mirrorRoot, "orch-prod"), { recursive: true });
+    fs.writeFileSync(path.join(h.mirrorRoot, "orch-prod", "token.renewed.json"), recent);
+    const { value } = await captured(() => reauth(registry(connector("a", h.g)), { connectors: ["a"], onlyIfOlderThanDays: 4.75 }, deps(h.t)));
+    expect(value.items[0]).toMatchObject({ status: "skipped" });
+    expect(ssh.calls).toEqual([]);
   });
 });
