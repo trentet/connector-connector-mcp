@@ -22,7 +22,7 @@
   "expectedAccountHint": null,
   "add": {
     "newConnectorButton": "new connector",
-    "dialog": "[role=dialog]",
+    "dialog": "[role=dialog]:visible",
     "customTile": "^custom",
     "formHeading": "custom connector",
     "namePlaceholder": "My Connector",
