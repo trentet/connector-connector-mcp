@@ -1179,6 +1179,9 @@
       },
       "platforms": [],
       "googleOAuth": {
+        "renewers": [
+          "KNOTTYAI-PC"
+        ],
         "secretsDir": "/volume1/helm-secrets/helm-handoff-orchestrator-production",
         "scopes": [
           "https://www.googleapis.com/auth/drive"

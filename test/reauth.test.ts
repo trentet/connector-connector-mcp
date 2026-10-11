@@ -408,7 +408,7 @@ describe("the handoff robot's shipped registry entry (#45)", () => {
     expect(g.host).toMatchObject({ os: "posix" });
     expect(g.host?.port).toBeUndefined();
     expect(g.health).toEqual({ url: "http://127.0.0.1:8651/health", contains: "\"drive\":\"ok\"", waitSeconds: 120, expectRenewedAt: true });
-    expect(selectGoogleConnectors(loaded, { connectors: ["*"] }).picked.map((c) => c.id)).toContain("helm-handoff-robot");
+    expect(selectGoogleConnectors(loaded, { connectors: ["*"] }, "KNOTTYAI-PC").picked.map((c) => c.id)).toContain("helm-handoff-robot");
   });
 });
 
@@ -707,5 +707,42 @@ describe("gate transport (forced-command login: only put and health)", () => {
       const { value } = await captured(() => reauth(registry(connector("a", h.g)), { connectors: ["a"], onlyIfOlderThanDays: 4.75, dryRun: true }, deps(h.t)));
       expect(value.items[0]).toMatchObject({ status: "dry-run", detail: expect.stringMatching(/would renew/) });
     });
+  });
+});
+
+describe("googleOAuth.renewers: per-entry renewer host filter (#45)", () => {
+  const reg = registry(connector("everywhere", def()), connector("only-k", def({ renewers: ["KNOTTYAI-PC"] })));
+  it("--all on another host skips the entry with a clear status; an explicit id still runs", () => {
+    const sel = selectGoogleConnectors(reg, { connectors: ["*"] }, "W540");
+    expect(sel.picked.map((c) => c.id)).toEqual(["everywhere"]);
+    expect(sel.items).toEqual([{ connector: "only-k", status: "skipped", detail: "skipped - not a renewer on W540" }]);
+    expect(selectGoogleConnectors(reg, { connectors: ["only-k"] }, "W540").picked.map((c) => c.id)).toEqual(["only-k"]);
+  });
+  it("a skipped entry does not make the run fail", async () => {
+    process.env.CC_HOST_NAME = "w540";
+    try {
+      const { value: res } = await captured(() => reauth(reg, { connectors: ["*"], dryRun: true }, deps(fakeHost({ "/s/credentials.json": CREDS, "/s/token.json": "OLD" }).t)));
+      expect(res.items.find((i) => i.connector === "only-k")).toMatchObject({ status: "skipped", detail: "skipped - not a renewer on w540" });
+      expect(res.items.some((i) => i.status === "error")).toBe(false);
+      expect(res.ok).toBe(true);
+    } finally { delete process.env.CC_HOST_NAME; }
+  });
+  it("matches case-insensitively, and CC_HOST_NAME names this machine", () => {
+    expect(selectGoogleConnectors(reg, { connectors: ["*"] }, "knottyai-pc").picked.map((c) => c.id)).toEqual(["everywhere", "only-k"]);
+    process.env.CC_HOST_NAME = "KnottyAI-PC";
+    try { expect(selectGoogleConnectors(reg, { connectors: ["*"] }).picked.map((c) => c.id)).toEqual(["everywhere", "only-k"]); } finally { delete process.env.CC_HOST_NAME; }
+  });
+  it("validates the field", () => {
+    const v = (renewers: unknown) => validateRegistry({ version: 1, connectors: [{ ...connector("r", def({ renewers: renewers as string[] })), repo: "o/r" }] }).errors.join("\n");
+    expect(v(["KNOTTYAI-PC", "w540"])).not.toMatch(/renewers/);
+    for (const bad of [[], "KNOTTYAI-PC", [1], ["a b"], ["a;b"], [""]]) expect(v(bad), JSON.stringify(bad)).toMatch(/renewers/);
+  });
+  it("the shipped helm-handoff-robot is skipped on the W540 weekly path, runs when named, and stays covered by the guard", () => {
+    const loaded = loadRegistry(path.resolve("registry", "connectors.json"));
+    const robot = loaded.connectors.find((c) => c.id === "helm-handoff-robot")!;
+    expect(robot.googleOAuth!.renewers).toEqual(["KNOTTYAI-PC"]);
+    expect(selectGoogleConnectors(loaded, { connectors: ["*"] }, "W540").picked.map((c) => c.id)).not.toContain("helm-handoff-robot");
+    expect(selectGoogleConnectors(loaded, { connectors: ["helm-handoff-robot"] }, "W540").picked.map((c) => c.id)).toEqual(["helm-handoff-robot"]);
+    expect(robot.googleOAuth && robot.repo).toBeTruthy(); // the coverage guard matches by googleOAuth + repo, independent of renewers
   });
 });

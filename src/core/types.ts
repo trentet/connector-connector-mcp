@@ -24,6 +24,11 @@ export interface GoogleOAuthDef {
   scopes: string[];
   /** The Google account that owns the grant: its vault entry (username/password resolved inside the process, never returned or logged). */
   account: { vaultLabel: string };
+  /**
+   * Machine names (os.hostname(), or CC_HOST_NAME) allowed to renew this entry in a bulk run. When present and this machine is not listed, `cc reauth --all`
+   * (and the MCP tool with "*") skips the entry with `skipped - not a renewer on <host>`; naming the entry explicitly still runs it. Case-insensitive. Absent = every machine.
+   */
+  renewers?: string[];
   /** The connector's server runs on another machine: files move with scp and commands with ssh. Absent = this machine. */
   host?: {
     ssh: string; keyFile: string; port?: number; os?: "windows" | "posix";
