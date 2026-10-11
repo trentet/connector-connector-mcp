@@ -393,6 +393,25 @@ describe("second renewer support (#39)", () => {
   });
 });
 
+describe("the handoff robot's shipped registry entry (#45)", () => {
+  it("validates, is Google-only, and carries the settled design values (D55, D58, D59, D62)", () => {
+    const loaded = loadRegistry(path.resolve("registry", "connectors.json"));
+    const robot = loaded.connectors.find((c) => c.id === "helm-handoff-robot")!;
+    expect(robot).toBeDefined();
+    expect(robot.platforms).toEqual([]);
+    expect(robot.url).toBeUndefined();
+    expect(robot.tier).toBe("production");
+    expect(robot.repo).toBe("trentet/helm-handoff");
+    const g = robot.googleOAuth!;
+    expect(g.scopes).toEqual(["https://www.googleapis.com/auth/drive"]);
+    expect(g.restart).toBeUndefined();
+    expect(g.host).toMatchObject({ os: "posix" });
+    expect(g.host?.port).toBeUndefined();
+    expect(g.health).toEqual({ url: "http://127.0.0.1:8651/health", contains: "\"drive\":\"ok\"", waitSeconds: 120, expectRenewedAt: true });
+    expect(selectGoogleConnectors(loaded, { connectors: ["*"] }).picked.map((c) => c.id)).toContain("helm-handoff-robot");
+  });
+});
+
 describe("health check without a restart, and proof that the new token was loaded (#43)", () => {
   const NOW = Date.parse("2026-10-09T12:00:00Z");
   const RECORD = "/s/token.renewed.json";
