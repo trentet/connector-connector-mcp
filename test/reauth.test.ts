@@ -379,11 +379,13 @@ describe("second renewer support (#39)", () => {
     expect(h.writes).toEqual([]);
   });
 
-  it("a Google-only entry (googleOAuth, platforms [], no url) is valid; platforms [] without googleOAuth, or missing platforms, are not", () => {
+  it("a Google-only entry (googleOAuth, platforms [], no url) is valid; platforms [] or absent without googleOAuth are not", () => {
     const robot = { id: "robot", name: "Robot", repo: "o/robot", platforms: [], auth: { mode: "none" }, googleOAuth: def() };
     expect(validateRegistry({ version: 1, connectors: [robot] }).errors).toEqual([]);
     expect(validateRegistry({ version: 1, connectors: [{ ...robot, googleOAuth: undefined }] }).errors.join("\n")).toMatch(/platforms must be a non-empty subset/);
-    expect(validateRegistry({ version: 1, connectors: [{ ...robot, platforms: undefined }] }).errors.join("\n")).toMatch(/platforms must be a non-empty subset/);
+    // platforms absent on a googleOAuth entry is normalised to [] (#44); without googleOAuth it is still an error
+    expect(validateRegistry({ version: 1, connectors: [{ ...robot, platforms: undefined }] }).errors).toEqual([]);
+    expect(validateRegistry({ version: 1, connectors: [{ ...robot, platforms: undefined, googleOAuth: undefined }] }).errors.join("\n")).toMatch(/platforms must be a non-empty subset/);
     // an entry that does list a platform still needs its url
     expect(validateRegistry({ version: 1, connectors: [{ ...robot, platforms: ["claude"] }] }).errors.join("\n")).toMatch(/url/);
     const reg = validateRegistry({ version: 1, connectors: [robot] }).registry!;
@@ -465,5 +467,52 @@ describe("health check without a restart, and proof that the new token was loade
     const { value: res } = await captured(() => reauth(registry(connector("a", def({ health: H({ expectRenewedAt: true }) }))), { connectors: ["a"] }, withNow(deps(h.t))));
     expect(res.items[0].status).toBe("ok");
     expect(h.commands).toEqual(["restart-it"]);
+  });
+});
+
+describe("leftovers of closed PR #41 (#44): dry-run renew wording and the record-write warning", () => {
+  const NOW = Date.parse("2026-10-05T12:00:00Z"), DAY = 86_400_000, RECORD = "/s/token.renewed.json";
+  const withNow = (d: ReauthDeps & { run: Run }) => { let t = NOW; return Object.assign(d, { now: () => t, sleep: async (ms: number) => { t += ms; } }); };
+  const ago = (days: number) => JSON.stringify({ renewedAt: new Date(NOW - days * DAY).toISOString(), byHost: "host-a" });
+  const baseFiles = (extra: Record<string, string> = {}) => ({ "/s/credentials.json": CREDS, "/s/token.json": "OLD", ...extra });
+
+  it("--dry-run with --only-if-older-than says 'would renew' for an old or missing record, and still writes nothing", async () => {
+    for (const [label, files] of [["old", baseFiles({ [RECORD]: ago(6) })], ["missing", baseFiles()]] as const) {
+      const h = fakeHost({ ...files });
+      const { value: res } = await captured(() => reauth(registry(connector("a", def())), { connectors: ["a"], dryRun: true, onlyIfOlderThanDays: 4.75 }, withNow(deps(h.t))));
+      expect(res.items[0].status, label).toBe("dry-run");
+      expect(res.items[0].detail, label).toMatch(/^would renew: /);
+      expect(h.writes, label).toEqual([]);
+    }
+  });
+
+  it("--dry-run without the flag does not claim 'would renew' (nothing was compared)", async () => {
+    const h = fakeHost(baseFiles());
+    const { value: res } = await captured(() => reauth(registry(connector("a", def())), { connectors: ["a"], dryRun: true }, withNow(deps(h.t))));
+    expect(res.items[0].detail).not.toMatch(/would renew/);
+  });
+
+  it("a record that cannot be written is carried as a WARNING in the item detail, not only in the log", async () => {
+    for (const g of [def(), def({ restart: undefined, health: undefined })]) {
+      const h = fakeHost(baseFiles());
+      const t = { ...h.t, replaceFile: async (f: string, c: string) => { if (f === RECORD) throw new Error("disk full"); return h.t.replaceFile(f, c); } };
+      const { value: res } = await captured(() => reauth(registry(connector("a", g)), { connectors: ["a"] }, withNow(deps(t))));
+      expect(res.items[0].status).toBe("ok");
+      expect(res.items[0].detail).toMatch(/WARNING: could not write token\.renewed\.json \(disk full\)/);
+    }
+  });
+
+  it("a normal renewal carries no warning", async () => {
+    const h = fakeHost(baseFiles());
+    const { value: res } = await captured(() => reauth(registry(connector("a", def())), { connectors: ["a"] }, withNow(deps(h.t))));
+    expect(res.items[0].detail).not.toMatch(/WARNING/);
+  });
+
+  it("the skip comparison is strict: a record exactly as old as the limit renews, one just under it is skipped", async () => {
+    for (const [age, status] of [[4.75, "ok"], [4.7499, "skipped"], [4.7501, "ok"]] as const) {
+      const h = fakeHost(baseFiles({ [RECORD]: ago(age) }));
+      const { value: res } = await captured(() => reauth(registry(connector("a", def())), { connectors: ["a"], onlyIfOlderThanDays: 4.75 }, withNow(deps(h.t))));
+      expect(res.items[0].status, String(age)).toBe(status);
+    }
   });
 });
