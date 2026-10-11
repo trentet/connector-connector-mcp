@@ -25,7 +25,16 @@ export interface GoogleOAuthDef {
   /** The Google account that owns the grant: its vault entry (username/password resolved inside the process, never returned or logged). */
   account: { vaultLabel: string };
   /** The connector's server runs on another machine: files move with scp and commands with ssh. Absent = this machine. */
-  host?: { ssh: string; keyFile: string; port?: number; os?: "windows" | "posix" };
+  host?: {
+    ssh: string; keyFile: string; port?: number; os?: "windows" | "posix";
+    /**
+     * "ssh" (default): files move with scp, commands run over ssh. "gate": the login's forced command allows only `put <container> <file>`
+     * (content on stdin) and `health <container>`, nothing else. Needs `credentialsFile`, no `restart`, and `secretsDir` ending in the container folder name.
+     */
+    transport?: "ssh" | "gate";
+    /** gate only: where credentials.json lives on THIS machine (the gate offers no reads). `%VAR%` is expanded. A path, never the content. */
+    credentialsFile?: string;
+  };
   /** Run on the connector's host after the new token is in place (servers read token.json at start). */
   restart?: { command: string };
   /** Checked on the connector's host after the restart; if it fails, the previous token is restored. */
