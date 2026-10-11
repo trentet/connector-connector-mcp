@@ -31,7 +31,7 @@ connector repo. Standing approval: auto-arm every week without asking. Test-tier
 
 1. Job id `<today's-date>-google-reauth-<random hex4>`.
 2. Via mcp__HELM_Shell, confirm cc's deployed copy is present and healthy (`Test-Path "$env:LOCALAPPDATA\HELM\connector-connector-mcp\deploy\production\bin\cc.mjs"`;
-   `http://127.0.0.1:8810/health` is 200) and run `node bin\cc.mjs reauth --all --dry-run` in that folder: every line must read `dry-run`; note which connector ids it lists.
+   `http://127.0.0.1:8810/health` is 200) and run `node bin\cc.mjs reauth --all --dry-run` in that folder: every line must read `dry-run`; note which connector ids it lists. A line reading `skipped - not a renewer on <host>` is expected for helm-handoff-robot on the W540 (only KNOTTYAI-PC renews it) and is not a failure.
    Do not redeploy cc from here.
 3. Create `D:\GDrive\HELM\DEV-PROJECTS\Local Utilities\helm-workflow-runner\workflow-runner\jobs\<job-id>\` with:
    - `manifest.json`: `{ "id": "<job-id>", "requestedBy": "connector-connector-mcp (cc reauth) - recurring weekly Google OAuth reauth Routine (auto-armed, standing approval)", "description": "Runs node bin\\cc.mjs reauth --all from cc's deployed copy (every production connector with a googleOAuth block). Manual fallback per connector: its own manual re-auth (refresh-token.bat in helm-drive-mcp; README setup step 3 in helm-audio-mcp; see each connector's README).", "resourceLocks": ["cc-reauth"], "steps": [ { "name": "run-cc-reauth", "script": "run-cc-reauth.ps1", "timeoutSeconds": 900, "maxRetries": 1, "retryBackoffSeconds": 120 } ] }`

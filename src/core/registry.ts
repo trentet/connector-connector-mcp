@@ -10,11 +10,12 @@ function checkSource(s: unknown, where: string, errs: string[]): void {
 }
 
 function checkGoogleOAuth(g: unknown, where: string, errs: string[]): void {
-  const o = g as { secretsDir?: unknown; scopes?: unknown; account?: { vaultLabel?: unknown }; host?: { ssh?: unknown; keyFile?: unknown; port?: unknown; os?: unknown; transport?: unknown; credentialsFile?: unknown }; restart?: { command?: unknown }; health?: { url?: unknown; waitSeconds?: unknown; expectRenewedAt?: unknown } };
+  const o = g as { renewers?: unknown; secretsDir?: unknown; scopes?: unknown; account?: { vaultLabel?: unknown }; host?: { ssh?: unknown; keyFile?: unknown; port?: unknown; os?: unknown; transport?: unknown; credentialsFile?: unknown }; restart?: { command?: unknown }; health?: { url?: unknown; waitSeconds?: unknown; expectRenewedAt?: unknown } };
   if (!o || typeof o !== "object") { errs.push(`${where}: must be an object`); return; }
   if (typeof o.secretsDir !== "string" || !o.secretsDir.trim()) errs.push(`${where}.secretsDir: required`);
   if (!Array.isArray(o.scopes) || o.scopes.length === 0 || o.scopes.some((s) => typeof s !== "string" || !/^https:\/\/www\.googleapis\.com\/auth\/[\w.-]+$/.test(s))) errs.push(`${where}.scopes: a non-empty list of https://www.googleapis.com/auth/... scopes`);
   if (typeof o.account?.vaultLabel !== "string" || !o.account.vaultLabel) errs.push(`${where}.account.vaultLabel: required (the Google account's vault entry)`);
+  if (o.renewers !== undefined && (!Array.isArray(o.renewers) || o.renewers.length === 0 || o.renewers.some((h) => typeof h !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(h)))) errs.push(`${where}.renewers: a non-empty list of machine host names (letters, digits, dot, dash, underscore)`);
   if (o.host !== undefined) {
     if (typeof o.host.ssh !== "string" || !/^[\w.-]+@[\w.-]+$/.test(o.host.ssh)) errs.push(`${where}.host.ssh: must look like user@host`);
     if (typeof o.host.keyFile !== "string" || !o.host.keyFile) errs.push(`${where}.host.keyFile: required`);

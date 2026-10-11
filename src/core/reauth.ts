@@ -175,9 +175,26 @@ export function buildConsentUrl(p: { clientId: string; redirectUri: string; scop
   return `${CONSENT_ENDPOINT}?${q.toString()}`;
 }
 
-export function selectGoogleConnectors(reg: Registry, req: ReauthRequest): { picked: ConnectorDef[]; items: ReauthItem[] } {
+/** This machine's name for the `googleOAuth.renewers` filter: CC_HOST_NAME when set (tests, containers), else os.hostname(). */
+export function hostName(): string { return (process.env.CC_HOST_NAME?.trim() || os.hostname()).trim(); }
+
+/** True when the entry has no renewer list, or `host` (case-insensitive) is on it. */
+export function isRenewerHere(c: ConnectorDef, host: string): boolean {
+  const r = c.googleOAuth?.renewers;
+  return !r || r.some((h) => h.toLowerCase() === host.toLowerCase());
+}
+
+/** `--all` / ["*"] skips entries whose renewers list does not name this machine (reported, not a failure); naming an entry explicitly always runs it. */
+export function selectGoogleConnectors(reg: Registry, req: ReauthRequest, host: string = hostName()): { picked: ConnectorDef[]; items: ReauthItem[] } {
   const items: ReauthItem[] = [];
-  if (req.connectors.includes("*")) return { picked: reg.connectors.filter((c) => c.googleOAuth && (req.includeTest || c.tier !== "test")), items };
+  if (req.connectors.includes("*")) {
+    const picked: ConnectorDef[] = [];
+    for (const c of reg.connectors.filter((x) => x.googleOAuth && (req.includeTest || x.tier !== "test"))) {
+      if (isRenewerHere(c, host)) picked.push(c);
+      else items.push({ connector: c.id, status: "skipped", detail: `skipped - not a renewer on ${host}` });
+    }
+    return { picked, items };
+  }
   const picked: ConnectorDef[] = [];
   for (const id of req.connectors) {
     const c = reg.connectors.find((x) => x.id === id);
@@ -198,6 +215,7 @@ export async function reauth(reg: Registry, req: ReauthRequest, deps: ReauthDeps
   };
   const { picked, items } = selectGoogleConnectors(reg, req);
   const results: ReauthItem[] = [...items];
+  for (const i of items) if (i.status === "skipped") log(`${i.connector}: ${i.status} - ${i.detail}`);
   log(`=== cc reauth starting (${picked.length} connector(s)${req.dryRun ? ", dry-run" : ""}) ===`);
   try {
     for (const c of picked) {
