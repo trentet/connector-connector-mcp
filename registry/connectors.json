@@ -1167,6 +1167,37 @@
         "grok"
       ],
       "tier": "test"
+    },
+    {
+      "id": "helm-handoff-robot",
+      "name": "HELM handoff robot (Google account)",
+      "repo": "trentet/helm-handoff",
+      "description": "Google account of the HELM handoff orchestrator (no MCP connector): its Drive refresh token is renewed by cc and delivered to the NAS",
+      "tier": "production",
+      "auth": {
+        "mode": "none"
+      },
+      "platforms": [],
+      "googleOAuth": {
+        "secretsDir": "/volume1/helm-secrets/helm-handoff-orchestrator-production",
+        "scopes": [
+          "https://www.googleapis.com/auth/drive"
+        ],
+        "account": {
+          "vaultLabel": "Google Account (HELM handoff robot)"
+        },
+        "host": {
+          "ssh": "helm-renew@192.168.23.186",
+          "keyFile": "%LOCALAPPDATA%\\HELM\\helm-renew\\helm_renew_ed25519",
+          "os": "posix"
+        },
+        "health": {
+          "url": "http://127.0.0.1:8651/health",
+          "contains": "\"drive\":\"ok\"",
+          "waitSeconds": 120,
+          "expectRenewedAt": true
+        }
+      }
     }
   ],
   "googleOAuthExemptions": [
