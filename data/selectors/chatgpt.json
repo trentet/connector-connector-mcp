@@ -19,8 +19,8 @@
   },
   "add": {
     "addButton": "^add$",
-    "createMcpMenuItem": "create custom mcp server",
-    "dialogHeading": "create custom mcp server",
+    "createMcpMenuItem": "(add|create) custom mcp server",
+    "dialogHeading": "custom mcp server",
     "nameTextbox": "^name$",
     "descriptionTextbox": "description",
     "urlTextbox": "server url",
