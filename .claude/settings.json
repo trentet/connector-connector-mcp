@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=/home/user/helm-report-templates/scripts/stop-guard.mjs; if [ -f \"$f\" ]; then node \"$f\"; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
