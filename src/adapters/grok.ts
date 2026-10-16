@@ -14,6 +14,25 @@ async function dismissCookies(page: Page): Promise<void> {
   if (await rej.count()) { await rej.first().click().catch(() => {}); await sleep(400); }
 }
 
+/** Close announcement modals (data: sel.interstitials) that make the page behind inert. Escape first, the dialog's own close button as fallback. Returns how many were closed. */
+export async function dismissInterstitials(page: Page): Promise<number> {
+  let closed = 0;
+  for (const it of (sel.interstitials ?? []) as { dialogText: string; closeButton: string }[]) {
+    for (let i = 0; i < 3; i++) {
+      const dlg = page.locator("[role=dialog]:visible", { hasText: rx(it.dialogText) }).last();
+      if (!(await dlg.count())) break;
+      await page.keyboard.press("Escape").catch(() => {});
+      await sleep(700);
+      if (await dlg.isVisible().catch(() => false)) {
+        await dlg.getByRole("button", { name: rx(it.closeButton) }).first().click({ timeout: 5000 }).catch(() => {});
+        await sleep(700);
+      }
+      if (!(await dlg.isVisible().catch(() => false))) { closed++; break; }
+    }
+  }
+  return closed;
+}
+
 async function isSignedIn(page: Page): Promise<boolean> {
   // Signed out: the connectors page shows "Sign in" / "Sign up" and no "Toggle Sidebar" account chrome.
   return (await page.getByRole("button", { name: /^sign in$/i }).count()) === 0 && (await page.getByRole("link", { name: /^sign in$/i }).count()) === 0;
@@ -44,11 +63,13 @@ async function openConnectors(ctx: AdapterContext): Promise<Page> {
   await s.page.goto(sel.connectorsUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
   await sleep(3500);
   await dismissCookies(s.page);
+  await dismissInterstitials(s.page);
   if (!(await isSignedIn(s.page))) {
     await login(ctx);
     await s.page.goto(sel.connectorsUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
     await sleep(3500);
     await dismissCookies(s.page);
+    await dismissInterstitials(s.page);
     if (!(await isSignedIn(s.page))) throw new Error("grok.com still shows signed out after login");
   }
   return s.page;
@@ -153,7 +174,7 @@ export function grokAdapter(): PlatformAdapter {
         if (process.env.CC_DEBUG) console.error(`[debug grok after ${label}] ` + ctx.redact(await page.evaluate(() => { const d = [...document.querySelectorAll("[role=dialog]")].pop(); return d ? (d as HTMLElement).innerText.replace(/\s+/g, " ").slice(0, 200) : "(no dialog)"; }).catch(() => "?")));
         return r;
       };
-      await g("open-new-connector", async () => { await page.getByRole("button", { name: rx(a.newConnectorButton) }).first().click(); await dialog.waitFor({ timeout: 10000 }); });
+      await g("open-new-connector", async () => { await dismissInterstitials(page); await page.getByRole("button", { name: rx(a.newConnectorButton) }).first().click(); await dialog.waitFor({ timeout: 10000 }); });
       // The Custom tile is a button INSIDE the dialog; the page has other "Custom" text that a global text match would hit first.
       await g("choose-custom", async () => { await dialog.getByRole("button", { name: rx(a.customTile) }).first().click(); await dialog.getByText(rx(a.formHeading)).first().waitFor({ timeout: 8000 }); });
       await g("fill", async () => {
