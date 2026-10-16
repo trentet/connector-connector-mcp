@@ -18,6 +18,13 @@
       "name": "^(sign in|log in|login|next|continue)$"
     }
   },
+  "interstitials": [
+    {
+      "_note": "Modal announcements Grok puts over the connectors page (seen 2026-10-16: the page behind turns inert, so 'New Connector' has no accessible button and clicks time out). Closed with Escape; the named button is the fallback.",
+      "dialogText": "meet your bot",
+      "closeButton": "^(let.?s go|got it|close|dismiss|not now)$"
+    }
+  ],
   "loginVaultLabel": "Grok (grok.com email login)",
   "expectedAccountHint": null,
   "add": {
