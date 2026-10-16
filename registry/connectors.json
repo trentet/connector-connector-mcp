@@ -851,6 +851,61 @@
       }
     },
     {
+      "id": "helm-thread-monitor-test",
+      "name": "HELM Thread Monitor TEST",
+      "repo": "trentet/helm-thread-monitor",
+      "description": "TEST environment of the HELM thread-status monitor connector (thread-monitor-test.trentt.me, port 8850): thread reports, claims and reconcile. Tools: monitor_report, monitor_threads, monitor_claim, monitor_reconcile, monitor_server_build_info.",
+      "url": {
+        "type": "literal",
+        "value": "https://thread-monitor-test.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://thread-monitor-test.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-thread-monitor/test/secrets/connector.env"
+              ],
+              "key": "THREAD_MONITOR_TEST_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://thread-monitor-test.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-thread-monitor/test/secrets/connector.env"
+              ],
+              "key": "THREAD_MONITOR_TEST_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/helm-thread-monitor/test/secrets/connector.env"
+          ],
+          "key": "THREAD_MONITOR_TEST_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ],
+      "tier": "test"
+    },
+    {
       "id": "patchright-mcp-test",
       "name": "Patchright MCP TEST",
       "description": "TEST environment of patchright-mcp (on demand)",
