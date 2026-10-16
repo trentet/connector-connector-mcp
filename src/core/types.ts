@@ -23,7 +23,7 @@ export interface GoogleOAuthDef {
   /** The scopes the connector's server uses. The consent must request exactly these and Google must grant them all, or nothing is written. */
   scopes: string[];
   /** The Google account that owns the grant: its vault entry (username/password resolved inside the process, never returned or logged). */
-  account: { vaultLabel: string };
+  account: { vaultLabel: string; /** The vault entry also holds the account's authenticator (TOTP) secret: cc enters the current code when Google asks for 2-Step Verification. Absent = no code is ever entered. */ totp?: boolean };
   /**
    * Machine names (os.hostname(), or CC_HOST_NAME) allowed to renew this entry in a bulk run. When present and this machine is not listed, `cc reauth --all`
    * (and the MCP tool with "*") skips the entry with `skipped - not a renewer on <host>`; naming the entry explicitly still runs it. Case-insensitive. Absent = every machine.

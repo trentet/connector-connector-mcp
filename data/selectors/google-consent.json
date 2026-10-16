@@ -4,6 +4,8 @@
   "emailNext": "#identifierNext",
   "passwordInput": "input[type=\"password\"], input[name=\"Passwd\"], input[name=\"password\"]",
   "passwordNext": "#passwordNext",
+  "totpInput": "input[name=\"totpPin\"], #totpPin, input[autocomplete=\"one-time-code\"]",
+  "totpNext": "#totpNext",
   "nextText": "^Next$",
   "advancedText": "^Advanced$",
   "goToAppText": "Go to .* \\(unsafe\\)",
@@ -13,7 +15,8 @@
   "paths": {
     "accountChooser": "/accountchooser",
     "consent": "/signin/oauth/(v\\d+/)?consent(summary)?",
-    "challenge": "/signin/challenge/"
+    "challenge": "/signin/challenge/",
+    "totpChallenge": "/signin/challenge/totp"
   },
   "accountChooserChrome": "^(Scroll down|Help|Privacy|Terms|Use another account|Resend it|Try another way|Sign in with a different account|Got it)$",
   "accountSwitcherChipAria": "^Google Account:",
