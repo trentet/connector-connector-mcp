@@ -6,7 +6,7 @@ import path from "node:path";
 import { Redactor } from "./redact.js";
 import { expandEnv, transportFor, type Transport } from "./transport.js";
 import type { ConnectorDef, GoogleOAuthDef, Registry } from "./types.js";
-import { getCredential } from "./vaultClient.js";
+import { getCredential, getTotp } from "./vaultClient.js";
 
 /**
  * `cc reauth`: renew the Google OAuth grant (token.json) of every connector whose registry entry carries a `googleOAuth` block.
@@ -26,11 +26,13 @@ export interface ReauthItem { connector: string; status: "ok" | "skipped" | "dry
 export interface ReauthResult { ok: boolean; items: ReauthItem[] }
 
 export interface TokenResponse { access_token?: string; refresh_token?: string; scope?: string; token_type?: string; expires_in?: number }
-export interface GoogleAccountCredential { username?: string; password?: string }
+export interface GoogleAccountCredential { username?: string; password?: string; totp?: () => Promise<string | undefined> }
 
 export interface ReauthDeps {
   transport: (def: GoogleOAuthDef) => Transport;
   vault: (label: string) => Promise<GoogleAccountCredential | undefined>;
+  /** The current authenticator code of a vault entry (called only for an entry whose registry `account.totp` is true). Absent = none available. */
+  totp?: (label: string) => Promise<string | undefined>;
   /** Drive the consent URL in a browser until `isDone()` (the loopback server has the code). */
   consent: (a: { url: string; credential: GoogleAccountCredential; isDone: () => boolean; log: (line: string) => void }) => Promise<void>;
   /** Release the browser (called once, after the last connector). */
@@ -124,6 +126,7 @@ export function defaultReauthDeps(): ReauthDeps {
   return {
     transport: transportFor,
     vault: getCredential,
+    totp: getTotp,
     async consent(a) {
       const [{ openSession }, { driveConsent }] = await Promise.all([import("../browser/chrome.js"), import("../browser/googleConsent.js")]);
       session ??= openSession(); // ONE browser (own lane, cloned master profile) for the whole call; admission gate applies
@@ -266,11 +269,14 @@ async function reauthOne(c: ConnectorDef, g: GoogleOAuthDef, req: ReauthRequest,
 
   const cred = await deps.vault(g.account.vaultLabel);
   if (!cred) throw new Error(`vault entry "${g.account.vaultLabel}" not found`);
+  if (g.account.totp) cred.totp = () => (deps.totp ? deps.totp(g.account.vaultLabel) : Promise.resolve(undefined));
   red.add(cred.password); // the address is not a secret (it is in the vault label and the consent hint); the password is
 
   const hadToken = (await t.readFile(tokenFile)) !== undefined;
   if (req.dryRun) {
-    return { status: "dry-run", detail: `${renewNote}credentials.json readable on ${t.where}; OAuth client present; vault entry "${g.account.vaultLabel}" found (username ${cred.username ? "present" : "MISSING"}, password ${cred.password ? "present" : "MISSING"}); token.json ${hadToken ? "present" : "absent"}; ${g.scopes.length} scope(s); restart ${g.restart ? "configured" : "none"}; health ${g.health ? "configured" : "none"}` };
+    // The code itself is never shown: only whether the vault can produce one.
+    const totpNote = g.account.totp ? `; authenticator code ${(await cred.totp?.().catch(() => undefined)) ? "readable" : "NOT available from the vault entry"}` : "";
+    return { status: "dry-run", detail: `${renewNote}credentials.json readable on ${t.where}; OAuth client present; vault entry "${g.account.vaultLabel}" found (username ${cred.username ? "present" : "MISSING"}, password ${cred.password ? "present" : "MISSING"}); token.json ${hadToken ? "present" : "absent"}; ${g.scopes.length} scope(s); restart ${g.restart ? "configured" : "none"}; health ${g.health ? "configured" : "none"}${totpNote}` };
   }
 
   const state = deps.state();

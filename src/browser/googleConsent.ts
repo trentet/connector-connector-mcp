@@ -10,19 +10,20 @@ import { sleep } from "./dom.js";
  *   - on a page whose host is Google's own (spec.googleHosts); on any other host it stops,
  *   - for a URL cc built itself from a registry-declared `googleOAuth` block (the operator's own OAuth client and declared scopes),
  *   - until the loopback redirect has delivered the authorization code (`isDone`), then it stops touching the page.
- * It never fills anything except the Google account's own email/password (vault credential, resolved in-process, never logged).
+ * It never fills anything except the Google account's own email/password and, when its registry entry says the vault holds one, the current authenticator code (vault credential, resolved in-process, never logged).
  * A 2-step-verification challenge it cannot pass is waited on for a bounded time and then reported, never guessed at.
  *
  * Every URL it logs is origin + path only (the query holds the client id and state).
  */
 export interface ConsentSpec {
-  emailInput: string; emailNext: string; passwordInput: string; passwordNext: string;
+  emailInput: string; emailNext: string; passwordInput: string; passwordNext: string; totpInput: string; totpNext: string;
   nextText: string; advancedText: string; goToAppText: string; continueText: string; allowText: string; selectAllText: string;
-  paths: { accountChooser: string; consent: string; challenge: string };
+  paths: { accountChooser: string; consent: string; challenge: string; totpChallenge: string };
   accountChooserChrome: string; accountSwitcherChipAria: string; googleHosts: string[];
   limits: { maxSteps: number; settleMs: number; overallTimeoutMs: number; twoFaGraceMs: number; sameUrlStreak: number };
 }
-export interface GoogleCredential { username?: string; password?: string }
+/** `totp` is fetched lazily, at the moment Google asks for the code (a code lives about 30 s); never logged. */
+export interface GoogleCredential { username?: string; password?: string; totp?: () => Promise<string | undefined> }
 
 let cached: ConsentSpec | undefined;
 export function loadConsentSpec(dir = path.resolve(process.env.CC_SELECTORS_DIR ?? path.join("data", "selectors"))): ConsentSpec {
@@ -121,6 +122,17 @@ export async function advanceOneStep(page: Page, cred: GoogleCredential, spec: C
     if (await clickTextIfVisible(page, new RegExp(spec.nextText))) return "filled password, clicked Next (by text)";
     await pw.press("Enter", { timeout: 5000 }).catch(() => undefined);
     return "filled password, pressed Enter";
+  }
+  const totpBox = page.locator(spec.totpInput).first();
+  if (page.url().includes(spec.paths.totpChallenge) && (await totpBox.count()) > 0 && (await totpBox.isVisible().catch(() => false))) {
+    if (!cred.totp) return undefined; // no authenticator secret configured for this account: the caller waits, then reports the challenge
+    const code = await cred.totp();
+    if (!code) throw new Error("Google asked for an authenticator code but the vault entry produced none (no TOTP field, or the vault refused)");
+    await totpBox.fill(code).catch(() => undefined);
+    if (await clickIfVisible(page, spec.totpNext)) return "entered the authenticator code, clicked Next";
+    if (await clickTextIfVisible(page, new RegExp(spec.nextText))) return "entered the authenticator code, clicked Next (by text)";
+    await totpBox.press("Enter", { timeout: 5000 }).catch(() => undefined);
+    return "entered the authenticator code, pressed Enter";
   }
   if (page.url().includes(spec.paths.accountChooser)) {
     const chosen = await clickAccountChooserEntry(page, spec, cred.username);

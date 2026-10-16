@@ -46,6 +46,10 @@ function route(req: http.IncomingMessage, res: http.ServerResponse): void {
       <button onclick="var ok=document.getElementById('s1').getAttribute('aria-checked')==='true'&&document.getElementById('s2').getAttribute('aria-checked')==='true'; location='${redirect}?'+(ok?'code=FIXTURECODE':'error=access_denied')+'&state=${encodeURIComponent(state)}'">Continue</button>`);
   }
   if (u.pathname === "/challenge") return send(`<p>Check your phone</p>`); // not a recognized screen
+  if (u.pathname === "/signin/challenge/totp") {
+    // Google's authenticator-code page: the right code moves on to the consent summary, anything else stays put.
+    return send(`<input name="totpPin" id="totpPin" type="tel" autocomplete="one-time-code"><button id="totpNext" onclick="if(document.getElementById('totpPin').value==='123456'){location='/signin/oauth/v2/consentsummary?${carry}'}">Next</button>`);
+  }
   if (u.pathname === "/signin/challenge/dp") return send(`<p>2-Step Verification: tap Yes on your phone</p>`);
   if (u.pathname === "/mystery") return send(`<p>Something new from Google</p>`);
   if (u.pathname === "/leave") { res.statusCode = 302; res.setHeader("location", `http://localhost:${new URL(base).port}/elsewhere`); return void res.end(); }
@@ -118,6 +122,34 @@ describe.skipIf(!browser)("Google consent driver (real Chromium, fake Google)", 
       await expect(driveConsent({ context: ctx, url: authUrl("/signin/challenge/dp"), credential: { username: "u", password: "p" }, isDone: () => false, log: (l) => lines.push(l), spec: spec() })).rejects.toThrow(/2-step verification that nobody approved/);
     } finally { await ctx.close(); }
     expect(lines.join("\n")).toMatch(/Google asked for 2-step verification/);
+  });
+
+  it("enters the authenticator code when the account has one, and never logs it", async () => {
+    const ctx = await browser!.newContext();
+    const lines: string[] = [];
+    delivered = {};
+    let asked = 0;
+    try {
+      await driveConsent({ context: ctx, url: authUrl("/signin/challenge/totp"), credential: { username: "u", password: "p", totp: async () => { asked++; return "123456"; } }, isDone: () => delivered.code !== undefined || delivered.error !== undefined, log: (l) => lines.push(l), spec: spec() });
+    } finally { await ctx.close(); }
+    expect(asked).toBe(1);
+    expect(delivered).toMatchObject({ code: "FIXTURECODE", error: undefined });
+    expect(lines.join("\n")).toMatch(/entered the authenticator code/);
+    expect(lines.join("\n")).not.toContain("123456");
+  });
+
+  it("an authenticator page for an account with no code configured is waited on, then reported", async () => {
+    const ctx = await browser!.newContext();
+    try {
+      await expect(driveConsent({ context: ctx, url: authUrl("/signin/challenge/totp"), credential: { username: "u", password: "p" }, isDone: () => false, log: () => {}, spec: spec() })).rejects.toThrow(/2-step verification that nobody approved/);
+    } finally { await ctx.close(); }
+  });
+
+  it("stops with a clear error when the vault produces no code", async () => {
+    const ctx = await browser!.newContext();
+    try {
+      await expect(driveConsent({ context: ctx, url: authUrl("/signin/challenge/totp"), credential: { username: "u", password: "p", totp: async () => undefined }, isDone: () => false, log: () => {}, spec: spec() })).rejects.toThrow(/produced none/);
+    } finally { await ctx.close(); }
   });
 
   it("never acts on a page that is not on Google's own hosts", async () => {

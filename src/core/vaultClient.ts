@@ -24,6 +24,21 @@ export async function getCredential(label: string): Promise<VaultCredential | un
   return { username: item.login?.username ?? undefined, password: item.login?.password ?? undefined };
 }
 
+/**
+ * The current authenticator code for the entry's TOTP field (`bw serve` GET /object/totp/:id; no premium plan needed on our Vaultwarden, tested 2026-10-16).
+ * Resolved INSIDE this process and only ever typed into Google's own page; never returned by a tool, never logged.
+ */
+export async function getTotp(label: string): Promise<string | undefined> {
+  const list = (await bwFetch("/list/object/items")) as { data?: { id: string; name: string }[] } | { id: string; name: string }[];
+  const items = Array.isArray(list) ? list : (list?.data ?? []);
+  const matches = items.filter((i) => i.name === label);
+  if (matches.length === 0) return undefined;
+  if (matches.length > 1) throw new Error(`vault label "${label}" is ambiguous (${matches.length} entries)`);
+  const d = (await bwFetch(`/object/totp/${matches[0].id}`)) as string | { data?: string };
+  const code = typeof d === "string" ? d : d?.data;
+  return code && /^\d{6,8}$/.test(code) ? code : undefined;
+}
+
 /** Poll the vault until an entry with this label appears (operator submits it via a vault_request_secret link). */
 export async function waitForCredential(label: string, timeoutMs: number, pollMs = 3000): Promise<VaultCredential | undefined> {
   const end = Date.now() + timeoutMs;
@@ -40,6 +55,7 @@ export async function deleteCredential(label: string): Promise<boolean> {
   const list = (await bwFetch("/list/object/items")) as { data?: { id: string; name: string }[] } | { id: string; name: string }[];
   const items = Array.isArray(list) ? list : (list?.data ?? []);
   let n = 0;
-  for (const i of items.filter((x) => x.name === label)) { await bwFetch(`/object/item/${i.id}`, "DELETE"); n++; }
+  // DELETE alone only moves the item to the trash, where the secret stays recoverable: delete permanently.
+  for (const i of items.filter((x) => x.name === label)) { await bwFetch(`/object/item/${i.id}?permanent=true`, "DELETE"); n++; }
   return n > 0;
 }

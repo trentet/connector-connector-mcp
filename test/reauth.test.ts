@@ -211,6 +211,34 @@ describe("cc reauth", () => {
     noSecrets(JSON.stringify(res) + stderr);
   });
 
+  it("with account.totp set, the dry run says whether the vault can produce a code (never the code) and a real run hands the browser a code getter", async () => {
+    const h = fakeHost({ "/s/credentials.json": CREDS, "/s/token.json": "OLD" });
+    const d = deps(h.t);
+    d.totp = async () => "424242";
+    const withTotp = (over: Partial<GoogleOAuthDef> = {}) => def({ account: { vaultLabel: "Google Account", totp: true }, ...over });
+    const dry = await captured(() => reauth(registry(connector("a", withTotp())), { connectors: ["a"], dryRun: true }, d));
+    expect(dry.value.items[0].detail).toMatch(/authenticator code readable/);
+    expect(JSON.stringify(dry.value) + dry.stderr).not.toContain("424242");
+    d.totp = async () => undefined;
+    const none = await captured(() => reauth(registry(connector("a", withTotp())), { connectors: ["a"], dryRun: true }, d));
+    expect(none.value.items[0].detail).toMatch(/authenticator code NOT available/);
+    let got: string | undefined;
+    d.totp = async () => "424242";
+    const real = deps(h.t);
+    real.totp = d.totp;
+    const base = real.consent;
+    real.consent = async (a) => { got = await a.credential.totp?.(); await base(a); };
+    await captured(() => reauth(registry(connector("a", withTotp())), { connectors: ["a"] }, real));
+    expect(got).toBe("424242");
+    // an entry without account.totp gets no getter at all
+    let plain: unknown = "unset";
+    const real2 = deps(fakeHost({ "/s/credentials.json": CREDS, "/s/token.json": "OLD" }).t);
+    const base2 = real2.consent;
+    real2.consent = async (a) => { plain = a.credential.totp; await base2(a); };
+    await captured(() => reauth(registry(connector("a", def())), { connectors: ["a"] }, real2));
+    expect(plain).toBeUndefined();
+  });
+
   it("missing credentials.json, a non-Desktop client, and a missing vault entry are clear errors", async () => {
     const run = async (files: Record<string, string>, vault?: ReauthDeps["vault"]) => (await captured(() => reauth(registry(connector("a", def())), { connectors: ["a"] }, deps(fakeHost(files).t, { vault })))).value.items[0].detail;
     expect(await run({})).toMatch(/credentials.json not found at fake-host:\/s/);
