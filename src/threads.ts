@@ -1,10 +1,8 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import type { Page } from "patchright";
 import { sleep } from "./browser/dom.js";
 import type { BrowserSession } from "./browser/chrome.js";
-import { fileLock } from "./core/reauth.js";
 
 /**
  * `cc threads`: a READ-ONLY look at the claude.ai/code thread list, with a plain account of what could and could not be read.
@@ -25,7 +23,7 @@ export interface ThreadsSpec {
 export const loadThreadsSpec = (file = path.resolve(process.env.CC_SELECTORS_DIR ?? path.join("data", "selectors"), "claude-code.json")): ThreadsSpec => JSON.parse(fs.readFileSync(file, "utf8")) as ThreadsSpec;
 
 export interface Thread { id: string; title: string; status: string }
-export type BlockerKind = "human-check" | "signed-out" | "unexpected-page" | "list-not-found" | "reauth-running" | "other-threads-run" | "error";
+export type BlockerKind = "human-check" | "signed-out" | "unexpected-page" | "list-not-found" | "error";
 
 export interface ThreadsReport {
   /** True only when the list was read completely (paging finished, count stable) and nothing blocked the run. */
@@ -190,61 +188,33 @@ export interface RunThreadsOptions {
   /** Opens the one browser. Production: openSession from src/browser/chrome.js (lane, admission gate, cloned master). */
   open: () => Promise<BrowserSession>;
   spec?: ThreadsSpec;
-  /** Where `cc reauth` keeps its per-connector locks (CC_LOCK_DIR). */
-  lockDir?: string;
-  /** How long to wait for a running `cc reauth` to finish before giving up. */
-  reauthWaitMs?: number;
-}
-
-const lockDirDefault = () => process.env.CC_LOCK_DIR ?? path.join(os.tmpdir(), "cc-reauth-locks");
-const pidAlive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; } };
-const THREADS_LOCK = "_threads";
-
-/** A `cc reauth` lock held by a live process (the lock file holds the owner's pid; older than 20 minutes counts as dead, as in fileLock). */
-export function reauthRunning(dir: string, now = Date.now()): boolean {
-  for (const f of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
-    if (!f.endsWith(".lock") || f === `${THREADS_LOCK}.lock`) continue;
-    try {
-      const file = path.join(dir, f);
-      const pid = Number(fs.readFileSync(file, "utf8"));
-      if (Number.isFinite(pid) && pid > 0 && pidAlive(pid) && now - fs.statSync(file).mtimeMs < 20 * 60_000) return true;
-    } catch { /* unreadable: not a live lock */ }
-  }
-  return false;
 }
 
 /**
- * The whole operation: refuse to overlap with `cc reauth` (waits while a renewal holds a lock, polling slowly), take its own
- * lock so two `cc threads` never run together, open ONE browser, read, close. The browser is always closed.
+ * The whole operation: open ONE browser, read, close. The browser is always closed.
+ *
+ * It takes no lock of its own and never waits for `cc reauth` or for another `cc threads` (v0.2.8, operator 2026-10-17: any number of reads and
+ * renewals may run at once; only a real data conflict justifies exclusion). Nothing here can corrupt anything shared: the run works in its own
+ * copy of the master profile, the host's capacity is policed by the lane slots and the admission gate in src/browser/lanes.ts, and the only shared
+ * write (rotated sign-in cookies) is a short merge under the master lock that writes just the cookies the run changed.
+ * `timing.waitedForReauthMs` stays in the report (always 0) so consumers of the v0.2.7 shape keep working.
  */
 export async function runThreads(o: RunThreadsOptions): Promise<ThreadsReport> {
   const started = Date.now();
   const spec = o.spec ?? loadThreadsSpec();
-  const dir = o.lockDir ?? lockDirDefault();
-  const empty = (kind: BlockerKind, detail: string, waited = 0): ThreadsReport => ({
+  const empty = (kind: BlockerKind, detail: string): ThreadsReport => ({
     ok: false, threads: [], list: { count: 0, complete: "unknown", pagingClicks: 0, rowsBeforePaging: 0, statusCounts: {}, notes: [] },
     cloudflare: { clearanceCookie: spec.cloudflare.cookie, inMasterProfile: false, afterRun: false },
-    timing: { totalMs: Date.now() - started, browserStartMs: 0, pageLoadMs: 0, listReadMs: 0, waitedForReauthMs: waited }, browsers: 0, blocker: { kind, detail },
+    timing: { totalMs: Date.now() - started, browserStartMs: 0, pageLoadMs: 0, listReadMs: 0, waitedForReauthMs: 0 }, browsers: 0, blocker: { kind, detail },
   });
-  const release = fileLock(dir)(THREADS_LOCK);
-  if (!release) return empty("other-threads-run", "another `cc threads` run is in progress; try again when it has finished");
+  const b0 = Date.now();
+  let session: BrowserSession;
+  try { session = await o.open(); } catch (e) { return empty("error", `could not open the browser: ${String((e as Error).message).split("\n")[0]}`); }
   try {
-    const waitMs = o.reauthWaitMs ?? (Number(process.env.CC_THREADS_REAUTH_WAIT_MS) || 10 * 60_000);
-    const w0 = Date.now();
-    while (reauthRunning(dir)) {
-      if (Date.now() - w0 > waitMs) return empty("reauth-running", `a \`cc reauth\` renewal was still running after ${Math.round(waitMs / 1000)}s; not starting a browser alongside it`, Date.now() - w0);
-      await sleep(2000);
-    }
-    const waited = Date.now() - w0;
-    const b0 = Date.now();
-    let session: BrowserSession;
-    try { session = await o.open(); } catch (e) { return empty("error", `could not open the browser: ${String((e as Error).message).split("\n")[0]}`, waited); }
-    try {
-      const report = await readThreads(session, spec, { browserStartMs: Date.now() - b0, waitedForReauthMs: waited });
-      report.timing.totalMs = Date.now() - started;
-      return report;
-    } finally { await session.close().catch(() => {}); }
-  } finally { release(); }
+    const report = await readThreads(session, spec, { browserStartMs: Date.now() - b0, waitedForReauthMs: 0 });
+    report.timing.totalMs = Date.now() - started;
+    return report;
+  } finally { await session.close().catch(() => {}); }
 }
 
 const secs = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
