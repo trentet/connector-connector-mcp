@@ -439,6 +439,59 @@
       ]
     },
     {
+      "id": "roku-mcp",
+      "name": "roku-mcp",
+      "description": "Roku TV device control, content discovery and acquisition (Sonarr/Radarr) over MCP",
+      "url": {
+        "type": "literal",
+        "value": "https://roku.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://roku.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/roku-mcp/production/secrets/connector.env"
+              ],
+              "key": "ROKU_MCP_BEARER_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://roku.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/roku-mcp/production/secrets/connector.env"
+              ],
+              "key": "ROKU_MCP_BEARER_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/roku-mcp/production/secrets/connector.env"
+          ],
+          "key": "ROKU_MCP_BEARER_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ]
+    },
+    {
       "id": "helm-audio-mcp-test",
       "name": "HELM Audio Connector TEST",
       "repo": "trentet/helm-audio-mcp",
