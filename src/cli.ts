@@ -2,10 +2,11 @@ import path from "node:path";
 import { loadRegistry } from "./core/registry.js";
 import { ADAPTERS } from "./adapters/index.js";
 import { audit } from "./audit.js";
-import { coverage, formatReport, scanGithub, scanLocal, type Finding } from "./googleCoverage.js";
+import { coverage, formatReport as formatGoogleReport, scanGithub, scanLocal, type Finding } from "./googleCoverage.js";
 import { run } from "./core/runner.js";
 import { reauth } from "./core/reauth.js";
 import { checkMaster, seedMaster } from "./browser/seed.js";
+import { formatReport, runThreads } from "./threads.js";
 import { PLATFORMS, type Op, type Platform } from "./core/types.js";
 
 const OPS: Op[] = ["add", "remove", "update", "list", "verify", "probe"];
@@ -14,6 +15,7 @@ cc browser check                          (clone the master into a throwaway bro
 cc audit --google [--root <dir> ...] [--github <owner>] [--registry <path>] [--json]   (find repos that use Google OAuth but have no registry googleOAuth block)
 cc audit --scan <repo-root> [--json]     (find per-repo registration / Google-reauth scripts that cc replaces)
 cc reauth [connector-id ...|--all] [--include-test] [--dry-run] [--only-if-older-than <days>] [--registry <path>] [--json]   (renew the Google OAuth token of connectors with a googleOAuth registry block; --only-if-older-than skips one renewed more recently, for a second renewer)
+cc threads [--json]                       (read-only: list the claude.ai/code threads as id, status, title, and say plainly what could and could not be read; one browser, never writes to claude.ai)
 cc <op> [connector-id ...|--all] [--platform <claude|chatgpt|grok ...>|all] [--dry-run] [--include-test] [--registry <path>] [--if-existing skip|update|fail] [--json]
 ops: ${OPS.join(", ")}`;
 
@@ -64,7 +66,7 @@ export async function main(argv: string[]): Promise<number> {
     if (owner) { const g = scanGithub(owner); findings.push(...g.findings); errors.push(...g.errors); }
     const rep = coverage(findings, loadRegistry(regPath));
     if (args.includes("--json")) console.log(JSON.stringify({ ...rep, scanned: findings.length, errors }, null, 2));
-    else { console.log(`scanned ${findings.length} repo(s)`); for (const l of formatReport(rep)) console.log(l); for (const e of errors) console.log(`note       ${e}`); if (!rep.uncovered.length && !rep.problems.length) console.log("google coverage: every repo that uses Google OAuth is covered, exempt or pending"); }
+    else { console.log(`scanned ${findings.length} repo(s)`); for (const l of formatGoogleReport(rep)) console.log(l); for (const e of errors) console.log(`note       ${e}`); if (!rep.uncovered.length && !rep.problems.length) console.log("google coverage: every repo that uses Google OAuth is covered, exempt or pending"); }
     return rep.uncovered.length || rep.problems.length ? 1 : 0;
   }
   if (args[0] === "audit") {
@@ -85,6 +87,13 @@ export async function main(argv: string[]): Promise<number> {
     if (parsed.json) console.log(JSON.stringify(res, null, 2));
     else for (const i of res.items) console.log(`${i.status.padEnd(8)} reauth ${i.connector}${i.detail ? " - " + i.detail : ""}`);
     return res.ok ? 0 : 1;
+  }
+  if (args[0] === "threads") {
+    const { openSession } = await import("./browser/chrome.js");
+    const rep = await runThreads({ open: () => openSession() });
+    if (args.includes("--json")) console.log(JSON.stringify(rep, null, 2));
+    else for (const l of formatReport(rep)) console.log(l);
+    return rep.ok ? 0 : 1;
   }
   if (args[0] === "browser") {
     const sub = args[1];
