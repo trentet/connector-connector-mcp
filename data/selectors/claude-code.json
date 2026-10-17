@@ -1,0 +1,29 @@
+{
+  "_note": "Page facts for `cc threads` (read-only list of claude.ai/code threads). Data, not code: fix UI drift here. Probed live on the HELM host 2026-10-17: the sidebar lists threads as <div data-row><a href=/code/session_<id>> rows; a row's title is its visible text, and two screen-reader spans carry the status (Running, Unread response, Awaiting input; absent when none) and the environment (Cloud). Recents loads 20 rows, then a 'Show N more in Recents' button (20, 20, 10 seen) until it disappears. That button is below the fold inside the sidebar scroller, so it is reached with a DOM click. Regex strings are case-insensitive. There is deliberately NO 'auth' block here: sign-in cookies are the claude platform's (claude.json).",
+  "url": "https://claude.ai/code",
+  "hosts": ["claude.ai"],
+  "rowSelector": "a[href^=\"/code/session_\"]",
+  "idPattern": "^/code/(session_[A-Za-z0-9]+)",
+  "labelSelector": ".sr-only",
+  "environmentLabels": ["Cloud", "Local", "Remote"],
+  "noStatusText": "none",
+  "showMore": {
+    "buttonLabel": "more in Recents",
+    "maxClicks": 30,
+    "growWaitMs": 15000
+  },
+  "signedOutMarkers": ["continue with google", "log in", "sign in"],
+  "humanCheck": {
+    "titles": ["just a moment", "attention required", "verify you are human", "security check"],
+    "bodyMarkers": ["verify you are human", "checking your browser", "performing security verification", "complete the security check"],
+    "frameHosts": ["challenges.cloudflare.com"]
+  },
+  "cloudflare": {
+    "cookie": "cf_clearance",
+    "hosts": ["claude.ai"]
+  },
+  "timeouts": {
+    "rowsMs": 30000,
+    "listStableChecks": 3
+  }
+}
