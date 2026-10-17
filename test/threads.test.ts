@@ -6,8 +6,7 @@ import type { AddressInfo } from "node:net";
 import { chromium } from "patchright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { launchChrome, openSession, shutdownChrome, type BrowserSession } from "../src/browser/chrome.js";
-import { fileLock } from "../src/core/reauth.js";
-import { formatReport, loadThreadsSpec, parseRows, reauthRunning, runThreads, type ThreadsSpec } from "../src/threads.js";
+import { formatReport, loadThreadsSpec, parseRows, runThreads, type ThreadsSpec } from "../src/threads.js";
 
 const CHROME = process.env.CC_TEST_CHROME ?? (fs.existsSync("/opt/pw-browsers") ? fs.readdirSync("/opt/pw-browsers").filter((d) => d.startsWith("chromium-")).map((d) => `/opt/pw-browsers/${d}/chrome-linux/chrome`).find((p) => fs.existsSync(p)) : undefined);
 const HEADLESS = "--headless=new --no-sandbox --disable-gpu";
@@ -35,21 +34,6 @@ describe("parseRows (shapes captured live from claude.ai/code 2026-10-17)", () =
       { href: "/code/session_01Aaa", labels: ["Awaiting input"], title: " Pinned one" },
     ], real);
     expect(t).toEqual([{ id: "session_01Aaa", status: "Awaiting input", title: "Pinned one" }]);
-  });
-});
-
-describe("reauthRunning", () => {
-  it("is true only for a live, fresh lock of another job", () => {
-    const dir = tmp("cc-locks-");
-    expect(reauthRunning(dir)).toBe(false);
-    fs.writeFileSync(path.join(dir, "some-connector.lock"), String(process.pid));
-    expect(reauthRunning(dir)).toBe(true);
-    expect(reauthRunning(dir, Date.now() + 21 * 60_000)).toBe(false); // stale
-    fs.writeFileSync(path.join(dir, "some-connector.lock"), "999999999");
-    expect(reauthRunning(dir)).toBe(false); // owner gone
-    fs.rmSync(path.join(dir, "some-connector.lock"));
-    fs.writeFileSync(path.join(dir, "_threads.lock"), String(process.pid));
-    expect(reauthRunning(dir)).toBe(false); // our own lock is not a renewal
   });
 });
 
@@ -116,7 +100,7 @@ const open = async () => { const s = await openSession({ artifactsDir: tmp("cc-a
 describe.skipIf(!CHROME)("cc threads (real Chromium, fake claude.ai/code)", () => {
   it("reads every page of a paged list, reports status per thread, the cookie by name only, one browser, and never writes", async () => {
     await setup(9560, true);
-    const rep = await runThreads({ open, spec: specFor("/code"), lockDir: tmp("cc-locks-") });
+    const rep = await runThreads({ open, spec: specFor("/code") });
     expect(rep.blocker).toBeUndefined();
     expect(rep.ok).toBe(true);
     expect(rep.list).toMatchObject({ count: 7, complete: "yes", rowsBeforePaging: 4, pagingClicks: 2 });
@@ -139,14 +123,14 @@ describe.skipIf(!CHROME)("cc threads (real Chromium, fake claude.ai/code)", () =
 
   it("says plainly when the clearance cookie is absent from the saved master", async () => {
     await setup(9570, false);
-    const rep = await runThreads({ open, spec: specFor("/code"), lockDir: tmp("cc-locks-") });
+    const rep = await runThreads({ open, spec: specFor("/code") });
     expect(rep.cloudflare.inMasterProfile).toBe(false);
     expect(formatReport(rep).join("\n")).toContain("ABSENT");
   }, 90_000);
 
   it("does not call a list complete when the paging button never goes away", async () => {
     await setup(9580, true);
-    const rep = await runThreads({ open, spec: specFor("/stuck/code"), lockDir: tmp("cc-locks-") });
+    const rep = await runThreads({ open, spec: specFor("/stuck/code") });
     expect(rep.ok).toBe(false);
     expect(rep.list.complete).toBe("no");
     expect(rep.list.notes.join(" ")).toMatch(/paging button was still offered/);
@@ -154,7 +138,7 @@ describe.skipIf(!CHROME)("cc threads (real Chromium, fake claude.ai/code)", () =
 
   it("reports a human-check page and stops, reading nothing", async () => {
     await setup(9590, true);
-    const rep = await runThreads({ open, spec: specFor("/challenge/code"), lockDir: tmp("cc-locks-") });
+    const rep = await runThreads({ open, spec: specFor("/challenge/code") });
     expect(rep.ok).toBe(false);
     expect(rep.blocker?.kind).toBe("human-check");
     expect(rep.threads).toEqual([]);
@@ -162,56 +146,44 @@ describe.skipIf(!CHROME)("cc threads (real Chromium, fake claude.ai/code)", () =
 
   it("reports a sign-in loss and stops", async () => {
     await setup(9600, true);
-    const rep = await runThreads({ open, spec: specFor("/signedout/code"), lockDir: tmp("cc-locks-") });
+    const rep = await runThreads({ open, spec: specFor("/signedout/code") });
     expect(rep.blocker?.kind).toBe("signed-out");
     expect(rep.ok).toBe(false);
   }, 60_000);
 
   it("reports a page with no thread rows (page drift) instead of an empty success", async () => {
     await setup(9610, true);
-    const rep = await runThreads({ open, spec: specFor("/empty/code"), lockDir: tmp("cc-locks-") });
+    const rep = await runThreads({ open, spec: specFor("/empty/code") });
     expect(rep.blocker?.kind).toBe("list-not-found");
     expect(rep.ok).toBe(false);
   }, 60_000);
 
-  it("closes its browser and frees its lane and lock on every path", async () => {
+  it("closes its browser and frees its lane on every path", async () => {
     await setup(9620, true);
-    const lockDir = tmp("cc-locks-");
     let closed = 0;
     const counting = async () => { const s = await open(); const c = s.close.bind(s); s.close = async () => { closed++; await c(); }; return s; };
-    await runThreads({ open: counting, spec: specFor("/challenge/code"), lockDir });
+    await runThreads({ open: counting, spec: specFor("/challenge/code") });
     expect(closed).toBe(1);
-    expect(fs.existsSync(path.join(lockDir, "_threads.lock"))).toBe(false);
     expect(fs.readdirSync(process.env.CC_LANES_DIR!).filter((f) => f.startsWith("slot-"))).toEqual([]);
   }, 60_000);
 });
 
-describe("cc threads never overlaps cc reauth or another cc threads", () => {
-  it("does not open a browser while a renewal holds its lock, and says so", async () => {
+describe.skipIf(!CHROME)("cc threads never waits for a renewal or for another read (v0.2.8)", () => {
+  it("runs while a renewal lock is held and while another read runs, and every run completes", async () => {
+    await setup(9630, true);
     const lockDir = tmp("cc-locks-");
-    fs.writeFileSync(path.join(lockDir, "some-connector.lock"), String(process.pid));
-    let opens = 0;
-    const rep = await runThreads({ open: async () => { opens++; throw new Error("must not open"); }, spec: real, lockDir, reauthWaitMs: 2500 });
-    expect(opens).toBe(0);
-    expect(rep.browsers).toBe(0);
-    expect(rep.blocker?.kind).toBe("reauth-running");
-    expect(fs.existsSync(path.join(lockDir, "_threads.lock"))).toBe(false);
-  });
-  it("waits for the renewal to finish, then goes ahead", async () => {
-    const lockDir = tmp("cc-locks-");
-    fs.writeFileSync(path.join(lockDir, "some-connector.lock"), String(process.pid));
-    setTimeout(() => fs.rmSync(path.join(lockDir, "some-connector.lock")), 2500);
-    const rep = await runThreads({ open: async () => { throw new Error("opened after the wait"); }, spec: real, lockDir, reauthWaitMs: 20_000 });
-    expect(rep.timing.waitedForReauthMs).toBeGreaterThanOrEqual(2000);
-    expect(rep.blocker?.detail).toContain("opened after the wait");
-  }, 30_000);
-  it("refuses a second concurrent run", async () => {
-    const lockDir = tmp("cc-locks-");
-    const release = fileLock(lockDir)("_threads")!;
-    try {
-      const rep = await runThreads({ open: async () => { throw new Error("must not open"); }, spec: real, lockDir });
-      expect(rep.blocker?.kind).toBe("other-threads-run");
-    } finally { release(); }
-    await sleep(0);
-  });
+    process.env.CC_LOCK_DIR = lockDir;
+    fs.writeFileSync(path.join(lockDir, "some-connector.lock"), String(process.pid)); // a live renewal lock: reads no longer care
+    const t0 = Date.now();
+    const [a, b] = await Promise.all([runThreads({ open, spec: specFor("/code") }), runThreads({ open, spec: specFor("/code") })]);
+    delete process.env.CC_LOCK_DIR;
+    expect(a.ok).toBe(true);
+    expect(b.ok).toBe(true);
+    expect(a.list.count).toBe(7);
+    expect(b.list.count).toBe(7);
+    expect(a.timing.waitedForReauthMs).toBe(0);
+    expect(b.timing.waitedForReauthMs).toBe(0);
+    expect(Date.now() - t0).toBeLessThan(80_000);
+    expect(fs.existsSync(path.join(lockDir, "_threads.lock"))).toBe(false); // no lock of its own is ever taken
+  }, 120_000);
 });
