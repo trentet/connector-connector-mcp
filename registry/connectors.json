@@ -58,6 +58,7 @@
           "shellSecret": {
             "type": "envFile",
             "paths": [
+              "D:/GDrive/HELM/DEV-PROJECTS/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env",
               "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
             ],
             "key": "SHELL_MCP_SHELL_SECRET"
@@ -72,14 +73,16 @@
             "shellSecret": {
               "type": "envFile",
               "paths": [
-                "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
+                "D:/GDrive/HELM/DEV-PROJECTS/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env",
+              "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
               ],
               "key": "SHELL_MCP_SHELL_SECRET"
             },
             "bearerToken": {
               "type": "envFile",
               "paths": [
-                "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
+                "D:/GDrive/HELM/DEV-PROJECTS/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env",
+              "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
               ],
               "key": "SHELL_MCP_BEARER_TOKEN"
             }
@@ -92,14 +95,16 @@
             "shellSecret": {
               "type": "envFile",
               "paths": [
-                "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
+                "D:/GDrive/HELM/DEV-PROJECTS/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env",
+              "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
               ],
               "key": "SHELL_MCP_SHELL_SECRET"
             },
             "bearerToken": {
               "type": "envFile",
               "paths": [
-                "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
+                "D:/GDrive/HELM/DEV-PROJECTS/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env",
+              "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
               ],
               "key": "SHELL_MCP_BEARER_TOKEN"
             }
@@ -112,7 +117,8 @@
         "headerValue": {
           "type": "envFile",
           "paths": [
-            "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
+            "D:/GDrive/HELM/DEV-PROJECTS/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env",
+              "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
           ],
           "key": "SHELL_MCP_BEARER_TOKEN"
         }
