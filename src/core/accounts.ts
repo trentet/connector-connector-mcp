@@ -69,3 +69,18 @@ export function pickAccount(a: Accounts, id?: string, env = process.env): Accoun
 export function accountMaster(acc: AccountDef, defaultMaster: string): string {
   return acc.master ? path.join(path.dirname(defaultMaster), acc.master) : defaultMaster;
 }
+
+/** Operations that change a platform's connector list. */
+export const WRITE_OPS = ["add", "remove", "update"] as const;
+
+/**
+ * With more than one account, a write must name its account (the `account` argument or CC_ACCOUNT). Leaving it out used to fall back silently to the file's default
+ * (the first account), so a forgotten argument could change the wrong account. Reads (list, verify, probe) still default, because they change nothing.
+ * One account only: nothing to confuse, so the default stands.
+ */
+export function assertAccountNamed(a: Accounts, op: string, id?: string, env = process.env): void {
+  if (!(WRITE_OPS as readonly string[]).includes(op)) return;
+  if (a.accounts.length < 2) return;
+  if (id !== undefined || env.CC_ACCOUNT) return;
+  throw new Error(`"${op}" changes connectors, so it must name its account (account argument or CC_ACCOUNT); ${a.accounts.length} accounts exist (${a.accounts.map((x) => x.id).join(", ")}) and none is assumed`);
+}

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { accountMaster, loadAccounts, pickAccount, validateAccounts, type Accounts } from "../src/core/accounts.js";
+import { accountMaster, assertAccountNamed, loadAccounts, pickAccount, validateAccounts, type Accounts } from "../src/core/accounts.js";
 import { accountCredential } from "../src/browser/signin.js";
 import { parseFlags } from "../src/cli.js";
 import { run } from "../src/core/runner.js";
@@ -88,6 +88,28 @@ describe("runner with accounts", () => {
     expect(res.ok).toBe(false);
     expect(res.items[0].detail).toMatch(/unknown account/);
     expect(h.masters).toEqual({});
+  });
+  it("a write that names no account is refused when several accounts exist, and opens no browser", async () => {
+    const h = harness();
+    for (const op of ["add", "remove", "update"] as const) {
+      const res = await run(reg, { op, connectors: ["demo"], platforms: ["claude"] }, { accounts: ACC, adapters: h.adapters, sessionFactory: h.sessionFactory });
+      expect(res.ok).toBe(false);
+      expect(res.items[0].detail).toMatch(/must name its account/);
+    }
+    expect(h.masters).toEqual({});
+  });
+  it("a write that names its account runs, and reads still default", async () => {
+    const h = harness();
+    const w = await run(reg, { op: "add", connectors: ["demo"], platforms: ["claude"], account: "first" }, { accounts: ACC, adapters: h.adapters, sessionFactory: h.sessionFactory });
+    expect(w.ok).toBe(true);
+    const r = await run(reg, { op: "list", connectors: [], platforms: ["claude"] }, { accounts: ACC, adapters: h.adapters, sessionFactory: h.sessionFactory });
+    expect(r.ok).toBe(true);
+  });
+  it("assertAccountNamed: CC_ACCOUNT counts as naming it; one account needs no name; reads never need one", () => {
+    expect(() => assertAccountNamed(ACC, "add", undefined, {})).toThrow(/must name its account/);
+    expect(() => assertAccountNamed(ACC, "add", undefined, { CC_ACCOUNT: "second" })).not.toThrow();
+    expect(() => assertAccountNamed(ACC, "verify", undefined, {})).not.toThrow();
+    expect(() => assertAccountNamed({ ...ACC, accounts: [ACC.accounts[0]] }, "add", undefined, {})).not.toThrow();
   });
 });
 

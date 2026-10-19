@@ -2,7 +2,7 @@ import type { BrowserContext } from "patchright";
 import type { BrowserSession } from "../browser/chrome.js";
 import { watchLogin, type LoginCredential, type LoginWatcher } from "../browser/oauthLogin.js";
 import { notImplementedAdapter, type PlatformAdapter, type ResolvedConnector } from "../adapters/types.js";
-import { accountMaster, loadAccounts, pickAccount, type AccountDef, type Accounts } from "./accounts.js";
+import { accountMaster, assertAccountNamed, loadAccounts, pickAccount, type AccountDef, type Accounts } from "./accounts.js";
 import { Redactor } from "./redact.js";
 import { resolve, defaultDeps, type ResolveDeps } from "./secrets.js";
 import type { ConnectorDef, ItemResult, Platform, Registry, RunRequest, RunResult } from "./types.js";
@@ -36,7 +36,7 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
   const red = new Redactor();
   // The account picks the browser profile (each account has its own sign-ins) and the platforms it may touch. An unknown account fails the whole call.
   let acc: AccountDef, tag: { account?: string };
-  try { const all = opts.accounts ?? loadAccounts(); acc = pickAccount(all, req.account); tag = acc.id === all.default ? {} : { account: acc.id }; }
+  try { const all = opts.accounts ?? loadAccounts(); assertAccountNamed(all, req.op, req.account); acc = pickAccount(all, req.account); tag = acc.id === all.default ? {} : { account: acc.id }; }
   catch (e) { return { ok: false, items: req.platforms.map((p) => ({ connector: req.connectors.join(",") || "*", platform: p, op: req.op, status: "error" as const, detail: (e as Error).message })) }; }
   const deps = opts.deps ?? defaultDeps;
   const adapter = (p: Platform) => opts.adapters?.[p] ?? notImplementedAdapter(p);

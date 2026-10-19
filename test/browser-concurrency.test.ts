@@ -165,7 +165,7 @@ describe.skipIf(!CHROME)("one Chrome process per run (real Chromium)", () => {
       return [platform, { platform, probe: act, list: async () => ({ names: [] }), add: act, remove: act, update: act, verify: act } as PlatformAdapter];
     })) as Record<(typeof plats)[number], PlatformAdapter>;
     const t0 = Date.now();
-    const res = await run(reg, { op: "add", connectors: ["cc-selftest"], platforms: [...plats] }, { deps, adapters, platformParallelism: 3 });
+    const res = await run(reg, { op: "add", account: "main", connectors: ["cc-selftest"], platforms: [...plats] }, { deps, adapters, platformParallelism: 3 });
     const elapsed = Date.now() - t0;
     expect(res.ok).toBe(true);
     expect(Math.max(...lockCounts)).toBe(3);                    // three browsers were alive together
@@ -203,7 +203,7 @@ describe.skipIf(!CHROME)("one Chrome process per run (real Chromium)", () => {
       return { platform, probe: act, list: async () => ({ names: [] }), add: act, remove: act, update: act, verify: act };
     };
     const [r1, r2] = await Promise.all([
-      run(reg, { op: "add", connectors: ["cc-selftest"], platforms: ["claude"] }, { deps, adapters: { claude: adapterFor("claude", "add") } }),
+      run(reg, { op: "add", account: "main", connectors: ["cc-selftest"], platforms: ["claude"] }, { deps, adapters: { claude: adapterFor("claude", "add") } }),
       run(reg, { op: "verify", connectors: ["cc-selftest"], platforms: ["chatgpt"] }, { deps, adapters: { chatgpt: adapterFor("chatgpt", "verify") } }),
     ]);
     for (const r of [r1, r2]) { expect(r.ok).toBe(true); expect(JSON.stringify(r)).not.toMatch(/Target page, context or browser has been closed/); for (const x of secrets) expect(JSON.stringify(r)).not.toContain(x); }

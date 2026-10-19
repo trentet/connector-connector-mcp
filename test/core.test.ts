@@ -65,7 +65,7 @@ describe("runner", () => {
   const { deps, secrets } = registryFixture(reg);
   const rewritten = reg;
   it("dry-run resolves every seeded connector on every platform with ZERO secret leakage", async () => {
-    const res = await run(rewritten, { op: "add", connectors: ["*"], platforms: PLATFORMS, dryRun: true }, { deps });
+    const res = await run(rewritten, { op: "add", account: "main", connectors: ["*"], platforms: PLATFORMS, dryRun: true }, { deps });
     const text = JSON.stringify(res);
     expect(res.ok).toBe(true);
     const want = expectedCounts(reg, PLATFORMS);
@@ -85,11 +85,11 @@ describe("runner", () => {
     expect(res.items[0].detail).toMatch(/unknown connector/);
   });
   it("without adapters, a real run reports not-implemented (never a false success)", async () => {
-    const res = await run(rewritten, { op: "add", connectors: ["vault-mcp"], platforms: ["claude"] }, { deps });
+    const res = await run(rewritten, { op: "add", account: "main", connectors: ["vault-mcp"], platforms: ["claude"] }, { deps });
     expect(res.items[0].status).toBe("not-implemented");
   });
   it("a failing resolve is an error item whose message has no secret", async () => {
-    const res = await run(rewritten, { op: "add", connectors: ["helm-shell"], platforms: ["claude"], dryRun: true }, { deps: { ...deps, readFile: () => undefined } });
+    const res = await run(rewritten, { op: "add", account: "main", connectors: ["helm-shell"], platforms: ["claude"], dryRun: true }, { deps: { ...deps, readFile: () => undefined } });
     expect(res.items[0].status).toBe("error");
   });
 });
@@ -101,13 +101,13 @@ describe("test tier", () => {
   const tests = rewritten.connectors.filter((c: { tier?: string }) => c.tier === "test").map((c: { id: string }) => c.id);
   it("there is at least one test-tier connector and it is excluded from '*' by default", async () => {
     expect(tests.length).toBeGreaterThan(0);
-    const res = await run(rewritten, { op: "add", connectors: ["*"], platforms: ["claude"], dryRun: true }, { deps });
+    const res = await run(rewritten, { op: "add", account: "main", connectors: ["*"], platforms: ["claude"], dryRun: true }, { deps });
     for (const t of tests) expect(res.items.some((i) => i.connector === t)).toBe(false);
   });
   it("includeTest adds them to '*'; naming one explicitly always works", async () => {
-    const all = await run(rewritten, { op: "add", connectors: ["*"], platforms: ["claude"], dryRun: true, includeTest: true }, { deps });
+    const all = await run(rewritten, { op: "add", account: "main", connectors: ["*"], platforms: ["claude"], dryRun: true, includeTest: true }, { deps });
     for (const t of tests) expect(all.items.some((i) => i.connector === t)).toBe(true);
-    const one = await run(rewritten, { op: "add", connectors: [tests[0]], platforms: ["claude"], dryRun: true }, { deps });
+    const one = await run(rewritten, { op: "add", account: "main", connectors: [tests[0]], platforms: ["claude"], dryRun: true }, { deps });
     expect(one.items[0].status).toBe("dry-run");
   });
 });
