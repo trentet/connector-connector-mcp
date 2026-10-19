@@ -39,5 +39,14 @@
     "refresh": [
       "sessionKey"
     ]
+  },
+  "signIn": {
+    "_note": "cc browser signin (src/browser/signin.ts): the login page, its Google button, and the account endpoint that confirms which email is signed in. accountEmailField is a dot path into that endpoint's JSON.",
+    "url": "https://claude.ai/login",
+    "continueWithGoogle": "continue with google",
+    "accountUrl": "https://claude.ai/api/account",
+    "accountEmailField": "email_address",
+    "timeoutMs": 200000,
+    "settleMs": 2500
   }
 }

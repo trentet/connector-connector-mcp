@@ -37,6 +37,27 @@ Every step is tagged **[SCRIPTED]** (run the command, nothing to decide) or **[M
 ### Keeping the master fresh
 Each healthy browser merges the sign-in cookies it rotated back into the master automatically (only if every platform it touched still showed a signed-in cookie; unchanged cookies are never written, so an older copy cannot overwrite a newer one). If a platform signs out anyway (password change, long idle), `cc browser check` says `NO`: do step 3 for that platform and step 4 again.
 
+## More than one account (`--account`)
+cc can work in several claude.ai accounts side by side. Each account is listed in `registry/accounts.json` (id, email, which platforms it is used on, the name of its vault entry) and gets its **own** master browser profile, so a run for one account never sees or changes another account's connectors. The account without a `master` folder name is the original one and uses the default master; every other account's master sits next to it (for `trentfromrid`: `%LOCALAPPDATA%\HELM\connector-connector-mcp\browser-master-trentfromrid`). Every op takes `--account <id>` (MCP: `account` on `cc_run`); without it cc uses `CC_ACCOUNT`, else the file's `default`. A platform the account is not used on is reported `skipped`. `node bin\cc.mjs accounts` lists them.
+
+Signing an account in is automatic: `cc browser signin --account <id>` opens a browser on that account's own master, goes to claude.ai, clicks **Continue with Google**, types the account's email and password from its vault entry, clicks Google's **Continue** to claude.ai, and checks with claude.ai that the signed-in email is the account's own (a different email is removed again and reported). It never ticks a box or clicks Allow, and never picks another account's tile in Google's account chooser (operator decision 2026-10-19; CLAUDE.md rule 8). The password is resolved inside the process from `bw serve` and never printed or logged.
+
+### Adding the second claude.ai account (`trentfromrid@gmail.com`), step 1 to done
+Run the commands in PowerShell in the cc repo folder on the HELM host.
+
+1. **[SCRIPTED]** Bring the HELM host's cc up to this version: `git pull`, `npm ci`, `npm run build`, then (stop the running instance first) `node scripts\deploy.mjs production main` and `.\scripts\install-tasks.ps1 -Environment production -Start`.
+2. **[MANUAL]** Put the account's Google password in the vault, under the exact name `Google Account (trentfromrid@gmail.com)`. Either way works; the first needs no typing of names:
+   - In any Claude chat that has the vault connector (HELM Vault): ask "request a secret named `Google Account (trentfromrid@gmail.com)`". It replies with a link. Open it; in the form type `trentfromrid@gmail.com` in **Username** and the Google password of that account in **Password**, click **Submit**. The entry is visible to cc at once.
+   - Or in a browser tab at `https://vaultwarden.trentt.me`: sign in, click **New** -> **Item**, type **Name** `Google Account (trentfromrid@gmail.com)`, **Username** `trentfromrid@gmail.com`, **Password** the Google password, click **Save**. Then run `bw sync` in PowerShell on the HELM host so `bw serve` sees the new entry.
+   The password is never typed into a chat and goes nowhere else; step 3 reads it from the vault.
+3. **[SCRIPTED]** Sign the account in: `node bin\cc.mjs browser signin --account trentfromrid --wait-for-vault 15`. If step 2 is not done yet it waits up to 15 minutes for the entry. Expected last line: `claude   signed-in as account trentfromrid (claude.ai confirms trentfromrid@gmail.com)`.
+4. **[MANUAL]** Only if step 3 printed `Google asked for 2-step verification`: your phone shows a Google prompt "Trying to sign in?"; tap **Yes, it's me** within 90 seconds (step 3 waits for it). If the time ran out, run step 3 again and tap it then.
+5. **[SCRIPTED]** Prove it: `node bin\cc.mjs browser check --account trentfromrid`. Expected: `claude   signed in: yes`.
+6. **[SCRIPTED]** Install Connector Connector itself on that account: `node bin\cc.mjs add connector-connector --platform claude --account trentfromrid`, then `node bin\cc.mjs verify connector-connector --platform claude --account trentfromrid`. Expected: `ok verify connector-connector @ claude (account trentfromrid)`.
+7. **[SCRIPTED]** Any other connector for that account, whenever wanted: `node bin\cc.mjs add <id> --platform claude --account trentfromrid`; see what is there with `node bin\cc.mjs list --platform claude --account trentfromrid`.
+
+After that the account's sign-in keeps itself fresh exactly like the original one. If it is ever signed out (`browser check` says `NO`), run step 3 again.
+
 ## Google OAuth renewal (`cc reauth`)
 Connectors that talk to Google (the Drive and Audio connectors) hold a refresh token that Google expires after 7 days while the OAuth app is in Testing status. cc renews them; connector repos carry no renewal script. Design and safety properties: `docs/SPEC.md` section 10.
 1. **[SCRIPTED]** Declare it in the connector's registry entry (`registry/connectors.json`): `googleOAuth: { secretsDir, scopes, account: { vaultLabel }, host?, restart?, health? }`. `host` (`ssh`, `keyFile`, `os`, optional `transport`) is only for a connector whose server runs on another machine (`transport: "gate"`, below, is for a NAS login that allows only `put` and `health`); `restart` and `health` run on the connector's own host. Only references and paths, never a secret value.

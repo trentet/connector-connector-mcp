@@ -102,6 +102,8 @@ export interface RunRequest {
   /** Also select tier "test" connectors when connectors includes "*". */
   includeTest?: boolean;
   ifExisting?: "skip" | "update" | "fail";
+  /** registry/accounts.json id; default CC_ACCOUNT, else the file's default. Each account has its own signed-in browser profile. */
+  account?: string;
 }
 
 export interface ItemResult {
@@ -110,6 +112,8 @@ export interface ItemResult {
   op: Op;
   status: "ok" | "skipped" | "dry-run" | "not-implemented" | "error";
   detail?: string;
+  /** The account the item ran in, when it is not the default one. */
+  account?: string;
 }
 
 export interface RunResult {

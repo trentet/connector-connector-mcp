@@ -33,7 +33,7 @@ async function assertSignedIn(page: Page): Promise<void> {
   const u = page.url();
   const body = (await page.evaluate(() => document.body.innerText.slice(0, 600)).catch(() => "")).toLowerCase();
   if (/\/login|\/logout/.test(u) || (sel.signedOutMarkers as string[]).some((m) => body.includes(m) && !body.includes("customize"))) {
-    throw new Error("claude.ai is not signed in (automatic Google login for claude.ai is not implemented yet)");
+    throw new Error("claude.ai is not signed in for this account; run `cc browser signin --account <id>` (it signs in with Google using the account's vault entry)");
   }
 }
 
