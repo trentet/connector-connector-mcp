@@ -5,6 +5,7 @@ import { domClick, domFill, sleep } from "../browser/dom.js";
 import { guarded, snapshot } from "../browser/chrome.js";
 import { getCredential } from "../core/vaultClient.js";
 import type { AdapterContext, AdapterOutcome, PlatformAdapter } from "./types.js";
+import { replaceConnector } from "./replace.js";
 
 const sel = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "grok.json"), "utf8"));
 const rx = (p: string) => new RegExp(p, "i");
@@ -118,7 +119,7 @@ async function readConnected(ctx: AdapterContext): Promise<string[]> {
 }
 
 export function grokAdapter(): PlatformAdapter {
-  return {
+  const adapter: PlatformAdapter = {
     platform: "grok",
     async probe(ctx) { await openConnectors(ctx); return { status: "ok", detail: "signed in to grok.com" }; },
     async list(ctx) { return { names: await readConnected(ctx) }; },
@@ -157,13 +158,13 @@ export function grokAdapter(): PlatformAdapter {
       const gone = await waitForState(ctx, c.name, false);
       return gone ? { status: "ok", detail: `"${c.name}" removed` } : { status: "error", detail: `clicked Disconnect but "${c.name}" is still in the Connected list` };
     },
-    async update() { return notMapped("update"); },
+    async update(ctx, c) { return replaceConnector(adapter, ctx, c); },
     async add(ctx, c, ifExisting): Promise<AdapterOutcome> {
       const existing = (await readConnected(ctx)).includes(c.name);
       if (existing) {
         if (ifExisting === "skip") return { status: "skipped", detail: `"${c.name}" already in Connected list` };
         if (ifExisting === "fail") return { status: "error", detail: `"${c.name}" already in Connected list` };
-        return notMapped("update (remove-then-add)");
+        return replaceConnector(adapter, ctx, c);
       }
       const page = await openConnectors(ctx);
       const s = await ctx.session();
@@ -194,4 +195,5 @@ export function grokAdapter(): PlatformAdapter {
       return there ? { status: "ok", detail: `"${c.name}" added (appears in Connected list)` } : { status: "error", detail: `submitted, but "${c.name}" did not appear in grok.com's Connected list after waiting` };
     },
   };
+  return adapter;
 }
