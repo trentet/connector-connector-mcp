@@ -74,7 +74,7 @@
               "type": "envFile",
               "paths": [
                 "D:/GDrive/HELM/DEV-PROJECTS/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env",
-              "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
+                "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
               ],
               "key": "SHELL_MCP_SHELL_SECRET"
             },
@@ -82,7 +82,7 @@
               "type": "envFile",
               "paths": [
                 "D:/GDrive/HELM/DEV-PROJECTS/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env",
-              "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
+                "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
               ],
               "key": "SHELL_MCP_BEARER_TOKEN"
             }
@@ -96,7 +96,7 @@
               "type": "envFile",
               "paths": [
                 "D:/GDrive/HELM/DEV-PROJECTS/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env",
-              "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
+                "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
               ],
               "key": "SHELL_MCP_SHELL_SECRET"
             },
@@ -104,7 +104,7 @@
               "type": "envFile",
               "paths": [
                 "D:/GDrive/HELM/DEV-PROJECTS/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env",
-              "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
+                "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
               ],
               "key": "SHELL_MCP_BEARER_TOKEN"
             }
@@ -118,7 +118,7 @@
           "type": "envFile",
           "paths": [
             "D:/GDrive/HELM/DEV-PROJECTS/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env",
-              "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
+            "D:/GDrive/HELM/DEV-PROJECTS/Connectors/Remote Terminal MCP Connector/Repos/helm-terminal-mcp/.env"
           ],
           "key": "SHELL_MCP_BEARER_TOKEN"
         }
@@ -908,6 +908,60 @@
           "waitSeconds": 60
         }
       }
+    },
+    {
+      "id": "helm-thread-monitor",
+      "name": "HELM Thread Monitor",
+      "repo": "trentet/helm-thread-monitor",
+      "description": "PRODUCTION HELM thread-status monitor connector (thread-monitor.trentt.me, served from KNOTTYAI-PC port 8850 through tunnel helm-thread-monitor; the token file cc reads is on the W540): thread reports, claims and reconcile. Tools: monitor_report, monitor_threads, monitor_claim, monitor_reconcile, monitor_server_build_info.",
+      "url": {
+        "type": "literal",
+        "value": "https://thread-monitor.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "chatgpt": {
+          "type": "template",
+          "template": "https://thread-monitor.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-thread-monitor/production/secrets/connector.env"
+              ],
+              "key": "THREAD_MONITOR_TOKEN"
+            }
+          }
+        },
+        "grok": {
+          "type": "template",
+          "template": "https://thread-monitor.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-thread-monitor/production/secrets/connector.env"
+              ],
+              "key": "THREAD_MONITOR_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/helm-thread-monitor/production/secrets/connector.env"
+          ],
+          "key": "THREAD_MONITOR_TOKEN"
+        }
+      },
+      "platforms": [
+        "claude",
+        "chatgpt",
+        "grok"
+      ]
     },
     {
       "id": "helm-thread-monitor-test",
