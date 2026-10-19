@@ -2,6 +2,7 @@ import type { BrowserContext } from "patchright";
 import type { BrowserSession } from "../browser/chrome.js";
 import { watchLogin, type LoginCredential, type LoginWatcher } from "../browser/oauthLogin.js";
 import { notImplementedAdapter, type PlatformAdapter, type ResolvedConnector } from "../adapters/types.js";
+import { accountMaster, loadAccounts, pickAccount, type AccountDef, type Accounts } from "./accounts.js";
 import { Redactor } from "./redact.js";
 import { resolve, defaultDeps, type ResolveDeps } from "./secrets.js";
 import type { ConnectorDef, ItemResult, Platform, Registry, RunRequest, RunResult } from "./types.js";
@@ -9,8 +10,10 @@ import type { ConnectorDef, ItemResult, Platform, Registry, RunRequest, RunResul
 export interface RunnerOptions {
   adapters?: Partial<Record<Platform, PlatformAdapter>>;
   deps?: ResolveDeps;
-  /** Opens the browser session a platform's adapter uses; defaults to a fresh per-run Chrome. Called at most once per platform per run. */
-  sessionFactory?: (platform: Platform) => Promise<BrowserSession>;
+  /** Opens the browser session a platform's adapter uses; defaults to a fresh per-run Chrome on the account's master (`master` undefined = the default master). Called at most once per platform per run. */
+  sessionFactory?: (platform: Platform, master?: string) => Promise<BrowserSession>;
+  /** The accounts list (injectable for tests); defaults to registry/accounts.json. */
+  accounts?: Accounts;
   /** How many platforms run at the same time (default CC_PLATFORM_PARALLELISM, else all of them; the lane admission gate keeps that polite, see docs/SPEC.md section 9). */
   platformParallelism?: number;
   /** Starts the connector-login watcher (injectable for tests); defaults to the real one. */
@@ -31,6 +34,10 @@ interface Task { idx: number; platform: Platform; connector?: ConnectorDef }
  */
 export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = {}): Promise<RunResult> {
   const red = new Redactor();
+  // The account picks the browser profile (each account has its own sign-ins) and the platforms it may touch. An unknown account fails the whole call.
+  let acc: AccountDef, tag: { account?: string };
+  try { const all = opts.accounts ?? loadAccounts(); acc = pickAccount(all, req.account); tag = acc.id === all.default ? {} : { account: acc.id }; }
+  catch (e) { return { ok: false, items: req.platforms.map((p) => ({ connector: req.connectors.join(",") || "*", platform: p, op: req.op, status: "error" as const, detail: (e as Error).message })) }; }
   const deps = opts.deps ?? defaultDeps;
   const adapter = (p: Platform) => opts.adapters?.[p] ?? notImplementedAdapter(p);
   const results: ItemResult[] = [];
@@ -42,7 +49,7 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
     let p = sessions.get(platform);
     if (!p) {
       const t = Date.now();
-      p = (opts.sessionFactory ?? (async () => (await import("../browser/chrome.js")).openSession()))(platform);
+      p = opts.sessionFactory ? opts.sessionFactory(platform, acc.master) : (async () => { const c = await import("../browser/chrome.js"); return c.openSession({ master: accountMaster(acc, c.masterDir()) }); })();
       sessions.set(platform, p);
       void p.then(() => trace(`${platform}: browser ready in ${((Date.now() - t) / 1000).toFixed(1)}s`), () => trace(`${platform}: browser failed to open`));
     }
@@ -60,7 +67,7 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
   } finally {
     await Promise.allSettled(req.platforms.map((p) => closeSession(p)));
   }
-  const items = results.filter(Boolean);
+  const items = results.filter(Boolean).map((i) => ({ ...i, ...tag }));
   return { ok: items.every((i) => i.status !== "error"), items };
 
   async function runTasks(): Promise<void> {
@@ -68,13 +75,15 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
     const needsConnector = req.op !== "list" && req.op !== "probe";
     const tasks: Task[] = [];
     let idx = 0;
+    const off = (platform: Platform, connector: string) => { results[idx++] = { connector, platform, op: req.op, status: "skipped", detail: `account "${acc.id}" is not used on ${platform}` }; };
     if (!needsConnector) {
-      for (const platform of req.platforms) tasks.push({ idx: idx++, platform });
+      for (const platform of req.platforms) if (acc.platforms.includes(platform)) tasks.push({ idx: idx++, platform }); else off(platform, "*");
     } else {
       for (const c of wanted) {
         if (typeof c === "string") { for (const p of req.platforms) results[idx++] = { connector: c, platform: p, op: req.op, status: "error", detail: "unknown connector id" }; continue; }
         for (const platform of req.platforms) {
           if (!c.platforms.includes(platform)) { results[idx++] = { connector: c.id, platform, op: req.op, status: "skipped", detail: "platform not enabled for this connector" }; continue; }
+          if (!acc.platforms.includes(platform)) { off(platform, c.id); continue; }
           tasks.push({ idx: idx++, platform, connector: c });
         }
       }

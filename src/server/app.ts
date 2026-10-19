@@ -4,6 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
+import { loadAccounts, type AccountDef } from "../core/accounts.js";
 import { loadRegistry } from "../core/registry.js";
 import { run as coreRun } from "../core/runner.js";
 import { reauth as coreReauth, type ReauthRequest, type ReauthResult } from "../core/reauth.js";
@@ -19,6 +20,10 @@ export interface AppOptions {
   /** Injectable for tests; defaults to the real renewal (same code path as `cc reauth`). */
   reauthFn?: (reg: Registry, req: ReauthRequest) => Promise<ReauthResult>;
   version?: string;
+  /** Injectable for tests; defaults to the real `cc browser signin`. */
+  signinFn?: (account: string | undefined, waitForVaultMs: number) => Promise<{ status: string; account: string; email?: string; confirmed: boolean }>;
+  /** Injectable for tests; defaults to registry/accounts.json. */
+  accountsPath?: string;
 }
 
 const TOKEN_HEADER = "x-api-key";
@@ -51,6 +56,12 @@ const runInput = z.object({
   include_test: z.boolean().default(false).describe('With connectors ["*"], also include tier "test" connectors. Test connectors are on-demand: name them explicitly to add/remove one.'),
   dry_run: z.boolean().default(false).describe("Resolve and validate everything without touching any platform."),
   if_existing: z.enum(["skip", "update", "fail"]).optional(),
+  account: z.string().regex(/^[a-z0-9][a-z0-9-]*$/).optional().describe("Account id from cc_list_accounts (each has its own signed-in browser). Default: the server's default account."),
+}).strict();
+
+const signinInput = z.object({
+  account: z.string().regex(/^[a-z0-9][a-z0-9-]*$/).optional().describe("Account id from cc_list_accounts. Default: the server's default account."),
+  wait_for_vault_minutes: z.number().finite().min(0).max(30).default(0).describe("When the account's vault entry is missing, wait this long for it to be added (0 = fail at once)."),
 }).strict();
 
 const reauthInput = z.object({
@@ -60,7 +71,7 @@ const reauthInput = z.object({
   only_if_older_than_days: z.number().finite().positive().optional().describe("Skip a connector whose last successful renewal is newer than this many days (a positive number, for example 4.75); for a second renewer that only acts when the first has not."),
 }).strict();
 
-const ALLOWED_ARGS: Record<string, string[]> = { cc_run: Object.keys(runInput.shape), cc_reauth: Object.keys(reauthInput.shape), cc_list_registry: [] };
+const ALLOWED_ARGS: Record<string, string[]> = { cc_run: Object.keys(runInput.shape), cc_reauth: Object.keys(reauthInput.shape), cc_signin: Object.keys(signinInput.shape), cc_list_registry: [], cc_list_accounts: [] };
 
 /** The SDK silently strips unknown fields; reject them loudly instead, so a caller that passes a url/token learns it must not. */
 export function unknownArgs(body: unknown): string[] | undefined {
@@ -98,8 +109,38 @@ export function buildMcpServer(opts: AppOptions): McpServer {
     async (args) => {
       const a = runInput.parse(args);
       const reg = loadRegistry(opts.registryPath);
-      const res = await runFn(reg, { op: a.op, connectors: a.connectors, platforms: a.platforms as RunRequest["platforms"], dryRun: a.dry_run, includeTest: a.include_test, ifExisting: a.if_existing });
+      const res = await runFn(reg, { op: a.op, connectors: a.connectors, platforms: a.platforms as RunRequest["platforms"], dryRun: a.dry_run, includeTest: a.include_test, ifExisting: a.if_existing, account: a.account });
       return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }], isError: !res.ok };
+    },
+  );
+  server.registerTool(
+    "cc_list_accounts",
+    { description: "List the accounts cc works in (id, email, platforms, which is the default). Each account has its own signed-in browser; pass its id as `account` to cc_run.", inputSchema: {} },
+    async () => {
+      const all = loadAccounts(opts.accountsPath);
+      const rows = all.accounts.map((x: AccountDef) => ({ id: x.id, email: x.email, platforms: x.platforms, default: x.id === all.default, googleSignIn: !!x.signIn?.google }));
+      return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+    },
+  );
+  const signinFn = opts.signinFn ?? (async (id: string | undefined, waitMs: number) => {
+    const { pickAccount, accountMaster } = await import("../core/accounts.js");
+    const { masterDir } = await import("../browser/chrome.js");
+    const { signInAccount } = await import("../browser/signin.js");
+    const acc = pickAccount(loadAccounts(opts.accountsPath), id);
+    const r = await signInAccount(acc, accountMaster(acc, masterDir()), { waitForVaultMs: waitMs });
+    return { status: r.status, account: acc.id, email: r.email, confirmed: r.confirmed };
+  });
+  server.registerTool(
+    "cc_signin",
+    {
+      description: "Sign an account in to claude.ai with Google inside cc's own browser profile for that account, using the account's vault entry (password resolved inside the server, never returned). " +
+        "Needed once per account, and again only if claude.ai signs it out. Can take a few minutes (longer than some clients wait; it still completes).",
+      inputSchema: signinInput.shape,
+    },
+    async (args) => {
+      const a = signinInput.parse(args);
+      try { const r = await signinFn(a.account, a.wait_for_vault_minutes * 60_000); return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] }; }
+      catch (e) { return { content: [{ type: "text", text: JSON.stringify({ status: "error", detail: (e as Error).message }, null, 2) }], isError: true }; }
     },
   );
   const reauthFn = opts.reauthFn ?? ((reg, req) => coreReauth(reg, req));

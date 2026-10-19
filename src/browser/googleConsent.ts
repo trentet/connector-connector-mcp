@@ -14,6 +14,10 @@ import { sleep } from "./dom.js";
  * A 2-step-verification challenge it cannot pass is waited on for a bounded time and then reported, never guessed at.
  *
  * Every URL it logs is origin + path only (the query holds the client id and state).
+ *
+ * The second, narrower use is `cc browser signin` (signin.ts, operator 2026-10-19): signing a registry-declared account in to claude.ai with Google.
+ * There `advanceOneStep` runs in "signin" mode: email, password, authenticator code, the account-chooser tile whose text holds THAT account's
+ * email (never any other tile) and Google's "Continue" to the site. It never ticks a box, never clicks Allow, Advanced or "Go to (unsafe)".
  */
 export interface ConsentSpec {
   emailInput: string; emailNext: string; passwordInput: string; passwordNext: string; totpInput: string; totpNext: string;
@@ -67,7 +71,7 @@ async function clickAndAwaitNavigation(page: Page, el: Locator, settleMs = 4000)
 }
 
 /** The account-chooser tile for OUR account (exact email match), else the first tile that is not page chrome. Excludes Google's account-switcher chip, which leads to a help page. */
-async function clickAccountChooserEntry(page: Page, spec: ConsentSpec, ownEmail?: string): Promise<string | undefined> {
+async function clickAccountChooserEntry(page: Page, spec: ConsentSpec, ownEmail?: string, exactOnly = false): Promise<string | undefined> {
   const candidates = page.locator("button, a, div[role='link'], div[role='button'], li");
   const count = Math.min(await candidates.count(), 30);
   const chip = new RegExp(spec.accountSwitcherChipAria, "i");
@@ -81,6 +85,7 @@ async function clickAccountChooserEntry(page: Page, spec: ConsentSpec, ownEmail?
       if (text.toLowerCase().includes(ownEmail.toLowerCase())) { await clickAndAwaitNavigation(page, el); return "clicked the account chooser entry for our own account"; }
     }
   }
+  if (exactOnly) return undefined;
   for (let i = 0; i < count; i++) {
     const el = candidates.nth(i);
     if (!(await el.isVisible().catch(() => false))) continue;
@@ -104,7 +109,10 @@ async function describeConsent(page: Page): Promise<string> {
 }
 
 /** One "do whatever the next forward-progress thing on this screen is". Returns a label, or undefined when nothing recognized is there. */
-export async function advanceOneStep(page: Page, cred: GoogleCredential, spec: ConsentSpec): Promise<string | undefined> {
+/** "consent" (cc reauth) may tick scope boxes and click Allow/Advanced; "signin" (cc browser signin) only signs our own account in and clicks Continue. */
+export type StepMode = "consent" | "signin";
+
+export async function advanceOneStep(page: Page, cred: GoogleCredential, spec: ConsentSpec, mode: StepMode = "consent"): Promise<string | undefined> {
   const email = page.locator(spec.emailInput).first();
   if ((await email.count()) > 0 && (await email.isVisible().catch(() => false))) {
     if (!cred.username) throw new Error("the Google account's vault entry has no username to enter at the email prompt");
@@ -135,9 +143,10 @@ export async function advanceOneStep(page: Page, cred: GoogleCredential, spec: C
     return "entered the authenticator code, pressed Enter";
   }
   if (page.url().includes(spec.paths.accountChooser)) {
-    const chosen = await clickAccountChooserEntry(page, spec, cred.username);
+    const chosen = await clickAccountChooserEntry(page, spec, cred.username, mode === "signin");
     if (chosen) return chosen;
   }
+  if (mode === "signin") return (await clickLastTextIfVisible(page, new RegExp(spec.continueText))) ? "clicked Continue" : undefined;
   if (await clickTextIfVisible(page, new RegExp(spec.advancedText))) return "clicked Advanced (unverified-app notice)";
   if (await clickTextIfVisible(page, new RegExp(spec.goToAppText))) return "clicked Go to <app> (unsafe)";
   // A consent screen (the v2 summary or the newer v3 page) lists each requested scope with its own checkbox, UNCHECKED by default for an

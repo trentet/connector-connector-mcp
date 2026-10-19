@@ -144,8 +144,8 @@ export async function shutdownChrome(browser: Browser | undefined, child: ChildP
  * if the run's sign-in state is still healthy, writes the refreshed cookies back to the master. Nothing is shared between runs,
  * so concurrent runs cannot touch each other's tabs.
  */
-export async function openSession(opts: { artifactsDir?: string } = {}): Promise<BrowserSession> {
-  const master = masterDir();
+export async function openSession(opts: { artifactsDir?: string; /** The account's master profile (accounts.ts accountMaster); default masterDir(). */ master?: string } = {}): Promise<BrowserSession> {
+  const master = opts.master ?? masterDir();
   const artifactsDir = path.resolve(opts.artifactsDir ?? "artifacts");
   fs.mkdirSync(artifactsDir, { recursive: true });
   const lane: Lane = await acquireLane();

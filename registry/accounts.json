@@ -1,0 +1,22 @@
+{
+  "_note": "The platform accounts cc works in. Each account has its own cold master browser profile (signed in once, then kept fresh), so connectors on one account are never touched by a run for another. `master` is a folder name next to the default master (CC_BROWSER_MASTER, else <helm base>/browser-master); the account without `master` uses the default itself. `signIn.google.vaultLabel` names the vault entry (username = the account's email, password = its Google password) that `cc browser signin` uses to sign the account in to claude.ai with Google. References only: no password or cookie is ever stored here.",
+  "version": 1,
+  "default": "main",
+  "accounts": [
+    {
+      "id": "main",
+      "description": "The original account: claude.ai, ChatGPT and Grok",
+      "email": "trenterrolthomas@gmail.com",
+      "platforms": ["claude", "chatgpt", "grok"],
+      "signIn": { "google": { "vaultLabel": "Google Account (trenterrolthomas@gmail.com)" } }
+    },
+    {
+      "id": "trentfromrid",
+      "description": "Second claude.ai account (added 2026-10-19)",
+      "email": "trentfromrid@gmail.com",
+      "platforms": ["claude"],
+      "master": "browser-master-trentfromrid",
+      "signIn": { "google": { "vaultLabel": "Google Account (trentfromrid@gmail.com)" } }
+    }
+  ]
+}

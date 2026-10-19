@@ -1,0 +1,71 @@
+import fs from "node:fs";
+import path from "node:path";
+import { PLATFORMS, type Platform } from "./types.js";
+
+/**
+ * The platform accounts cc works in (registry/accounts.json). Data, not code: an account's email and vault label live there, never in src/.
+ * Each account has its OWN cold master profile, so a run for one account can never see or change another account's connectors.
+ */
+export interface AccountDef {
+  id: string;
+  description?: string;
+  /** The account's sign-in email. The vault entry's username must match it, so cc can never sign the wrong account in. */
+  email?: string;
+  /** Platforms this account is used on; a run for any other platform is skipped. */
+  platforms: Platform[];
+  /** Folder name of this account's master profile, next to the default master. Absent = the default master itself (one account at most). */
+  master?: string;
+  /** How `cc browser signin` signs this account in to claude.ai: with Google, using this vault entry (username + password, resolved in-process, never logged). */
+  signIn?: { google?: { vaultLabel: string; /** the vault entry also holds the authenticator secret; cc types the current code when Google asks */ totp?: boolean } };
+}
+export interface Accounts { version: 1; default: string; accounts: AccountDef[] }
+
+export const DEFAULT_ACCOUNTS_PATH = () => path.resolve("registry", "accounts.json");
+const ID_RE = /^[a-z0-9][a-z0-9-]*$/;
+const FOLDER_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+export function validateAccounts(a: unknown): string[] {
+  const errs: string[] = [];
+  const o = a as Partial<Accounts>;
+  if (!o || o.version !== 1) errs.push("version: must be 1");
+  if (!Array.isArray(o?.accounts) || o.accounts.length === 0) { errs.push("accounts: at least one account is required"); return errs; }
+  const ids = new Set<string>(), folders = new Set<string>();
+  let defaults = 0;
+  o.accounts.forEach((x, i) => {
+    const w = `accounts[${i}]`;
+    if (typeof x?.id !== "string" || !ID_RE.test(x.id)) errs.push(`${w}.id: lowercase letters, digits and dashes`);
+    else if (ids.has(x.id)) errs.push(`${w}.id: duplicate "${x.id}"`); else ids.add(x.id);
+    if (!Array.isArray(x?.platforms) || x.platforms.some((p) => !PLATFORMS.includes(p))) errs.push(`${w}.platforms: a list of ${PLATFORMS.join(", ")}`);
+    if (x?.master === undefined) defaults++;
+    else if (typeof x.master !== "string" || !FOLDER_RE.test(x.master) || x.master === "browser-master") errs.push(`${w}.master: a plain folder name (no path, not "browser-master")`);
+    else if (folders.has(x.master.toLowerCase())) errs.push(`${w}.master: "${x.master}" is used by two accounts`); else folders.add(x.master.toLowerCase());
+    if (x?.email !== undefined && (typeof x.email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x.email))) errs.push(`${w}.email: an email address`);
+    const g = x?.signIn?.google;
+    if (x?.signIn !== undefined && (!g || typeof g.vaultLabel !== "string" || !g.vaultLabel)) errs.push(`${w}.signIn.google.vaultLabel: required when signIn is present`);
+  });
+  if (defaults > 1) errs.push("accounts: only one account may use the default master (leave out `master`)");
+  if (typeof o.default !== "string" || !ids.has(o.default)) errs.push(`default: must name one of the accounts`);
+  return errs;
+}
+
+/** No accounts file = one default account on every platform (cc's behaviour before accounts existed). */
+export function loadAccounts(file = DEFAULT_ACCOUNTS_PATH()): Accounts {
+  if (!fs.existsSync(file)) return { version: 1, default: "main", accounts: [{ id: "main", platforms: [...PLATFORMS] }] };
+  const a = JSON.parse(fs.readFileSync(file, "utf8")) as Accounts;
+  const errs = validateAccounts(a);
+  if (errs.length) throw new Error(`invalid accounts file ${file}:\n  ${errs.join("\n  ")}`);
+  return a;
+}
+
+/** The named account, else CC_ACCOUNT, else the file's default. An unknown id is an error, never a silent fallback to another account. */
+export function pickAccount(a: Accounts, id?: string, env = process.env): AccountDef {
+  const want = id ?? env.CC_ACCOUNT ?? a.default;
+  const acc = a.accounts.find((x) => x.id === want);
+  if (!acc) throw new Error(`unknown account "${want}" (known: ${a.accounts.map((x) => x.id).join(", ")})`);
+  return acc;
+}
+
+/** This account's master profile directory, given the default master. */
+export function accountMaster(acc: AccountDef, defaultMaster: string): string {
+  return acc.master ? path.join(path.dirname(defaultMaster), acc.master) : defaultMaster;
+}

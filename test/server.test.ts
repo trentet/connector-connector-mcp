@@ -8,12 +8,14 @@ const TOKEN = "t".repeat(40);
 let base = "", close: () => void = () => {};
 const seen: RunRequest[] = [];
 const seenReauth: ReauthRequest[] = [];
+const seenSignin: { account?: string; waitMs: number }[] = [];
 
 beforeAll(async () => {
   const app = buildApp({
     token: TOKEN, registryPath: "registry/connectors.json", allowedHosts: ["localhost", "127.0.0.1"],
     runFn: async (_reg, req) => { seen.push(req); return { ok: true, items: [{ connector: req.connectors[0] ?? "*", platform: req.platforms[0], op: req.op, status: "dry-run", detail: "stub" }] }; },
     reauthFn: async (_reg, req) => { seenReauth.push(req); return { ok: true, items: req.connectors.map((c) => ({ connector: c, status: "dry-run" as const, detail: "stub" })) }; },
+    signinFn: async (account, waitMs) => { seenSignin.push({ account, waitMs }); return { status: "signed-in", account: account ?? "main", email: "invented@example.test", confirmed: true }; },
   });
   const srv = app.listen(0, "127.0.0.1");
   await new Promise((r) => srv.once("listening", r));
@@ -34,16 +36,31 @@ describe("http front door", () => {
     expect((await rpc(init, { "x-api-key": TOKEN })).status).toBe(200);
     expect((await fetch(base + `/mcp?token=${TOKEN}`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify(init) })).status).toBe(200);
   });
-  it("lists exactly the three tools, and cc_run / cc_reauth expose no url/token/secret argument", async () => {
+  it("lists exactly the five tools, and cc_run / cc_reauth / cc_signin expose no url/token/secret argument", async () => {
     const r = await parse(await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list" }, { "x-api-key": TOKEN }));
     const names = r.result.tools.map((t: { name: string }) => t.name).sort();
-    expect(names).toEqual(["cc_list_registry", "cc_reauth", "cc_run"]);
+    expect(names).toEqual(["cc_list_accounts", "cc_list_registry", "cc_reauth", "cc_run", "cc_signin"]);
     const props = Object.keys(r.result.tools.find((t: { name: string }) => t.name === "cc_run").inputSchema.properties);
-    expect(props.sort()).toEqual(["connectors", "dry_run", "if_existing", "include_test", "op", "platforms"]);
+    expect(props.sort()).toEqual(["account", "connectors", "dry_run", "if_existing", "include_test", "op", "platforms"]);
     expect(props.join(" ")).not.toMatch(/url|token|secret|password|header/i);
     const rprops = Object.keys(r.result.tools.find((t: { name: string }) => t.name === "cc_reauth").inputSchema.properties);
     expect(rprops.sort()).toEqual(["connectors", "dry_run", "include_test", "only_if_older_than_days"]);
     expect(rprops.join(" ")).not.toMatch(/url|token|secret|password|header|code/i);
+    const sprops = Object.keys(r.result.tools.find((t: { name: string }) => t.name === "cc_signin").inputSchema.properties);
+    expect(sprops.sort()).toEqual(["account", "wait_for_vault_minutes"]);
+  });
+  it("cc_run carries the account id; cc_signin takes an account id only and refuses a smuggled password", async () => {
+    const ok = await parse(await rpc({ jsonrpc: "2.0", id: 30, method: "tools/call", params: { name: "cc_run", arguments: { op: "list", account: "second-acct" } } }, { "x-api-key": TOKEN }));
+    expect(ok.result.isError).toBeFalsy();
+    expect(seen.at(-1)).toMatchObject({ op: "list", account: "second-acct" });
+    const si = await parse(await rpc({ jsonrpc: "2.0", id: 31, method: "tools/call", params: { name: "cc_signin", arguments: { account: "second-acct", wait_for_vault_minutes: 2 } } }, { "x-api-key": TOKEN }));
+    expect(si.result.isError).toBeFalsy();
+    expect(seenSignin.at(-1)).toEqual({ account: "second-acct", waitMs: 120_000 });
+    const bad = await parse(await rpc({ jsonrpc: "2.0", id: 32, method: "tools/call", params: { name: "cc_signin", arguments: { account: "second-acct", password: "pw-evil" } } }, { "x-api-key": TOKEN }));
+    expect(JSON.stringify(bad)).toContain("unknown argument(s): password");
+    const list = await parse(await rpc({ jsonrpc: "2.0", id: 33, method: "tools/call", params: { name: "cc_list_accounts", arguments: {} } }, { "x-api-key": TOKEN }));
+    const rows = JSON.parse(list.result.content[0].text) as { id: string; default: boolean }[];
+    expect(rows.filter((x) => x.default)).toHaveLength(1);
   });
   it("cc_reauth reaches the shared renewal with registry ids only; smuggled fields are rejected", async () => {
     const ok = await parse(await rpc({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "cc_reauth", arguments: { connectors: ["helm-audio-mcp"], dry_run: true } } }, { "x-api-key": TOKEN }));

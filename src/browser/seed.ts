@@ -14,8 +14,7 @@ export interface SeedReport { copied: Record<string, number>; signedIn: Record<s
  * (over CDP, in memory only: values are never printed, logged or written outside Chrome's own encrypted cookie store)
  * into the master profile, using a normally launched Chrome on the master itself. Reports counts per platform, never values.
  */
-export async function seedMaster(fromPort: number): Promise<SeedReport> {
-  const master = masterDir();
+export async function seedMaster(fromPort: number, master = masterDir()): Promise<SeedReport> {
   if (profileInUse(master)) throw new Error(`master profile ${master} is in use by a running Chrome; seed needs a cold master`);
   const specs = loadAuthSpecs();
   const hosts = Object.values(specs).flatMap((s) => [...s.hosts, ...s.ssoHosts]);
@@ -51,9 +50,10 @@ export async function seedMaster(fromPort: number): Promise<SeedReport> {
 }
 
 /** Read-only health check: clone the master into a throwaway lane, report which platforms still have a sign-in cookie, discard. */
-export async function checkMaster(): Promise<Record<string, boolean>> {
-  const specs = loadAuthSpecs();
-  const s = await openSession();
+export async function checkMaster(master?: string, platforms?: string[]): Promise<Record<string, boolean>> {
+  const all = loadAuthSpecs();
+  const specs = platforms ? Object.fromEntries(Object.entries(all).filter(([p]) => platforms.includes(p))) : all;
+  const s = await openSession({ master });
   try {
     const cookies = await s.context.cookies();
     return Object.fromEntries(Object.keys(specs).map((p) => [p, sessionHealthy(cookies, [p], specs)]));
