@@ -13,7 +13,9 @@ foreach ($kind in "Server", "Tunnel") {
     $script = Join-Path $deploy ("scripts\run-{0}.ps1" -f $kind.ToLower())
     if (-not (Test-Path $script)) { throw "$script not found: deploy first (node scripts\deploy.mjs $Environment)" }
     $name = "$prefix $kind"
-    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`" -Environment $Environment"
+    # Started through helm-host-kit's hidden launcher: powershell.exe -WindowStyle Hidden still flashes a console in the logged-on session (E13).
+    $hiddenLauncher = 'C:\ProgramData\HELM\tools\host-kit\current\run-hidden.vbs'; if (-not (Test-Path $hiddenLauncher)) { throw "hidden launcher missing: $hiddenLauncher (install helm-host-kit v0.2.0 or newer; engineering standard E13)" }
+    $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "//B `"$hiddenLauncher`" /wait powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`" -Environment $Environment"
     $trigger = New-ScheduledTaskTrigger -AtLogOn
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero)
     Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
