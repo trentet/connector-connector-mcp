@@ -41,7 +41,9 @@ $extra = ""
 if ($Connectors) { $extra += " -Connectors `"$Connectors`"" }
 if ($OnlyIfOlderThanDays -gt 0) { $extra += " -OnlyIfOlderThanDays " + $OnlyIfOlderThanDays.ToString([System.Globalization.CultureInfo]::InvariantCulture) }
 if ($SkipCoverage) { $extra += " -SkipCoverage" }
-$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$runner`" -Environment $Environment$extra"
+# Started through helm-host-kit's hidden launcher: powershell.exe -WindowStyle Hidden still flashes a console in the logged-on session (E13).
+$hiddenLauncher = 'C:\ProgramData\HELM\tools\host-kit\current\run-hidden.vbs'; if (-not (Test-Path $hiddenLauncher)) { throw "hidden launcher missing: $hiddenLauncher (install helm-host-kit v0.2.0 or newer; engineering standard E13)" }
+$action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "//B `"$hiddenLauncher`" /wait powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$runner`" -Environment $Environment$extra"
 # StartWhenAvailable: if the PC was off or asleep at the scheduled time, run as soon as it is back.
 $trigger = New-ScheduledTaskTrigger -Daily -DaysInterval $DaysInterval -At $At
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -MultipleInstances IgnoreNew
