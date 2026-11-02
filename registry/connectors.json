@@ -498,6 +498,45 @@
       ]
     },
     {
+      "id": "helm-secret",
+      "name": "helm-secret",
+      "repo": "trentet/helm-secret-connector",
+      "description": "HELM Secret story connector, hosted on ds918-nas (Docker + cloudflared)",
+      "url": {
+        "type": "literal",
+        "value": "https://secret.trentt.me/mcp"
+      },
+      "urlByPlatform": {
+        "grok": {
+          "type": "template",
+          "template": "https://secret.trentt.me/mcp?token={{bearerToken}}",
+          "variables": {
+            "bearerToken": {
+              "type": "envFile",
+              "paths": [
+                "C:/Users/Trent/AppData/Local/HELM/helm-secret/production/secrets/connector.env"
+              ],
+              "key": "HELM_SECRET_TOKEN"
+            }
+          }
+        }
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "envFile",
+          "paths": [
+            "C:/Users/Trent/AppData/Local/HELM/helm-secret/production/secrets/connector.env"
+          ],
+          "key": "HELM_SECRET_TOKEN"
+        }
+      },
+      "platforms": [
+        "grok"
+      ]
+    },
+    {
       "id": "helm-audio-mcp-test",
       "name": "HELM Audio Connector TEST",
       "repo": "trentet/helm-audio-mcp",
