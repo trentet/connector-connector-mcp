@@ -84,7 +84,7 @@ describe("req 4: refusals before any browser opens", () => {
     expect(f.calls.opened).toBe(0);
   });
   it("%VAR% in the path is expanded, the text is normalised (BOM, CRLF, outer blank space) and oversized files are refused", () => {
-    expect(resolveTextFile({ type: "file", path: "%BASE%/instructions.txt" }, { BASE: "/fixtures" }, readFile)).toBe(normalizeText(TEXT));
+    expect(resolveTextFile({ type: "file", path: "%BASE%" + path.sep + "instructions.txt" }, { BASE: path.dirname(FILE) }, readFile)).toBe(normalizeText(TEXT));
     expect(normalizeText("﻿  a\r\nb\r\n\n")).toBe("a\nb");
     expect(() => resolveTextFile({ type: "file", path: "/big" }, {}, () => "x".repeat(100_001))).toThrow(/over 100000/);
     expect(fingerprint("a\r\nb\n")).toEqual(fingerprint("a\nb"));
