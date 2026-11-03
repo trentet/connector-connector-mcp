@@ -58,7 +58,9 @@ beforeAll(async () => {
     if (u.pathname === "/login") return html("Claude", `<button>Continue with Google</button><p>Log in</p>`);
     if (u.pathname === "/projects") {
       const card = (p: P) => `<a href="/project/${p.id}"><div>${p.name}</div><div>Updated 2 days ago</div></a>`;
-      const pinned = state.projects.filter((p) => p.pinned).map(card).join("");
+      // The live pinned list (seen 3 Nov 2026) puts an icon-font glyph (U+E0C9, private use) as the first text line of the anchor, before the name.
+      const pinCard = (p: P) => `<a href="/project/${p.id}"><div aria-hidden="true">&#xE0C9;</div><div>${p.name}</div></a>`;
+      const pinned = state.projects.filter((p) => p.pinned).map(pinCard).join("");
       return html("Projects", `<nav><button>Upgrade plan</button><section aria-label="Pinned">${pinned}</section></nav><h1>Projects</h1>
         <button>Search projects</button><button>Sort projects</button><button id="new">New project</button>${forbidden("Delete all projects")}<main>${state.projects.map(card).join("")}</main>
         <script>

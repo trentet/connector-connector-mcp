@@ -115,8 +115,10 @@ export function claudeSettingsDriver(page: Page, spec: SettingsSpec): SettingsDr
   const goto = async (url: string) => { await page.goto(url, { waitUntil: "domcontentloaded", timeout: t.pageMs }); await sleep(t.settleMs); await checkPage(page, spec); };
   const readLinks = () => page.$$eval(spec.projectLink, (as, nameSel) => as.map((a) => {
     const n = nameSel ? a.querySelector(nameSel) : null;
-    const lines = ((a as HTMLElement).innerText ?? a.textContent ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
-    const name = n ? ((n as HTMLElement).innerText ?? "").trim() : lines[0] ?? "";
+    // Icon-font glyphs (private use, e.g. the pin icon of a pinned card, U+E0C9) and zero-width characters are not text: strip them before judging a line (live finding, 3 Nov 2026).
+    const clean = (s: string) => s.replace(/[\uE000-\uF8FF\u200B-\u200D\u2060\uFEFF]/g, "").trim();
+    const lines = ((a as HTMLElement).innerText ?? a.textContent ?? "").split("\n").map(clean).filter(Boolean);
+    const name = n ? clean((n as HTMLElement).innerText ?? "") : lines[0] ?? "";
     return { name, href: (a as HTMLAnchorElement).href, lines };
   }), spec.projectName);
   const dialog = () => page.locator(spec.instructionsDialog).last();
