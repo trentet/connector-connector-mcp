@@ -1,5 +1,5 @@
 {
-  "_note": "The platform accounts cc works in. Each account has its own cold master browser profile (signed in once, then kept fresh), so connectors on one account are never touched by a run for another. `master` is a folder name next to the default master (CC_BROWSER_MASTER, else <helm base>/browser-master); the account without `master` uses the default itself. `signIn.google.vaultLabel` names the vault entry (username = the account's email, password = its Google password) that `cc browser signin` uses to sign the account in to claude.ai with Google. References only: no password or cookie is ever stored here.",
+  "_note": "The platform accounts cc works in. Each account has its own cold master browser profile (signed in once, then kept fresh), so connectors on one account are never touched by a run for another. `master` is a folder name next to the default master (CC_BROWSER_MASTER, else <helm base>/browser-master); the account without `master` uses the default itself. `signIn.google.vaultLabel` names the vault entry (username = the account's email, password = its Google password) that `cc browser signin` uses to sign the account in to claude.ai with Google. References only: no password or cookie is ever stored here. Optional `settings.projects[] { name, instructions: { type: \"file\", path } }` is what `cc settings apply|verify --account <id>` keeps on claude.ai (CLAUDE.md rule 9): the project with exactly that name, holding the text of that file; the text itself never goes in this file.",
   "version": 1,
   "default": "main",
   "accounts": [
@@ -24,7 +24,15 @@
       "email": "ulostthegamers@gmail.com",
       "platforms": ["claude"],
       "master": "browser-master-ulostthegamers",
-      "signIn": { "google": { "vaultLabel": "Google Account (ulostthegamers@gmail.com)" } }
+      "signIn": { "google": { "vaultLabel": "Google Account (ulostthegamers@gmail.com)" } },
+      "settings": {
+        "projects": [
+          {
+            "name": "HELM",
+            "instructions": { "type": "file", "path": "D:\\GDrive\\HELM\\LOADERS\\HELM LOADER STUB — UNIVERSAL v1.3 (paste this into Project instructions)" }
+          }
+        ]
+      }
     }
   ]
 }

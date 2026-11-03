@@ -1,0 +1,34 @@
+{
+  "_note": "Page facts for `cc settings apply|verify` (src/adapters/claudeSettings.ts): claude.ai Projects and a project's instructions editor. Data, not code: when claude.ai changes, fix it HERE (a data-file edit, no code change). Every entry is { value, status }; status \"verified\" + `seen` = observed on the live page (read-only discovery by the setup session through cc's own openSession on the account's master, HELM host, 2026-11-03 8:45-8:51 AM CST); \"unverified\" = best knowledge, not yet seen. cc prints how many are still unverified on every run. Regex strings are case-insensitive and are matched against a control's accessible name (aria-label, else its visible text). Which controls cc may click at all is NOT decided here: CLAUDE.md rule 9 and the deny list in the adapter code bound it, so no edit of this file can widen it. There is deliberately NO 'auth' block: sign-in cookies are the claude platform's (claude.json). Seen but deliberately unused: /settings/profile and /settings/capabilities redirect to /new.",
+  "hosts": { "value": ["claude.ai"], "status": "verified", "seen": "2026-11-03", "note": "the only origin cc may read or click on; any other host stops the run" },
+  "projectsUrl": { "value": "https://claude.ai/projects", "status": "verified", "seen": "2026-11-03", "note": "heading Projects; buttons New project, Search projects, Sort projects" },
+  "projectLink": { "value": "a[href^=\"/project/\"]", "status": "verified", "seen": "2026-11-03", "note": "each card is <a href=/project/<uuid>>; a pinned project appears as TWO anchors with the same href (pinned list + main list): cc dedupes by href" },
+  "projectName": { "value": "", "status": "unverified", "note": "CSS selector of the name inside a card; empty = the first non-empty line of the card's text. The card's inner layout was not recorded; cc also refuses (never creates) when the name appears as any other line of a card, so a wrong guess here cannot produce a duplicate" },
+  "projectPath": { "value": "^/project/[^/]+$", "status": "verified", "seen": "2026-11-03", "note": "create navigates to /project/<uuid>" },
+  "projectHeading": { "value": "h1", "status": "verified", "seen": "2026-11-03", "note": "a project page's h1 is the project name; cc checks it equals the declared name before reading or writing" },
+  "protectedProjects": { "value": ["How to use Claude"], "status": "verified", "seen": "2026-11-03", "note": "the starter project (it has no Edit instructions button); cc never opens or touches these, even if declared" },
+  "createUrl": { "value": "", "status": "verified", "seen": "2026-11-03", "note": "there is no create page: create is a dialog opened by createButton on the Projects list" },
+  "createButton": { "value": "^new project$", "status": "verified", "seen": "2026-11-03", "note": "button on the Projects list; opens a [role=dialog] titled Create a project" },
+  "createDialog": { "value": "[role=dialog]", "status": "verified", "seen": "2026-11-03", "note": "heading Create a project; buttons Close, Add context, Cancel, Create project; Escape closes it; it has NO instructions field" },
+  "createNameField": { "value": "input[name=name]", "status": "verified", "seen": "2026-11-03", "note": "CSS inside createDialog; placeholder Name your project. cc types only the name (the description textarea is left empty)" },
+  "createSubmit": { "value": "^create project$", "status": "verified", "seen": "2026-11-03", "note": "inside createDialog; enabled with the name alone" },
+  "instructionsOpen": { "value": "^edit instructions$", "status": "verified", "seen": "2026-11-03", "note": "button on the project page (other buttons there: Rename <name>, More options for <name>, Search this project, Pin/Unpin project, Add files, View memory, Add scheduled task: never clicked)" },
+  "instructionsDialog": { "value": "[role=dialog]", "status": "verified", "seen": "2026-11-03", "note": "heading Set project instructions" },
+  "instructionsField": { "value": "textarea", "status": "verified", "seen": "2026-11-03", "note": "the single textarea in the dialog (aria-label Set project instructions); fill() of 3873 characters works" },
+  "instructionsFieldKind": { "value": "textarea", "status": "verified", "seen": "2026-11-03", "note": "read with textarea.value" },
+  "instructionsSave": { "value": "^save instructions$", "status": "verified", "seen": "2026-11-03", "note": "inside the dialog, next to Cancel; enabled once text is present" },
+  "closeKey": { "value": "Escape", "status": "verified", "seen": "2026-11-03", "note": "closes the dialog without saving after a read (no button is clicked for that)" },
+  "signedOutMarkers": { "value": ["continue with google", "log in", "sign in"], "status": "unverified", "note": "copied from claude.json / claude-code.json; the account was signed in during discovery, so this was not seen" },
+  "humanCheck": {
+    "value": {
+      "titles": ["just a moment", "attention required", "verify you are human", "security check"],
+      "bodyMarkers": ["verify you are human", "checking your browser", "performing security verification", "complete the security check"],
+      "frameHosts": ["challenges.cloudflare.com"]
+    },
+    "status": "unverified", "note": "copied from claude-code.json (seen for claude.ai/code on 2026-10-17); no human check appeared during this discovery"
+  },
+  "timing": {
+    "value": { "pageMs": 45000, "elementMs": 20000, "listStableChecks": 3, "pollMs": 800, "settleMs": 3500, "readBackAttempts": 4, "readBackDelayMs": 3000 },
+    "status": "verified", "seen": "2026-11-03", "note": "seen: 3500 ms after goto is enough; a save shows on a reload ~3 s later. The other values are cc defaults (timeouts and list-stability checks); every poll is 500 ms or slower (CLAUDE.md rule 5)"
+  }
+}

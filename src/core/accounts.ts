@@ -17,7 +17,16 @@ export interface AccountDef {
   master?: string;
   /** How `cc browser signin` signs this account in to claude.ai: with Google, using this vault entry (username + password, resolved in-process, never logged). */
   signIn?: { google?: { vaultLabel: string; /** the vault entry also holds the authenticator secret; cc types the current code when Google asks */ totp?: boolean } };
+  /**
+   * What `cc settings apply|verify` keeps in place on claude.ai for this account (CLAUDE.md rule 9). References only: each project's
+   * instruction text stays in its file and never enters the registry, the repo, output or logs.
+   */
+  settings?: AccountSettings;
 }
+/** A text file on this machine. `%VAR%` is expanded; the result must be an absolute path. A reference, never the content. */
+export interface TextFileRef { type: "file"; path: string }
+export interface ProjectSettings { /** The project's name exactly as claude.ai shows it. */ name: string; instructions: TextFileRef }
+export interface AccountSettings { projects: ProjectSettings[] }
 export interface Accounts { version: 1; default: string; accounts: AccountDef[] }
 
 export const DEFAULT_ACCOUNTS_PATH = () => path.resolve("registry", "accounts.json");
@@ -42,9 +51,36 @@ export function validateAccounts(a: unknown): string[] {
     if (x?.email !== undefined && (typeof x.email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x.email))) errs.push(`${w}.email: an email address`);
     const g = x?.signIn?.google;
     if (x?.signIn !== undefined && (!g || typeof g.vaultLabel !== "string" || !g.vaultLabel)) errs.push(`${w}.signIn.google.vaultLabel: required when signIn is present`);
+    if (x?.settings !== undefined) errs.push(...validateSettings(x.settings, `${w}.settings`));
   });
   if (defaults > 1) errs.push("accounts: only one account may use the default master (leave out `master`)");
   if (typeof o.default !== "string" || !ids.has(o.default)) errs.push(`default: must name one of the accounts`);
+  return errs;
+}
+
+/** A project name cc can match exactly: non-empty, no leading/trailing or doubled spaces, no control characters, at most 200 characters. */
+export function projectNameProblem(name: unknown): string | undefined {
+  if (typeof name !== "string" || name.length === 0) return "a non-empty string";
+  if (name !== name.trim() || /\s{2,}/.test(name) || /[\u0000-\u001f\u007f]/.test(name)) return "an exact name: no leading, trailing or doubled spaces and no control characters";
+  if (name.length > 200) return "at most 200 characters";
+  return undefined;
+}
+
+export function validateSettings(s: unknown, w = "settings"): string[] {
+  const errs: string[] = [];
+  const o = s as Partial<AccountSettings> | undefined;
+  if (!o || typeof o !== "object" || !Array.isArray(o.projects) || o.projects.length === 0) return [`${w}.projects: at least one project is required`];
+  const names = new Set<string>();
+  o.projects.forEach((p, i) => {
+    const pw = `${w}.projects[${i}]`;
+    const bad = projectNameProblem(p?.name);
+    if (bad) errs.push(`${pw}.name: ${bad}`);
+    else if (names.has(p.name)) errs.push(`${pw}.name: duplicate "${p.name}"`); else names.add(p.name);
+    const r = p?.instructions as Partial<TextFileRef> | undefined;
+    if (!r || r.type !== "file" || typeof r.path !== "string" || !r.path.trim()) errs.push(`${pw}.instructions: { "type": "file", "path": "<absolute path, %VAR% allowed>" } (a reference; the text itself never goes in the registry)`);
+    const extra = Object.keys(p ?? {}).filter((k) => k !== "name" && k !== "instructions");
+    if (extra.length) errs.push(`${pw}: unknown field(s) ${extra.join(", ")} (only name and instructions)`);
+  });
   return errs;
 }
 
