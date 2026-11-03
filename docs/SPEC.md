@@ -101,7 +101,7 @@ Remaining operator-owned work: bring the not-yet-ready connectors (dsm-connect, 
 ## 8. STATUS (2026-10-02)
 P0-P6 DONE. All production connectors (helm-drive, helm-shell, vault-mcp, helm-audio-mcp, patchright-mcp, connector-connector) are registered and verified on
 claude.ai, ChatGPT and Grok (18/18). Test-tier connectors stay off unless actively under test. Deployed: test (cc-test.trentt.me:8811) and production (cc.trentt.me:8810)
-under %LOCALAPPDATA%\HELM\connector-connector-mcp with four AtLogOn watchdog tasks; redeploy = stop the instance, `node scripts/deploy.mjs <env> main`, start it.
+under %LOCALAPPDATA%\HELM\connector-connector-mcp with four AtLogOn watchdog tasks; redeploy = stop the instance, `node scripts/deploy.mjs <env> <tag>` (a release tag, never a branch), start it.
 Verify depth: claude = Connected row; grok = in Connected list; chatgpt = Installed AND the plugin page shows Connected (cc add performs ChatGPT's Connect step). ChatGPT shows no tool list, so a tool scan is not provable.
 Known limit: cc_run over the MCP front door can exceed a client's 60 s timeout on long runs (the run still completes); use the host CLI in a background process for large runs.
 

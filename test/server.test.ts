@@ -99,6 +99,46 @@ describe("http front door", () => {
     const r = await parse(await rpc({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "cc_list_registry", arguments: {} } }, { "x-api-key": TOKEN }));
     const text = r.result.content[0].text as string;
     expect(text).toContain("helm-drive");
-    expect(text).not.toMatch(/https?:\/\/|token|secret|\.env/i);
+    expect(text).toContain("helm-secret"); // an id may contain the word "secret"; the guard is structural, not a word filter
+    expect(registryListingProblems(text)).toEqual([]);
+  });
+  it("the registry-listing guard still rejects a row that carries a url, a token or an env path", () => {
+    const ok = { id: "helm-secret", name: "Secret store", platforms: ["grok"], tier: "production", auth: "header" };
+    expect(registryListingProblems(JSON.stringify([ok]))).toEqual([]);
+    const bad: unknown[][] = [
+      [{ ...ok, url: "https://example.test/mcp" }],                // extra key
+      [{ ...ok, name: "see https://example.test/mcp" }],           // url in a value
+      [{ ...ok, name: "example.test://x" }],                       // scheme separator
+      [{ ...ok, auth: "token=abc" }],                              // token string
+      [{ ...ok, name: "C:/secrets/connector.env" }],               // env path
+      [{ ...ok, platforms: ["claude", "gemini"] }],                // unknown platform
+      [{ ...ok, platforms: ["https://example.test"] }],            // url hidden in platforms
+    ];
+    for (const rows of bad) expect(registryListingProblems(JSON.stringify(rows)), JSON.stringify(rows)).not.toEqual([]);
+    expect(registryListingProblems("not json")).not.toEqual([]);
+    expect(registryListingProblems(JSON.stringify({ id: "x" }))).not.toEqual([]);
   });
 });
+
+/** Structural guard for cc_list_registry output: rows carry only id/name/platforms/tier/auth, platforms are known, and no value looks like a url, token or env path. */
+function registryListingProblems(text: string): string[] {
+  const KEYS = ["auth", "id", "name", "platforms", "tier"];
+  const PLATFORMS = ["claude", "chatgpt", "grok"];
+  const FORBIDDEN = ["http", "://", "token=", ".env"];
+  let rows: unknown;
+  try { rows = JSON.parse(text); } catch { return ["not JSON"]; }
+  if (!Array.isArray(rows)) return ["not an array"];
+  const problems: string[] = [];
+  rows.forEach((row, i) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) { problems.push(`row ${i}: not an object`); return; }
+    const keys = Object.keys(row).sort();
+    if (keys.join() !== KEYS.join()) problems.push(`row ${i}: keys ${keys.join(",")}`);
+    const platforms = (row as Record<string, unknown>).platforms;
+    if (!Array.isArray(platforms) || platforms.some((p) => !PLATFORMS.includes(p as string))) problems.push(`row ${i}: platforms`);
+    const values: string[] = [];
+    const walk = (v: unknown): void => { if (typeof v === "string") values.push(v); else if (v && typeof v === "object") Object.values(v).forEach(walk); };
+    walk(row);
+    for (const v of values) for (const f of FORBIDDEN) if (v.toLowerCase().includes(f)) problems.push(`row ${i}: value contains ${f}`);
+  });
+  return problems;
+}
