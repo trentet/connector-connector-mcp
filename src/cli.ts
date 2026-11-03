@@ -18,7 +18,7 @@ cc browser check [--account <id>]         (clone the account's master into a thr
 cc audit --google [--root <dir> ...] [--github <owner>] [--registry <path>] [--json]   (find repos that use Google OAuth but have no registry googleOAuth block)
 cc audit --scan <repo-root> [--json]     (find per-repo registration / Google-reauth scripts that cc replaces)
 cc reauth [connector-id ...|--all] [--include-test] [--dry-run] [--only-if-older-than <days>] [--registry <path>] [--json]   (renew the Google OAuth token of connectors with a googleOAuth registry block; --only-if-older-than skips one renewed more recently, for a second renewer)
-cc settings <apply|verify> --account <id> [--dry-run] [--json]   (claude.ai Projects of an account: create the declared project if missing and set its instructions from the referenced file (apply), or compare read-only (verify); prints only length and sha256 prefix, never the text)
+cc settings <apply|verify> --account <id> [--dry-run] [--json]   (claude.ai Projects of an account: create the declared project if missing and set its instructions from the referenced file when they are empty (apply; different existing instructions are refused, never overwritten), or compare read-only (verify); prints only length and sha256 prefix, never the text)
 cc threads [--json]                       (read-only: list the claude.ai/code threads as id, status, title, and say plainly what could and could not be read; one browser, never writes to claude.ai)
 cc <op> [connector-id ...|--all] [--platform <claude|chatgpt|grok ...>|all] [--account <id>] [--dry-run] [--include-test] [--registry <path>] [--if-existing skip|update|fail] [--json]
 ops: ${OPS.join(", ")}`;
@@ -116,6 +116,7 @@ export async function main(argv: string[]): Promise<number> {
         unverifiedSelectors: spec.unverified,
         logFile: settingsLogFile(acc.id),
         readBack: { attempts: spec.timing.readBackAttempts, delayMs: spec.timing.readBackDelayMs },
+        protectedProjects: spec.protectedProjects,
         log: json ? undefined : (l) => console.log(l),
         open: async () => {
           const { masterDir, openSession } = await import("./browser/chrome.js");

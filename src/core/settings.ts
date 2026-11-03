@@ -14,7 +14,7 @@ import { expandEnv } from "./transport.js";
  */
 
 export type SettingsOp = "apply" | "verify";
-export interface SettingsItem { project: string; status: "ok" | "dry-run" | "error"; action?: "created" | "updated" | "unchanged" | "matches" | "would-apply" | "would-verify"; detail: string }
+export interface SettingsItem { project: string; status: "ok" | "dry-run" | "error"; action?: "created" | "set" | "unchanged" | "matches" | "would-apply" | "would-verify"; detail: string }
 export interface SettingsResult { ok: boolean; account: string; op: SettingsOp; items: SettingsItem[]; notes: string[] }
 
 /** Instruction text as compared and written: no BOM, LF line ends, no leading or trailing blank space (claude.ai's editor is not trusted to keep them). */
@@ -44,20 +44,23 @@ const loose = (s: string) => s.normalize("NFKC").toLowerCase().replace(/\s+/g, "
 export type ProjectPlan = { kind: "open"; href: string } | { kind: "create" } | { kind: "refuse"; why: string };
 
 /** Exact name only: one exact match is opened; none is created, unless a near-identical name exists (then refuse, so no look-alike duplicate is made); two exact matches are ambiguous. */
-export function planProject(found: { name: string; href: string }[], name: string): ProjectPlan {
+export function planProject(found: { name: string; href: string; lines?: string[] }[], name: string, protectedNames: string[] = []): ProjectPlan {
+  if (protectedNames.includes(name)) return { kind: "refuse", why: `"${name}" is a protected project (claude.ai's starter project); cc never touches it` };
   const exact = found.filter((p) => p.name === name);
   if (exact.length === 1) return { kind: "open", href: exact[0].href };
   if (exact.length > 1) return { kind: "refuse", why: `${exact.length} projects are named exactly "${name}"; cc will not guess which one (rename one by hand)` };
   const near = found.filter((p) => loose(p.name) === loose(name));
   if (near.length) return { kind: "refuse", why: `no project is named exactly "${name}", but ${near.map((p) => `"${p.name}"`).join(", ")} is close; cc does not rename and will not create a look-alike (fix the name in registry/accounts.json or on claude.ai)` };
+  const elsewhere = found.filter((p) => p.lines?.some((l) => l === name || loose(l) === loose(name)));
+  if (elsewhere.length) return { kind: "refuse", why: `no card is named "${name}", but ${elsewhere.length} card(s) show that text on another line; the card layout may have changed (data/selectors/claude-settings.json projectName), so cc will not create a possible duplicate` };
   return { kind: "create" };
 }
 
 /** The page side, one per browser. Production: claudeSettingsDriver(session.page, spec). */
 export interface SettingsPage {
-  listProjects(): Promise<{ name: string; href: string }[]>;
+  listProjects(): Promise<{ name: string; href: string; lines?: string[] }[]>;
   createProject(name: string): Promise<string>;
-  openProject(href: string): Promise<void>;
+  openProject(href: string, name: string): Promise<void>;
   readInstructions(): Promise<string>;
   writeInstructions(text: string): Promise<void>;
 }
@@ -76,6 +79,8 @@ export interface SettingsOptions {
   unverifiedSelectors?: string[];
   sleep?: (ms: number) => Promise<void>;
   readBack?: { attempts: number; delayMs: number };
+  /** Projects cc never opens or touches (claude.ai's starter project; data/selectors/claude-settings.json protectedProjects). */
+  protectedProjects?: string[];
 }
 
 /** logs/settings/<account>.log under CC_LOG_DIR, else <helm data base>/logs (the base the master profiles use). */
@@ -126,7 +131,7 @@ export async function runSettings(op: SettingsOp, acc: AccountDef, o: SettingsOp
   // 2. Dry run: say what would happen, open nothing.
   if (o.dryRun) {
     for (const w of wanted) {
-      const detail = op === "apply" ? `would open project "${w.p.name}" (or create it if no project has exactly that name) and make its instructions ${fpText(w.fp)}; no browser opened` : `would compare project "${w.p.name}"'s instructions with ${fpText(w.fp)}; no browser opened`;
+      const detail = op === "apply" ? `would open project "${w.p.name}" (or create it if no project has exactly that name) and make its instructions ${fpText(w.fp)} (only if they are empty or already equal; different existing instructions are refused, never overwritten); no browser opened` : `would compare project "${w.p.name}"'s instructions with ${fpText(w.fp)}; no browser opened`;
       res.items.push({ project: w.p.name, status: "dry-run", action: op === "apply" ? "would-apply" : "would-verify", detail });
       say(`dry-run  ${op} ${w.p.name}: ${detail}`);
     }
@@ -147,11 +152,11 @@ export async function runSettings(op: SettingsOp, acc: AccountDef, o: SettingsOp
       try {
         const bad = projectNameProblem(name);
         if (bad) throw new Error(`project name must be ${bad}`);
-        const plan = planProject(found, name);
+        const plan = planProject(found, name, o.protectedProjects);
         if (plan.kind === "refuse") { fail(name, plan.why); continue; }
         if (op === "verify") {
           if (plan.kind === "create") { fail(name, `no project named exactly "${name}" exists on claude.ai`); continue; }
-          await s.page.openProject(plan.href);
+          await s.page.openProject(plan.href, name);
           const have = fingerprint(await s.page.readInstructions());
           if (same(have, w.fp)) { res.items.push({ project: name, status: "ok", action: "matches", detail: `instructions match the file: ${fpText(have)}` }); say(`ok       verify ${name}: instructions match, ${fpText(have)}`); }
           else fail(name, `instructions differ from the file: claude.ai has ${fpText(have)}, the file has ${fpText(w.fp)}`);
@@ -163,27 +168,29 @@ export async function runSettings(op: SettingsOp, acc: AccountDef, o: SettingsOp
           say(`create   project ${name}`);
           await s.page.createProject(name);
           found = await s.page.listProjects();
-          const again = planProject(found, name);
+          const again = planProject(found, name, o.protectedProjects);
           if (again.kind !== "open") { fail(name, `clicked create, but the project list does not show exactly one "${name}" afterwards`); continue; }
           href = again.href; action = "created";
         } else { href = plan.href; action = "unchanged"; }
-        await s.page.openProject(href);
+        await s.page.openProject(href, name);
         const before = fingerprint(await s.page.readInstructions());
         if (!same(before, w.fp)) {
-          say(`write    ${name}: ${fpText(before)} -> ${fpText(w.fp)}`);
+          // Never overwrite instructions someone else put there (setup session, 3 Nov 2026): only an empty field is written.
+          if (before.chars > 0) { fail(name, `project "${name}" already has different instructions (claude.ai has ${fpText(before)}, the file has ${fpText(w.fp)}); cc does not overwrite existing instructions. Clear them by hand on claude.ai (or fix the file) and run apply again`); continue; }
+          say(`write    ${name}: empty -> ${fpText(w.fp)}`);
           await s.page.writeInstructions(w.text);
-          if (action !== "created") action = "updated";
+          if (action !== "created") action = "set";
         }
         // Read back: reopen the project and compare; the save may land a moment later, so poll a few times (slowly).
         let after: Fingerprint | undefined = action === "unchanged" ? before : undefined; // nothing written: the read above is the read-back
         for (let i = 0; i < attempts && !after; i++) {
           if (i) await pause(delayMs);
-          await s.page.openProject(href);
+          await s.page.openProject(href, name);
           const got = fingerprint(await s.page.readInstructions());
           if (same(got, w.fp) || i === attempts - 1) after = got;
         }
         if (!after || !same(after, w.fp)) { fail(name, `instructions were saved but reading them back gives ${after ? fpText(after) : "nothing"}, not ${fpText(w.fp)}`); continue; }
-        const what = action === "created" ? "project created; instructions set" : action === "updated" ? "instructions updated" : "instructions already match; nothing written";
+        const what = action === "created" ? "project created; instructions set" : action === "set" ? "instructions set (the project had none)" : "instructions already match; nothing written";
         res.items.push({ project: name, status: "ok", action, detail: `${what}; read back: ${fpText(after)}` });
         say(`ok       apply ${name}: ${what}; read back ${fpText(after)}`);
       } catch (e) {

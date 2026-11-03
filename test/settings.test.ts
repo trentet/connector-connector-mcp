@@ -101,6 +101,12 @@ describe("req 4: exact project names only", () => {
     expect(planProject([{ name: "fixture  project", href: "h" }], "Fixture Project")).toMatchObject({ kind: "refuse", why: expect.stringMatching(/close/) });
     expect(planProject([{ name: "X", href: "a" }, { name: "X", href: "b" }], "X")).toMatchObject({ kind: "refuse", why: expect.stringMatching(/2 projects/) });
   });
+  it("claude.ai's starter project is never touched, even when declared", () => {
+    expect(planProject([{ name: "How to use Claude", href: "s" }], "How to use Claude", ["How to use Claude"])).toMatchObject({ kind: "refuse", why: expect.stringMatching(/protected/) });
+  });
+  it("a name shown on another line of a card (layout drift) is refused, not created", () => {
+    expect(planProject([{ name: "Updated 2 days ago", href: "h", lines: ["Updated 2 days ago", "Fixture Project"] }], "Fixture Project")).toMatchObject({ kind: "refuse", why: expect.stringMatching(/another line/) });
+  });
   it("the whole run refuses on a near match and creates nothing", async () => {
     const f = fakeClaude([{ name: "fixture project", text: "" }]);
     const r = await runSettings("apply", ACC, { open: f.open, readFile, sleep: noSleep });
@@ -134,14 +140,28 @@ describe("req 3+4: apply is idempotent and only real when read back", () => {
     expect(f.projects.find((p) => p.name === "Other")!.text).toBe("someone else's instructions");
     expect(f.projects.filter((p) => p.name === "Fixture Project")).toHaveLength(1);
   });
-  it("an existing project with other text is updated (never recreated)", async () => {
-    const f = fakeClaude([{ name: "Fixture Project", text: "old text" }]);
+  it("an existing project with empty instructions gets them set (never recreated)", async () => {
+    const f = fakeClaude([{ name: "Fixture Project", text: "" }]);
     const r = await runSettings("apply", ACC, { open: f.open, readFile, sleep: noSleep });
-    expect(r.items[0]).toMatchObject({ status: "ok", action: "updated" });
-    expect(f.calls.creates).toBe(0);
+    expect(r.items[0]).toMatchObject({ status: "ok", action: "set" });
+    expect(f.calls).toMatchObject({ creates: 0, writes: 1 });
+  });
+  it("an existing project with DIFFERENT non-empty instructions is refused and never overwritten", async () => {
+    const f = fakeClaude([{ name: "Fixture Project", text: "someone's own instructions" }]);
+    const r = await runSettings("apply", ACC, { open: f.open, readFile, sleep: noSleep });
+    expect(r.ok).toBe(false);
+    expect(r.items[0].detail).toMatch(/already has different instructions.*does not overwrite/);
+    expect(f.calls).toMatchObject({ creates: 0, writes: 0 });
+    expect(f.projects[0].text).toBe("someone's own instructions");
+  });
+  it("an existing project whose instructions already equal the file is ok with nothing written", async () => {
+    const f = fakeClaude([{ name: "Fixture Project", text: normalizeText(TEXT) }]);
+    const r = await runSettings("apply", ACC, { open: f.open, readFile, sleep: noSleep });
+    expect(r.items[0]).toMatchObject({ status: "ok", action: "unchanged" });
+    expect(f.calls).toMatchObject({ creates: 0, writes: 0 });
   });
   it("a save that does not stick is an error after polling, never ok", async () => {
-    const f = fakeClaude([{ name: "Fixture Project", text: "old text" }], { ignoreWrites: true });
+    const f = fakeClaude([{ name: "Fixture Project", text: "" }], { ignoreWrites: true });
     const r = await runSettings("apply", ACC, { open: f.open, readFile, sleep: noSleep, readBack: { attempts: 3, delayMs: 500 } });
     expect(r.ok).toBe(false);
     expect(r.items[0].detail).toMatch(/reading them back/);
@@ -176,7 +196,7 @@ describe("req 3: the instruction text never reaches output, logs or errors", () 
     const logFile = path.join(dir, "settings", "fixture.log");
     const runs = [
       { op: "apply" as const, f: fakeClaude([{ name: "Fixture Project", text: "old" }]) },
-      { op: "apply" as const, f: fakeClaude([{ name: "Fixture Project", text: "old" }], { throwOnWrite: `could not type "${normalizeText(TEXT)}"` }) },
+      { op: "apply" as const, f: fakeClaude([{ name: "Fixture Project", text: "" }], { throwOnWrite: `could not type "${normalizeText(TEXT)}"` }) },
       { op: "verify" as const, f: fakeClaude([{ name: "Fixture Project", text: "old" }]) },
       { op: "apply" as const, f: fakeClaude(), dry: true },
     ];
@@ -203,6 +223,7 @@ describe("req 3+5: selectors are data; what may be clicked is bounded in code", 
   it("the shipped selector file loads, has no auth block, and every entry is marked unverified until seen live", () => {
     const spec = loadSettingsSpec();
     expect(spec.projectsUrl).toMatch(/^https:\/\/claude\.ai\//);
+    expect(spec.protectedProjects).toContain("How to use Claude");
     const raw = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "claude-settings.json"), "utf8"));
     expect(raw.auth).toBeUndefined();
     for (const [k, v] of Object.entries(raw)) if (!k.startsWith("_")) expect((v as { status?: string }).status, k).toMatch(/^(unverified|verified)$/);
@@ -217,8 +238,8 @@ describe("req 3+5: selectors are data; what may be clicked is bounded in code", 
     fs.rmSync(dir, { recursive: true, force: true });
   });
   it("the deny list blocks every forbidden kind of control and lets the four allowed ones through", () => {
-    for (const bad of ["Delete project", "Remove", "Rename", "Archive", "Share", "Invite members", "Upgrade plan", "Billing", "Continue with Google", "Log in", "Sign out", "Add connector", "Manage memory", "Preferences", "Leave project"]) expect(CLICK_DENY.test(bad), bad).toBe(true);
-    for (const good of ["Create project", "+ New project", "Set project instructions", "Edit project instructions", "Save instructions", "Save", "Edit"]) expect(CLICK_DENY.test(good), good).toBe(false);
+    for (const bad of ["More options for Fixture Project", "Rename Fixture Project", "Delete project", "Remove", "Rename", "Archive", "Share", "Invite members", "Upgrade plan", "Billing", "Continue with Google", "Log in", "Sign out", "Add connector", "Manage memory", "Preferences", "Leave project"]) expect(CLICK_DENY.test(bad), bad).toBe(true);
+    for (const good of ["Create project", "New project", "+ New project", "Edit instructions", "Set project instructions", "Edit project instructions", "Save instructions", "Save", "Edit"]) expect(CLICK_DENY.test(good), good).toBe(false);
   });
 });
 

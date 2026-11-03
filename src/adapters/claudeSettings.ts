@@ -14,12 +14,13 @@ import { domFill, sleep } from "../browser/dom.js";
  * press (no button). The instruction text is never returned in an error, logged or printed.
  */
 
-export interface ProjectRef { name: string; href: string }
+/** `name` is the card's name (projectName, else its first line); `lines` are all of the card's text lines, so a name shown elsewhere in a card is never mistaken for "missing". */
+export interface ProjectRef { name: string; href: string; lines?: string[] }
 interface Entry<T> { value: T; status?: string; seen?: string; guess?: string }
 export interface SettingsTiming { pageMs: number; elementMs: number; listStableChecks: number; pollMs: number; settleMs: number; readBackAttempts: number; readBackDelayMs: number }
 export interface SettingsSpec {
-  hosts: string[]; projectsUrl: string; projectLink: string; projectName: string; projectPath: string;
-  createUrl: string; createButton: string; createNameField: string; createSubmit: string;
+  hosts: string[]; projectsUrl: string; projectLink: string; projectName: string; projectPath: string; projectHeading: string; protectedProjects: string[];
+  createUrl: string; createButton: string; createDialog: string; /** CSS inside createDialog */ createNameField: string; createSubmit: string;
   instructionsOpen: string; instructionsDialog: string; instructionsField: string; instructionsFieldKind: "textarea" | "contenteditable"; instructionsSave: string; closeKey: string;
   signedOutMarkers: string[]; humanCheck: { titles: string[]; bodyMarkers: string[]; frameHosts: string[] };
   timing: SettingsTiming;
@@ -27,7 +28,7 @@ export interface SettingsSpec {
   unverified: string[];
 }
 
-const KEYS = ["hosts", "projectsUrl", "projectLink", "projectName", "projectPath", "createUrl", "createButton", "createNameField", "createSubmit", "instructionsOpen", "instructionsDialog", "instructionsField", "instructionsFieldKind", "instructionsSave", "closeKey", "signedOutMarkers", "humanCheck", "timing"] as const;
+const KEYS = ["hosts", "projectsUrl", "projectLink", "projectName", "projectPath", "projectHeading", "protectedProjects", "createUrl", "createButton", "createDialog", "createNameField", "createSubmit", "instructionsOpen", "instructionsDialog", "instructionsField", "instructionsFieldKind", "instructionsSave", "closeKey", "signedOutMarkers", "humanCheck", "timing"] as const;
 
 export function loadSettingsSpec(file = path.resolve(process.env.CC_SELECTORS_DIR ?? path.join("data", "selectors"), "claude-settings.json")): SettingsSpec {
   const raw = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
@@ -49,7 +50,7 @@ export function loadSettingsSpec(file = path.resolve(process.env.CC_SELECTORS_DI
  * Controls cc never clicks, whatever the data file says (CLAUDE.md rule 9): anything that deletes, removes, renames, archives,
  * shares, invites, upgrades or bills, signs in or out, or touches connectors, memory or preferences.
  */
-export const CLICK_DENY = /delete|remove|rename|archive|share|invite|upgrade|billing|subscri|\bplan\b|payment|sign ?(in|out|up)|log ?(in|out)|continue with|connector|integration|memory|preference|leave|disconnect|permission|visibility|transfer/i;
+export const CLICK_DENY = /delete|remove|rename|more options|archive|share|invite|upgrade|billing|subscri|\bplan\b|payment|sign ?(in|out|up)|log ?(in|out)|continue with|connector|integration|memory|preference|leave|disconnect|permission|visibility|transfer/i;
 
 export class BlockedError extends Error { constructor(public kind: "human-check" | "signed-out" | "unexpected-page", detail: string) { super(detail); } }
 
@@ -103,7 +104,8 @@ async function waitFor(cond: () => Promise<boolean>, ms: number, pollMs: number)
 export interface SettingsDriver {
   listProjects(): Promise<ProjectRef[]>;
   createProject(name: string): Promise<string>;
-  openProject(href: string): Promise<void>;
+  /** Opens the project page and checks its heading is exactly `name`. */
+  openProject(href: string, name: string): Promise<void>;
   readInstructions(): Promise<string>;
   writeInstructions(text: string): Promise<void>;
 }
@@ -113,8 +115,9 @@ export function claudeSettingsDriver(page: Page, spec: SettingsSpec): SettingsDr
   const goto = async (url: string) => { await page.goto(url, { waitUntil: "domcontentloaded", timeout: t.pageMs }); await sleep(t.settleMs); await checkPage(page, spec); };
   const readLinks = () => page.$$eval(spec.projectLink, (as, nameSel) => as.map((a) => {
     const n = nameSel ? a.querySelector(nameSel) : null;
-    const text = ((n ?? a) as HTMLElement).innerText ?? a.textContent ?? "";
-    return { name: text.split("\n").map((l) => l.trim()).find(Boolean) ?? "", href: (a as HTMLAnchorElement).href };
+    const lines = ((a as HTMLElement).innerText ?? a.textContent ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+    const name = n ? ((n as HTMLElement).innerText ?? "").trim() : lines[0] ?? "";
+    return { name, href: (a as HTMLAnchorElement).href, lines };
   }), spec.projectName);
   const dialog = () => page.locator(spec.instructionsDialog).last();
   const field = () => dialog().locator(spec.instructionsField).first();
@@ -141,25 +144,32 @@ export function claudeSettingsDriver(page: Page, spec: SettingsSpec): SettingsDr
       }
       if (stable < t.listStableChecks) throw new Error(`the project list did not finish loading (${links.length} seen); refusing to decide on a partial list`);
       const seen = new Set<string>();
-      return links.filter((l) => l.name && !seen.has(l.href) && seen.add(l.href));
+      return links.filter((l) => l.name && !seen.has(l.href) && seen.add(l.href)); // a pinned project is listed twice with the same href
     },
     async createProject(name) {
+      if (spec.protectedProjects.includes(name)) throw new Error(`"${name}" is a protected project; cc never creates or touches it`);
       if (spec.createUrl) await goto(spec.createUrl);
-      else { await goto(spec.projectsUrl); await guardedClick(page, byName(page.locator("body"), spec.createButton), "create-project", spec); await sleep(t.settleMs); }
-      const f = page.getByPlaceholder(rx(spec.createNameField)).or(page.getByLabel(rx(spec.createNameField))).or(page.getByRole("textbox", { name: rx(spec.createNameField) })).first();
-      if (!(await waitFor(async () => (await f.count()) > 0, t.elementMs, 500))) throw new Error(`no project-name field on ${safeUrl(page.url())}; fix data/selectors/claude-settings.json (createNameField)`);
-      await domFill(f, name);
-      await guardedClick(page, byName(page.locator("body"), spec.createSubmit), "create-submit", spec);
+      else { await goto(spec.projectsUrl); await guardedClick(page, byName(page.locator("body"), spec.createButton), "create-project", spec); }
+      const dlg = page.locator(spec.createDialog).filter({ has: page.locator(spec.createNameField) }).last();
+      const f = dlg.locator(spec.createNameField).first();
+      if (!(await waitFor(async () => (await f.count()) > 0, t.elementMs, 500))) throw new Error(`no project-name field (${spec.createNameField}) in a create dialog on ${safeUrl(page.url())}; fix data/selectors/claude-settings.json (createButton, createDialog, createNameField)`);
+      await domFill(f, name); // only the name: the description stays empty
+      await guardedClick(page, byName(dlg, spec.createSubmit), "create-submit", spec);
       const opened = await waitFor(async () => { try { return rx(spec.projectPath).test(new URL(page.url()).pathname); } catch { return false; } }, t.pageMs, 500);
       if (!opened) throw new Error(`clicked create, but no project page opened (now at ${safeUrl(page.url())})`);
       await sleep(t.settleMs);
       await checkPage(page, spec);
       return page.url();
     },
-    async openProject(href) {
+    async openProject(href, name) {
+      if (spec.protectedProjects.includes(name)) throw new Error(`"${name}" is a protected project; cc never opens or touches it`);
       if (!onHost(href, spec.hosts)) throw new Error(`refusing to open ${safeUrl(href)}: not ${spec.hosts.join(" or ")}`);
       await goto(href);
       if (!rx(spec.projectPath).test(new URL(page.url()).pathname)) throw new BlockedError("unexpected-page", `opened ${safeUrl(href)} but landed on ${safeUrl(page.url())}`);
+      const h = page.locator(spec.projectHeading).first();
+      await waitFor(async () => (await h.count()) > 0, t.elementMs, 500);
+      const heading = ((await h.innerText().catch(() => "")) ?? "").trim();
+      if (heading !== name) throw new Error(`the project page at ${safeUrl(href)} is headed "${heading.slice(0, 80)}", not "${name}"; not touching it`);
     },
     async readInstructions() {
       await openEditor();
