@@ -1,0 +1,31 @@
+{
+  "_note": "Page facts for `cc settings apply|verify` (src/adapters/claudeSettings.ts): claude.ai Projects and a project's instructions editor. Data, not code: when claude.ai changes, fix it HERE (a data-file edit, no code change). Every selector entry is { value, status }; status is \"unverified\" until someone has seen it on the live page (read-only discovery on the HELM host), then \"verified\" with the date in `seen`. cc prints how many are still unverified on every run. Regex strings are case-insensitive and are matched against a control's accessible name (aria-label, else its visible text). Which controls cc may click at all is NOT decided here: CLAUDE.md rule 9 and the deny list in the adapter code bound it, so no edit of this file can widen it. There is deliberately NO 'auth' block: sign-in cookies are the claude platform's (claude.json).",
+  "hosts": { "value": ["claude.ai"], "status": "unverified", "guess": "the only origin cc may read or click on; any other host stops the run" },
+  "projectsUrl": { "value": "https://claude.ai/projects", "status": "unverified", "guess": "the Projects list page" },
+  "projectLink": { "value": "a[href^=\"/project/\"]", "status": "unverified", "guess": "each project card on the list is a link to /project/<uuid>" },
+  "projectName": { "value": "", "status": "unverified", "guess": "CSS selector of the name inside a card; empty = the first non-empty line of the card's text" },
+  "projectPath": { "value": "^/project/[0-9a-f-]{36}", "status": "unverified", "guess": "path of a project's own page" },
+  "createUrl": { "value": "https://claude.ai/projects/create", "status": "unverified", "guess": "the create-project form; empty = click createButton on the list instead" },
+  "createButton": { "value": "^\\+?\\s*(create|new) project$", "status": "unverified", "guess": "the list page's create button (used only when createUrl is empty)" },
+  "createNameField": { "value": "name your project|project name|what are you working on", "status": "unverified", "guess": "the name input on the create form, matched on placeholder, label or aria-label" },
+  "createSubmit": { "value": "^create project$", "status": "unverified", "guess": "the create form's submit button" },
+  "instructionsOpen": { "value": "^(set|edit) (project )?instructions$|^instructions$|^edit$", "status": "unverified", "guess": "the control in the project's Instructions section that opens the editor" },
+  "instructionsDialog": { "value": "[role=dialog]", "status": "unverified", "guess": "the editor opens as a modal dialog" },
+  "instructionsField": { "value": "textarea", "status": "unverified", "guess": "the editor's text field, inside the dialog" },
+  "instructionsFieldKind": { "value": "textarea", "status": "unverified", "guess": "textarea (value) or contenteditable (innerText); decides how cc reads and writes it" },
+  "instructionsSave": { "value": "^save( instructions)?$", "status": "unverified", "guess": "the editor's Save/confirm button, inside the dialog" },
+  "closeKey": { "value": "Escape", "status": "unverified", "guess": "closes the editor without saving after a read (no button is clicked for that)" },
+  "signedOutMarkers": { "value": ["continue with google", "log in", "sign in"], "status": "unverified", "guess": "copied from claude.json / claude-code.json" },
+  "humanCheck": {
+    "value": {
+      "titles": ["just a moment", "attention required", "verify you are human", "security check"],
+      "bodyMarkers": ["verify you are human", "checking your browser", "performing security verification", "complete the security check"],
+      "frameHosts": ["challenges.cloudflare.com"]
+    },
+    "status": "unverified", "guess": "copied from claude-code.json (those were seen live for claude.ai/code on 2026-10-17)"
+  },
+  "timing": {
+    "value": { "pageMs": 45000, "elementMs": 20000, "listStableChecks": 3, "pollMs": 800, "settleMs": 1500, "readBackAttempts": 4, "readBackDelayMs": 2500 },
+    "status": "unverified", "guess": "timeouts and waits; every poll is 500 ms or slower (CLAUDE.md rule 5)"
+  }
+}

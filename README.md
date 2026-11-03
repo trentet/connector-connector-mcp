@@ -58,6 +58,27 @@ Run the commands in PowerShell in the cc repo folder on the HELM host.
 
 After that the account's sign-in keeps itself fresh exactly like the original one. If it is ever signed out (`browser check` says `NO`), run step 3 again.
 
+## Project instructions on a claude.ai account (`cc settings`)
+`cc settings apply --account <id>` makes sure a claude.ai account has the Project(s) its entry in `registry/accounts.json` declares, with the instructions taken from a text file (for a new account: a Project "HELM" holding HELM's loader stub). `verify` only compares. cc never prints the text: only its length and a sha256 prefix. What it may click is listed in CLAUDE.md rule 9 (create project, the instructions editor and its Save; never Delete, Share, Upgrade, sign-in or connector controls). Design: `docs/SPEC.md` section 12.
+
+Run the commands in PowerShell in the deployed cc folder on the HELM host.
+
+1. **[SCRIPTED]** The account is signed in: `node bin\cc.mjs browser check --account <id>`. Expected `claude   signed in: yes`. If it says `NO`, run `node bin\cc.mjs browser signin --account <id>` first (see "More than one account" above).
+2. **[MANUAL]** Only if the instructions file is not on the host yet: in File Explorer open `D:\GDrive\HELM\LOADERS\` (Google Drive for desktop keeps it in sync with Drive's `/HELM/LOADERS/`) and check that the loader stub is there as a plain text file. Its exact name is the `path` in the account's `settings` block. Nothing is copied into cc; cc reads the file each run.
+3. **[MANUAL]** Declare it once per account (already done for `ulostthegamers`): a reviewed pull request to `registry/accounts.json`, normally made by a Claude thread, adds `"settings": { "projects": [ { "name": "HELM", "instructions": { "type": "file", "path": "D:\\GDrive\\HELM\\LOADERS\\<stub file name>" } } ] }`. `name` is the project's exact name on claude.ai; `path` is absolute (`%VAR%` allowed). Never paste the text itself into the registry.
+4. **[SCRIPTED]** Check without a browser: `node bin\cc.mjs settings apply --account <id> --dry-run`. Expected: `dry-run  apply HELM: would open project "HELM" (or create it ...) and make its instructions N characters, sha256 <12 hex>; no browser opened`. A missing or empty file, an account without `settings`, or a name with stray spaces is refused here.
+5. **[SCRIPTED]** Apply: `node bin\cc.mjs settings apply --account <id>`. One browser opens on a copy of the account's master profile, creates the project if no project has exactly that name, sets the instructions only if they differ, reopens the project and reads them back. Expected last lines: `ok       apply HELM: project created; instructions set; read back N characters, sha256 <12 hex>` (or `instructions updated` / `instructions already match; nothing written`), then `end ... ok`, exit code 0.
+6. **[SCRIPTED]** Prove it at any time (read-only): `node bin\cc.mjs settings verify --account <id>`. Expected `ok       verify HELM: instructions match, N characters, sha256 <12 hex>`.
+7. **[MANUAL]** Only if step 5 or 6 printed `STOPPED (human-check)`: claude.ai showed a human check. Nothing was clicked. Open claude.ai once in a normal Chrome signed in to that account, pass the check there, then run `node bin\cc.mjs browser seed --from-port 9222 --account <id>` and repeat step 5. `STOPPED (signed-out)`: repeat step 1.
+8. **[MANUAL]** Only if a run says `no control for ...`, `did not open` or `fix data/selectors/claude-settings.json`: claude.ai's page differs from what cc expects. Fix the named entry in `data/selectors/claude-settings.json` (a data edit, no code), set its `status` to `"verified"` and `seen` to the date, and repeat step 4 and 5.
+
+Every run notes how many entries in `data/selectors/claude-settings.json` are still `unverified` (all of them until the first read-only check of the live page). A project name that differs only in case or spacing from an existing one is refused rather than duplicated; rename one by hand on claude.ai or fix `name`.
+
+## Logs
+Every host-side run appends to `<helm data base>\logs\<category>\<name>.log` (`<helm data base>` = `%LOCALAPPDATA%\HELM\connector-connector-mcp`, or `CC_LOG_DIR` when set, which then replaces `<helm data base>\logs`). Lines are timestamped (UTC, ISO 8601) and go through the Redactor: no secret, token, password, cookie or instruction text is ever written. Categories:
+- `settings\<account>.log`: `cc settings` (start, project count, create/write decisions with length and sha256 prefix, read-back result, errors, end).
+- `reauth.log`: `cc reauth` (older layout, directly under `logs`); `scheduled-reauth.log`: the scheduled renewal task.
+
 ## Google OAuth renewal (`cc reauth`)
 Connectors that talk to Google (the Drive and Audio connectors) hold a refresh token that Google expires after 7 days while the OAuth app is in Testing status. cc renews them; connector repos carry no renewal script. Design and safety properties: `docs/SPEC.md` section 10.
 1. **[SCRIPTED]** Declare it in the connector's registry entry (`registry/connectors.json`): `googleOAuth: { secretsDir, scopes, account: { vaultLabel }, host?, restart?, health? }`. `host` (`ssh`, `keyFile`, `os`, optional `transport`) is only for a connector whose server runs on another machine (`transport: "gate"`, below, is for a NAS login that allows only `put` and `health`); `restart` and `health` run on the connector's own host. Only references and paths, never a secret value.

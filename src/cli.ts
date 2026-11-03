@@ -18,6 +18,7 @@ cc browser check [--account <id>]         (clone the account's master into a thr
 cc audit --google [--root <dir> ...] [--github <owner>] [--registry <path>] [--json]   (find repos that use Google OAuth but have no registry googleOAuth block)
 cc audit --scan <repo-root> [--json]     (find per-repo registration / Google-reauth scripts that cc replaces)
 cc reauth [connector-id ...|--all] [--include-test] [--dry-run] [--only-if-older-than <days>] [--registry <path>] [--json]   (renew the Google OAuth token of connectors with a googleOAuth registry block; --only-if-older-than skips one renewed more recently, for a second renewer)
+cc settings <apply|verify> --account <id> [--dry-run] [--json]   (claude.ai Projects of an account: create the declared project if missing and set its instructions from the referenced file (apply), or compare read-only (verify); prints only length and sha256 prefix, never the text)
 cc threads [--json]                       (read-only: list the claude.ai/code threads as id, status, title, and say plainly what could and could not be read; one browser, never writes to claude.ai)
 cc <op> [connector-id ...|--all] [--platform <claude|chatgpt|grok ...>|all] [--account <id>] [--dry-run] [--include-test] [--registry <path>] [--if-existing skip|update|fail] [--json]
 ops: ${OPS.join(", ")}`;
@@ -94,6 +95,38 @@ export async function main(argv: string[]): Promise<number> {
     if (parsed.json) console.log(JSON.stringify(res, null, 2));
     else for (const i of res.items) console.log(`${i.status.padEnd(8)} reauth ${i.connector}${i.detail ? " - " + i.detail : ""}`);
     return res.ok ? 0 : 1;
+  }
+  if (args[0] === "settings") {
+    const sub = args[1];
+    const usage = "usage: cc settings <apply|verify> --account <id> [--dry-run] [--json]";
+    if (sub !== "apply" && sub !== "verify") { console.error(usage); return 2; }
+    const ai = args.indexOf("--account"), accountId = ai >= 0 ? args[ai + 1] : undefined;
+    if (!accountId || accountId.startsWith("--")) { console.error(`${usage}\n--account is required (see \`cc accounts\`); settings are never applied to an implicit account`); return 2; }
+    const known = new Set(["apply", "verify", "--account", accountId, "--dry-run", "--json"]);
+    const stray = args.slice(2).filter((a) => !known.has(a));
+    if (stray.length) { console.error(`${usage}\nunknown argument(s): ${stray.join(" ")}`); return 2; }
+    try {
+      const { runSettings, settingsLogFile } = await import("./core/settings.js");
+      const { claudeSettingsDriver, loadSettingsSpec, BlockedError } = await import("./adapters/claudeSettings.js");
+      const acc = pickAccount(loadAccounts(), accountId);
+      const spec = loadSettingsSpec();
+      const json = args.includes("--json");
+      const res = await runSettings(sub, acc, {
+        dryRun: args.includes("--dry-run"),
+        unverifiedSelectors: spec.unverified,
+        logFile: settingsLogFile(acc.id),
+        readBack: { attempts: spec.timing.readBackAttempts, delayMs: spec.timing.readBackDelayMs },
+        log: json ? undefined : (l) => console.log(l),
+        open: async () => {
+          const { masterDir, openSession } = await import("./browser/chrome.js");
+          const session = await openSession({ master: accountMaster(acc, masterDir()) });
+          session.touched?.add("claude"); // lets rotated claude.ai sign-in cookies merge back into this account's master
+          return { page: claudeSettingsDriver(session.page, spec), close: () => session.close(), blockedKind: (e) => (e instanceof BlockedError ? e.kind : undefined) };
+        },
+      });
+      if (json) console.log(JSON.stringify(res, null, 2));
+      return res.ok ? 0 : 1;
+    } catch (e) { console.error(`settings ${sub}: ${(e as Error).message}`); return 1; }
   }
   if (args[0] === "threads") {
     const { openSession } = await import("./browser/chrome.js");
