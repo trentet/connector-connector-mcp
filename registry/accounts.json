@@ -17,6 +17,14 @@
       "platforms": ["claude"],
       "master": "browser-master-trentfromrid",
       "signIn": { "google": { "vaultLabel": "Google Account (trentfromrid@gmail.com)" } }
+    },
+    {
+      "id": "ulostthegamers",
+      "description": "Third claude.ai account (added 2026-11-03)",
+      "email": "ulostthegamers@gmail.com",
+      "platforms": ["claude"],
+      "master": "browser-master-ulostthegamers",
+      "signIn": { "google": { "vaultLabel": "Google Account (ulostthegamers@gmail.com)" } }
     }
   ]
 }
