@@ -6,7 +6,7 @@ import { coverage, formatReport as formatGoogleReport, scanGithub, scanLocal, ty
 import { run } from "./core/runner.js";
 import { reauth } from "./core/reauth.js";
 import { checkMaster, seedMaster } from "./browser/seed.js";
-import { accountMaster, loadAccounts, pickAccount } from "./core/accounts.js";
+import { accountMaster, loadAccounts, pickAccount, type AccountDef, type Accounts } from "./core/accounts.js";
 import { formatReport, runThreads } from "./threads.js";
 import { PLATFORMS, type Op, type Platform } from "./core/types.js";
 
@@ -19,7 +19,7 @@ cc audit --google [--root <dir> ...] [--github <owner>] [--registry <path>] [--j
 cc audit --scan <repo-root> [--json]     (find per-repo registration / Google-reauth scripts that cc replaces)
 cc reauth [connector-id ...|--all] [--include-test] [--dry-run] [--only-if-older-than <days>] [--registry <path>] [--json]   (renew the Google OAuth token of connectors with a googleOAuth registry block; --only-if-older-than skips one renewed more recently, for a second renewer)
 cc settings <apply|verify> --account <id> [--dry-run] [--json]   (claude.ai Projects of an account: create the declared project if missing and set its instructions from the referenced file when they are empty (apply; different existing instructions are refused, never overwritten), or compare read-only (verify); prints only length and sha256 prefix, never the text)
-cc threads [--json]                       (read-only: list the claude.ai/code threads as id, status, title, and say plainly what could and could not be read; one browser, never writes to claude.ai)
+cc threads [--account <id>] [--json]                       (read-only: list the claude.ai/code threads as id, status, title, and say plainly what could and could not be read; one browser, never writes to claude.ai)
 cc <op> [connector-id ...|--all] [--platform <claude|chatgpt|grok ...>|all] [--account <id>] [--dry-run] [--include-test] [--registry <path>] [--if-existing skip|update|fail] [--json]
 ops: ${OPS.join(", ")}`;
 
@@ -62,6 +62,19 @@ export function parseFlags(args: string[]): ParsedFlags | { error: string } {
     else ids.push(a);
   }
   return { ids, platforms, dryRun, includeTest, json, ifExisting, registryPath, onlyIfOlderThanDays, account };
+}
+
+const THREADS_USAGE = "usage: cc threads [--account <id>] [--json]";
+/** `cc threads` arguments (issue #81). No --account reads the default account (or CC_ACCOUNT), as every other op; anything unknown is an error and nothing is opened. */
+export function parseThreadsArgs(rest: string[], accounts: Accounts, env: NodeJS.ProcessEnv = process.env): { account: AccountDef; json: boolean } | { error: string } {
+  let id: string | undefined, json = false;
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    if (a === "--json") json = true;
+    else if (a === "--account") { const v = rest[++i]; if (!v || v.startsWith("--")) return { error: `${THREADS_USAGE}\n--account needs an account id (see \`cc accounts\`)` }; id = v; }
+    else return { error: `${THREADS_USAGE}\nunknown argument: ${a}` };
+  }
+  try { return { account: pickAccount(accounts, id, env), json }; } catch (e) { return { error: `${THREADS_USAGE}\n${(e as Error).message}` }; }
 }
 
 export async function main(argv: string[]): Promise<number> {
@@ -130,9 +143,11 @@ export async function main(argv: string[]): Promise<number> {
     } catch (e) { console.error(`settings ${sub}: ${(e as Error).message}`); return 1; }
   }
   if (args[0] === "threads") {
-    const { openSession } = await import("./browser/chrome.js");
-    const rep = await runThreads({ open: () => openSession() });
-    if (args.includes("--json")) console.log(JSON.stringify(rep, null, 2));
+    const pa = parseThreadsArgs(args.slice(1), loadAccounts());
+    if ("error" in pa) { console.error(pa.error); return 2; }
+    const { masterDir, openSession } = await import("./browser/chrome.js");
+    const rep = await runThreads({ open: () => openSession({ master: accountMaster(pa.account, masterDir()) }), account: pa.account.id });
+    if (pa.json) console.log(JSON.stringify(rep, null, 2));
     else for (const l of formatReport(rep)) console.log(l);
     return rep.ok ? 0 : 1;
   }
