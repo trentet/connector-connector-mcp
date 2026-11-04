@@ -1,3 +1,4 @@
+import { packageVersion } from "./version.js";
 import { timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -87,7 +88,7 @@ export function unknownArgs(body: unknown): string[] | undefined {
 }
 
 export function buildMcpServer(opts: AppOptions): McpServer {
-  const server = new McpServer({ name: "connector-connector-mcp", version: opts.version ?? "0.0.1" });
+  const server = new McpServer({ name: "connector-connector-mcp", version: opts.version ?? packageVersion() });
   const runFn = opts.runFn ?? ((reg, req) => import("../adapters/index.js").then(({ ADAPTERS }) => coreRun(reg, req, { adapters: ADAPTERS })));
   server.registerTool(
     "cc_list_registry",
@@ -166,7 +167,7 @@ export function buildMcpServer(opts: AppOptions): McpServer {
 export function buildApp(opts: AppOptions) {
   const host = opts.host ?? "127.0.0.1";
   const app = createMcpExpressApp({ host, allowedHosts: opts.allowedHosts });
-  app.get("/health", (_req, res) => { res.status(200).json({ status: "ok", service: "connector-connector-mcp", version: opts.version ?? "0.0.1" }); });
+  app.get("/health", (_req, res) => { res.status(200).json({ status: "ok", service: "connector-connector-mcp", version: opts.version ?? packageVersion() }); });
   app.post("/mcp", requireToken(opts.token), async (req, res) => {
     const extra = unknownArgs(req.body);
     if (extra) {

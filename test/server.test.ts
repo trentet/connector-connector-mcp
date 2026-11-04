@@ -1,6 +1,8 @@
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { buildApp } from "../src/server/app.js";
+import { packageVersion } from "../src/server/version.js";
 import type { ReauthRequest } from "../src/core/reauth.js";
 import type { RunRequest } from "../src/core/types.js";
 
@@ -35,6 +37,18 @@ describe("http front door", () => {
     expect((await rpc(init, { "x-api-key": "wrong" })).status).toBe(401);
     expect((await rpc(init, { "x-api-key": TOKEN })).status).toBe(200);
     expect((await fetch(base + `/mcp?token=${TOKEN}`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify(init) })).status).toBe(200);
+  });
+  it("health reports the version in package.json, not the 0.0.1 fallback (buildApp's default; the entry point passes none)", async () => {
+    const pkg = JSON.parse(readFileSync("package.json", "utf8")).version as string;
+    expect(packageVersion()).toBe(pkg);
+    expect(pkg).not.toBe("0.0.1");
+    const app = buildApp({ token: TOKEN, registryPath: "registry/connectors.json", allowedHosts: ["localhost", "127.0.0.1"] }); // no version given: the default must be the real one
+    const srv = app.listen(0, "127.0.0.1");
+    await new Promise((r) => srv.once("listening", r));
+    try {
+      const body = await (await fetch(`http://127.0.0.1:${(srv.address() as AddressInfo).port}/health`)).json() as { version: string };
+      expect(body.version).toBe(pkg);
+    } finally { srv.close(); }
   });
   it("lists exactly the five tools, and cc_run / cc_reauth / cc_signin expose no url/token/secret argument", async () => {
     const r = await parse(await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list" }, { "x-api-key": TOKEN }));
