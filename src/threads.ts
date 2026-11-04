@@ -26,6 +26,8 @@ export interface Thread { id: string; title: string; status: string }
 export type BlockerKind = "human-check" | "signed-out" | "unexpected-page" | "list-not-found" | "error";
 
 export interface ThreadsReport {
+  /** The account id the list was read in (cc threads --account, issue #81); absent when the caller named none. */
+  account?: string;
   /** True only when the list was read completely (paging finished, count stable) and nothing blocked the run. */
   ok: boolean;
   threads: Thread[];
@@ -188,6 +190,8 @@ export interface RunThreadsOptions {
   /** Opens the one browser. Production: openSession from src/browser/chrome.js (lane, admission gate, cloned master). */
   open: () => Promise<BrowserSession>;
   spec?: ThreadsSpec;
+  /** Only named in the report, so a reader knows which account the list belongs to. The caller opens that account's master. */
+  account?: string;
 }
 
 /**
@@ -203,7 +207,7 @@ export async function runThreads(o: RunThreadsOptions): Promise<ThreadsReport> {
   const started = Date.now();
   const spec = o.spec ?? loadThreadsSpec();
   const empty = (kind: BlockerKind, detail: string): ThreadsReport => ({
-    ok: false, threads: [], list: { count: 0, complete: "unknown", pagingClicks: 0, rowsBeforePaging: 0, statusCounts: {}, notes: [] },
+    ...(o.account ? { account: o.account } : {}), ok: false, threads: [], list: { count: 0, complete: "unknown", pagingClicks: 0, rowsBeforePaging: 0, statusCounts: {}, notes: [] },
     cloudflare: { clearanceCookie: spec.cloudflare.cookie, inMasterProfile: false, afterRun: false },
     timing: { totalMs: Date.now() - started, browserStartMs: 0, pageLoadMs: 0, listReadMs: 0, waitedForReauthMs: 0 }, browsers: 0, blocker: { kind, detail },
   });
@@ -213,6 +217,7 @@ export async function runThreads(o: RunThreadsOptions): Promise<ThreadsReport> {
   try {
     const report = await readThreads(session, spec, { browserStartMs: Date.now() - b0, waitedForReauthMs: 0 });
     report.timing.totalMs = Date.now() - started;
+    if (o.account) report.account = o.account;
     return report;
   } finally { await session.close().catch(() => {}); }
 }
@@ -230,6 +235,7 @@ export function formatReport(r: ThreadsReport): string[] {
   out.push("");
   out.push("what could and could not be read:");
   if (r.blocker) out.push(`  STOPPED (${r.blocker.kind}): ${r.blocker.detail}`);
+  if (r.account) out.push(`  account: ${r.account}`);
   out.push(`  list: ${r.list.count} thread(s); ${r.list.rowsBeforePaging} on first load, ${r.list.pagingClicks} click(s) on the paging button; complete: ${r.list.complete}`);
   const sc = Object.entries(r.list.statusCounts).map(([k, v]) => `${k}: ${v}`).join(", ");
   if (sc) out.push(`  statuses: ${sc}`);

@@ -97,6 +97,18 @@ async function setup(portBase: number, withClearance: boolean) {
 const specFor = (p: string): ThreadsSpec => ({ ...real, url: origin + p, hosts: ["127.0.0.1"], cloudflare: { ...real.cloudflare, hosts: ["127.0.0.1"] }, timeouts: { rowsMs: 4000, listStableChecks: 2 }, showMore: { ...real.showMore, maxClicks: 4, growWaitMs: 3000 } });
 const open = async () => { const s = await openSession({ artifactsDir: tmp("cc-art-") }); opened.push(s); return s; };
 
+describe("cc threads names the account it read (issue #81)", () => {
+  it("the report carries the account id and the text says it; without one nothing is added", async () => {
+    const failing = async () => { throw new Error("no browser in this test"); };
+    const withAcc = await runThreads({ open: failing as never, account: "third", spec: real });
+    expect(withAcc.account).toBe("third");
+    expect(formatReport(withAcc).join("\n")).toContain("account: third");
+    const without = await runThreads({ open: failing as never, spec: real });
+    expect(without.account).toBeUndefined();
+    expect(formatReport(without).join("\n")).not.toContain("account:");
+  });
+});
+
 describe.skipIf(!CHROME)("cc threads (real Chromium, fake claude.ai/code)", () => {
   it("reads every page of a paged list, reports status per thread, the cookie by name only, one browser, and never writes", async () => {
     await setup(9560, true);

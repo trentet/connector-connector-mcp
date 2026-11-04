@@ -1,6 +1,6 @@
 {
   "name": "connector-connector-mcp",
-  "version": "0.2.16",
+  "version": "0.2.17",
   "private": true,
   "type": "module",
   "description": "Add, remove, update, list and verify MCP connectors on claude.ai, ChatGPT and Grok.",
