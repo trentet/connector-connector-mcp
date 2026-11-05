@@ -58,5 +58,12 @@
     "refresh": [
       "__Secure-next-auth.session-token"
     ]
+  },
+  "refresh": {
+    "directButton": "^Refresh$",
+    "menuButton": "^(Manage|More actions)$",
+    "menuItem": "^Refresh$",
+    "verified": false,
+    "source": "OpenAI official custom MCP documentation 2026-11-05. Live signed-in UI unverified; runtime requires exactly one named control."
   }
 }

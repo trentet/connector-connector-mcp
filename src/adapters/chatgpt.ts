@@ -5,6 +5,7 @@ import { guarded } from "../browser/chrome.js";
 import { sleep } from "../browser/dom.js";
 import { deleteCredential, getCredential, waitForCredential } from "../core/vaultClient.js";
 import type { AdapterContext, AdapterOutcome, PlatformAdapter } from "./types.js";
+import { requestChatgptRefresh } from "./chatgptRefresh.js";
 
 const sel = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "chatgpt.json"), "utf8"));
 const rx = (p: string) => new RegExp(p, "i");
@@ -59,11 +60,12 @@ async function login(ctx: AdapterContext): Promise<void> {
   });
 }
 
-async function openPlugins(ctx: AdapterContext): Promise<Page> {
+async function openPlugins(ctx: AdapterContext, allowLogin = true): Promise<Page> {
   const s = await ctx.session();
   await s.page.goto(sel.pluginsUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
   await sleep(3500);
   if (!(await signedIn(s.page))) {
+    if (!allowLogin) throw new Error("ChatGPT is signed out; metadata refresh needs an authenticated session and will not initiate login or SMS verification");
     await login(ctx);
     await s.page.goto(sel.pluginsUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
     await sleep(3500);
@@ -91,8 +93,8 @@ async function readInstalled(ctx: AdapterContext): Promise<string[]> {
   }, heading);
 }
 /** Opens the plugin's own page from the Installed list and checks the heading, so nothing is clicked on the wrong plugin. */
-async function openPluginPage(ctx: AdapterContext, name: string): Promise<Page> {
-  const page = await openPlugins(ctx);
+async function openPluginPage(ctx: AdapterContext, name: string, allowLogin = true): Promise<Page> {
+  const page = await openPlugins(ctx, allowLogin);
   await page.locator("section a", { hasText: new RegExp("^\\s*" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*$") }).first().click();
   await page.waitForURL(/\/plugins\/[^/]+/, { timeout: 15000 });
   const onPage = await page.waitForFunction((n) => ((document.querySelector("main") as HTMLElement | null)?.innerText ?? "").split("\n").some((l) => l.trim() === n), name, { timeout: 12000, polling: 500 }).then(() => true, () => false);
@@ -183,7 +185,29 @@ export function chatgptAdapter(): PlatformAdapter {
       for (let i = 0; i < 5; i++) { if (!(await pageHasName(ctx, c.name))) return { status: "ok", detail: `"${c.name}" deleted` }; await sleep(3000); }
       return { status: "error", detail: `confirmed delete but "${c.name}" is still in the Installed list` };
     },
-    async update() { return { status: "not-implemented", detail: "chatgpt update not yet mapped" }; },
+    async update(ctx, c): Promise<AdapterOutcome> {
+      // Refs issue #83. Refresh ONLY the existing app's metadata; do not delete,
+      // reinstall, sign in or alter endpoint/authentication configuration.
+      const s = await ctx.session();
+      const page = await guarded(s, "chatgpt-refresh-open-plugin", ctx.redact, () => openPluginPage(ctx, c.name, false));
+      const before = await pageConnectionState(page);
+      if (before !== "connected") {
+        return { status: "error", detail: "Plugin must be Connected before metadata refresh; state is " + before };
+      }
+      const route = await guarded(s, "chatgpt-refresh-metadata", ctx.redact, () =>
+        requestChatgptRefresh(page, sel.refresh)
+      );
+      await sleep(1500);
+      const after = await pageConnectionState(page);
+      if (after !== "connected") {
+        return { status: "error", detail: "Refresh control was clicked (" + route + ") but plugin is not confirmed Connected afterward (" + after + ")" };
+      }
+      // The Installed details view does not establish what inputSchema ChatGPT
+      // has approved. A new ChatGPT conversation must read browser_open_session
+      // and verify that the mandatory headless boolean is exposed before claiming
+      // the connector is fixed.
+      return { status: "skipped", detail: "Refresh control clicked (" + route + ") and plugin remains Connected. Tool schema not verified; open a new ChatGPT conversation and verify the required input fields before claiming success." };
+    },
     async add(ctx, c, ifExisting): Promise<AdapterOutcome> {
       const page = await openPlugins(ctx);
       const s = await ctx.session();
