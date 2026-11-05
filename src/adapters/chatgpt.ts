@@ -1,10 +1,11 @@
-import fs from "node:fs";
+﻿import fs from "node:fs";
 import path from "node:path";
 import type { Page } from "patchright";
 import { guarded } from "../browser/chrome.js";
 import { sleep } from "../browser/dom.js";
 import { deleteCredential, getCredential, waitForCredential } from "../core/vaultClient.js";
 import type { AdapterContext, AdapterOutcome, PlatformAdapter } from "./types.js";
+import { refreshPluginUI } from "./chatgptRefresh.js";
 
 const sel = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "chatgpt.json"), "utf8"));
 const rx = (p: string) => new RegExp(p, "i");
@@ -183,7 +184,25 @@ export function chatgptAdapter(): PlatformAdapter {
       for (let i = 0; i < 5; i++) { if (!(await pageHasName(ctx, c.name))) return { status: "ok", detail: `"${c.name}" deleted` }; await sleep(3000); }
       return { status: "error", detail: `confirmed delete but "${c.name}" is still in the Installed list` };
     },
-    async update() { return { status: "not-implemented", detail: "chatgpt update not yet mapped" }; },
+    async update(ctx, c): Promise<AdapterOutcome> {
+      if (!(await pageHasName(ctx, c.name))) return { status: "error", detail: "Target plugin is not in Installed list; no changes made" };
+      const s = await ctx.session();
+      const page = await openPluginPage(ctx, c.name);
+      const result = await guarded(s, "chatgpt-refresh", ctx.redact, () => refreshPluginUI(page, c.name, sel.update));
+      if (result.reviewRequired) return {
+        status: "error", detail: "Refresh opened a review dialog for this plugin; no confirmation submitted. User review required.",
+      };
+      if (!result.uiConfirmed) return {
+        status: "error", detail: "Refresh was clicked, but no UI success/readback was available. Tool schema freshness NOT verified.",
+      };
+      const state = await pageConnectionState(page);
+      if (state !== "connected") return {
+        status: "error", detail: "Refresh confirmed by UI, but plugin connection state is no longer Connected.",
+      };
+      return {
+        status: "ok", detail: "ChatGPT UI confirmed Refresh and plugin remains Connected. Verify new tool input schemas in a new conversation; the UI does not expose enough to prove schema equality.",
+      };
+    },
     async add(ctx, c, ifExisting): Promise<AdapterOutcome> {
       const page = await openPlugins(ctx);
       const s = await ctx.session();
