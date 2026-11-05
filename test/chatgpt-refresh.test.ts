@@ -1,4 +1,4 @@
-﻿import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "vitest";
 import type { Page } from "patchright";
 import { refreshPluginUI, type RefreshSelectors } from "../src/adapters/chatgptRefresh.js";
 
@@ -99,5 +99,13 @@ describe("ChatGPT plugin native Refresh issue 83", () => {
     const { page, clicks } = fixture({ dialog: "Delete this plugin?" });
     await expect(refreshPluginUI(page, "Patchright MCP", config)).rejects.toThrow("Unexpected confirmation");
     expect(clicks).toEqual(["refresh"]);
+  });
+});
+describe("ChatGPT settings plugin management page", () => {
+  it("supports the observed Settings > Plugins detail route and Refresh tools button", async () => {
+    const { page, clicks } = fixture({url:"https://chatgpt.com/settings/plugins-settings/plugin_asdk_app_fixture", afterNotice:"Plugin refreshed"});
+    const r = await refreshPluginUI(page, "Patchright MCP", config, { attempts: 1 });
+    expect(clicks).toEqual(["refresh"]);
+    expect(r.uiConfirmed).toBe(true);
   });
 });

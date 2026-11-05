@@ -28,7 +28,7 @@ export async function refreshPluginUI(
   poll: { attempts?: number; waitMs?: number } = {},
 ): Promise<RefreshResult> {
   const u = new URL(page.url());
-  if (u.hostname !== "chatgpt.com" || !/^\/plugins\/[^/]+\/?$/.test(u.pathname)) {
+  if (u.hostname !== "chatgpt.com" || !/^\/(?:plugins\/[^/]+|settings\/plugins-settings\/plugin_[^/]+)\/?$/.test(u.pathname)) {
     throw new Error("Refusing Refresh outside ChatGPT's plugin detail page");
   }
   const main = page.locator("main");

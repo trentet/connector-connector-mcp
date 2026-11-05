@@ -12,6 +12,9 @@ const sel = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "chatgp
 const rx = (p: string) => new RegExp(p, "i");
 
 async function signedIn(page: Page): Promise<boolean> {
+  // A redirect to an authentication route is definitive signed-out evidence.
+  const current = new URL(page.url());
+  if (current.hostname !== "chatgpt.com" || /^\/(?:auth\/login|login|auth\/)/i.test(current.pathname)) return false;
   const body = (await page.evaluate(() => document.body.innerText.slice(0, 1200)).catch(() => "")).toLowerCase();
   return !(sel.signedOutMarkers as string[]).some((m) => body.includes(m));
 }
@@ -21,7 +24,8 @@ async function signedIn(page: Page): Promise<boolean> {
  * (CC_CHATGPT_OTP_FILE) the caller provides a fresh six-digit code for the
  * browser field and the short-lived input is deleted immediately after read.
  * Historical Vault delivery remains available only when direct mode is unset.
- */async function login(ctx: AdapterContext): Promise<void> {
+ */
+async function login(ctx: AdapterContext): Promise<void> {
   const s = await ctx.session();
   const page = s.page;
   const google = await getCredential(sel.loginVaultLabel);
@@ -113,6 +117,39 @@ async function openPluginPage(ctx: AdapterContext, name: string): Promise<Page> 
   return page;
 }
 
+/**
+ * Installed plugin management is under Settings > Plugins, NOT the public
+ * Plugins directory. Read-only discovery on 2026-11-05 verified this route.
+ * Refuse duplicate/near-match targets and verify the exact detail heading
+ * BEFORE any refresh action can be attempted.
+ */
+async function openPluginSettingsDetail(ctx: AdapterContext, name: string): Promise<Page> {
+  const page = (await ctx.session()).page;
+  await page.goto(sel.update.managementUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+  await sleep(3000);
+  if (new URL(page.url()).pathname !== "/settings/plugins-settings" || !(await signedIn(page))) {
+    throw new Error("Not on an authenticated ChatGPT Plugins settings page");
+  }
+  const hrefs: string[] = await page.locator('main a[href*="/settings/plugins-settings/plugin_"]').evaluateAll(
+    (anchors, target) => anchors
+      .filter((a) => (a.textContent ?? "").trim().startsWith(target))
+      .map((a) => (a as HTMLAnchorElement).href), name,
+  );
+  if (hrefs.length !== 1) throw new Error("The requested installed plugin cannot be uniquely identified");
+  const detail = new URL(hrefs[0]);
+  if (detail.hostname !== "chatgpt.com" || !/^\/settings\/plugins-settings\/plugin_[^/]+$/.test(detail.pathname)) {
+    throw new Error("Unexpected ChatGPT plugin settings detail URL");
+  }
+  await page.goto(detail.href, { waitUntil: "domcontentloaded", timeout: 45000 });
+  await sleep(2200);
+  if ((await page.getByRole("heading", { name, exact: true }).count()) !== 1) {
+    throw new Error("Plugin settings detail heading differs from the requested target");
+  }
+  if (!/^connected on$/im.test(await page.locator("main").innerText())) {
+    throw new Error("Plugin detail does not show the expected Connected on state");
+  }
+  return page;
+}
 type ConnectionState = "connected" | "not-connected" | "unreadable";
 /**
  * Connection state on a plugin's own page: a "Connected" label when ChatGPT completed its handshake with the server,
@@ -197,25 +234,23 @@ export function chatgptAdapter(): PlatformAdapter {
       return { status: "error", detail: `confirmed delete but "${c.name}" is still in the Installed list` };
     },
     async update(ctx, c): Promise<AdapterOutcome> {
-      if (!(await pageHasName(ctx, c.name))) return { status: "error", detail: "Target plugin is not in Installed list; no changes made" };
       const s = await ctx.session();
-      const page = await openPluginPage(ctx, c.name);
+      const page = await guarded(s, "chatgpt-settings-target", ctx.redact, () => openPluginSettingsDetail(ctx, c.name));
       const result = await guarded(s, "chatgpt-refresh", ctx.redact, () => refreshPluginUI(page, c.name, sel.update));
       if (result.reviewRequired) return {
-        status: "error", detail: "Refresh opened a review dialog for this plugin; no confirmation submitted. User review required.",
+        status: "error", detail: "Refresh opened a review dialog; no confirmation submitted. Operator review required.",
+      };
+      const connected = /^connected on$/im.test(await page.locator("main").innerText());
+      if (!connected) return {
+        status: "error", detail: "Refresh attempted but plugin no longer shows Connected on its settings detail.",
       };
       if (!result.uiConfirmed) return {
-        status: "error", detail: "Refresh was clicked, but no UI success/readback was available. Tool schema freshness NOT verified.",
-      };
-      const state = await pageConnectionState(page);
-      if (state !== "connected") return {
-        status: "error", detail: "Refresh confirmed by UI, but plugin connection state is no longer Connected.",
+        status: "error", detail: "Refresh tools was clicked and plugin remains connected; ChatGPT supplied no success readback. Actual tool schema freshness is unverified.",
       };
       return {
-        status: "ok", detail: "ChatGPT UI confirmed Refresh and plugin remains Connected. Verify new tool input schemas in a new conversation; the UI does not expose enough to prove schema equality.",
+        status: "ok", detail: "Native Refresh tools was confirmed by ChatGPT UI. Plugin remains connected; re-discover tool input schema in a new conversation.",
       };
-    },
-    async add(ctx, c, ifExisting): Promise<AdapterOutcome> {
+    },    async add(ctx, c, ifExisting): Promise<AdapterOutcome> {
       const page = await openPlugins(ctx);
       const s = await ctx.session();
       const a = sel.add;
