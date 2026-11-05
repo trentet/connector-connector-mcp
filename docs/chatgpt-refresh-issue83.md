@@ -21,3 +21,10 @@ Status: development-only, not deployed. The code uses the existing universal Cha
 - Full npm test attempt: BLOCKED before execution, not passed.
 - No live ChatGPT Refresh click occurred; cached schema is not verified updated.
 - Do not deploy to production until the live Plugins page can be inspected after direct authorized sign-in, any selector drift fixed, full tests complete, and account-controller approval obtained under HELM engineering rules.
+
+## Direct one-time code follow-up (operator direction, 5 November 2026)
+The operator requires a direct, non-Vault code handoff, coordinated just before a fresh code is sent. Vault remains appropriate for durable username/password credential pairs, but **must not be required** for a transient login code. Old codes must not be replayed.
+
+The adapter now supports CC_CHATGPT_OTP_FILE, an explicit host-side, per-attempt absolute path to a disposable six-digit handoff. The adapter logs only CHATGPT_OTP_FIELD_READY when the actual verification field is present, polls for the short-lived input, deletes that input before filling the browser field, and never logs the value. The previous Vault path is retained for compatibility, but direct-mode invocation never calls it for OTP. The operator controls when to create the code input; do not prefill or store codes in this repository.
+
+Type-check and 12 focused tests passed, including single consumption, invalid-code rejection, absent-file expiry, wrong plugin, and stale-refresh confirmation. Live login and refresh remain unverified until an actual fresh code is entered and the target UI state is read back.
