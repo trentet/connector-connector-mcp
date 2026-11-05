@@ -1,4 +1,4 @@
-﻿import fs from "node:fs";
+import fs from "node:fs";
 import path from "node:path";
 import type { Page } from "patchright";
 import { guarded } from "../browser/chrome.js";
@@ -6,6 +6,7 @@ import { sleep } from "../browser/dom.js";
 import { deleteCredential, getCredential, signInStore, waitForCredential } from "../core/vaultClient.js";
 import { detectSignInOptions, loadSignInOptions, resolveSignInMethod } from "../core/signInMethod.js";
 import * as acctRule from "../core/accountChoice.js";
+import { waitForEphemeralOtp } from "../core/ephemeralOtp.js";
 import type { AdapterContext, AdapterOutcome, PlatformAdapter } from "./types.js";
 import { refreshPluginUI } from "./chatgptRefresh.js";
 
@@ -18,11 +19,11 @@ async function signedIn(page: Page): Promise<boolean> {
 }
 
 /**
- * Login: "Continue with Google" (Google is already signed in in the profile; password only if asked), then OpenAI's SMS
- * code. The code is never typed by a human into this process: the operator submits it to a one-time vault entry
- * (vault_request_secret) which is read here, entered, and deleted.
- */
-async function login(ctx: AdapterContext): Promise<void> {
+ * ChatGPT login via Google and OpenAI's verification code. In direct mode
+ * (CC_CHATGPT_OTP_FILE) the caller provides a fresh six-digit code for the
+ * browser field and the short-lived input is deleted immediately after read.
+ * Historical Vault delivery remains available only when direct mode is unset.
+ */async function login(ctx: AdapterContext): Promise<void> {
   const s = await ctx.session();
   const page = s.page;
   const google = await getCredential(sel.loginVaultLabel);
@@ -55,12 +56,23 @@ async function login(ctx: AdapterContext): Promise<void> {
     }
     cur = s.context.pages().find((p) => /auth\.openai\.com|chatgpt\.com/.test(p.url())) ?? cur;
     if (/mfa-challenge/.test(cur.url()) || (await cur.locator(sel.login.mfaCodeInput).count())) {
-      const c = await waitForCredential(sel.smsCodeVaultLabel, sel.smsWaitMinutes * 60 * 1000);
-      if (!c) throw new Error(`OpenAI is waiting for an SMS code; timed out after ${sel.smsWaitMinutes} min waiting for vault entry "${sel.smsCodeVaultLabel}" (operator: vault_request_secret with that label)`);
-      const code = (c.password || c.username || "").replace(/\D/g, "");
+      const directPath = process.env.CC_CHATGPT_OTP_FILE;
+      let code: string;
+      if (directPath) {
+        // Browser has displayed the verification field: the operator may now
+        // supply a fresh code directly for this attempt, without HELM Vault.
+        console.error("CHATGPT_OTP_FIELD_READY: waiting for direct six-digit browser input, no Vault");
+        const entered = await waitForEphemeralOtp(directPath, sel.smsWaitMinutes * 60 * 1000);
+        if (!entered) throw new Error("ChatGPT verification code not provided before challenge timeout");
+        code = entered;
+      } else {
+        const cred = await waitForCredential(sel.smsCodeVaultLabel, sel.smsWaitMinutes * 60 * 1000);
+        if (!cred) throw new Error("ChatGPT verification code not received via existing login integration");
+        code = (cred.password || cred.username || "").replace(/\D/g, "");
+      }
       await cur.locator(sel.login.mfaCodeInput).fill(code);
       await cur.getByRole("button", { name: rx(sel.login.mfaContinue) }).click();
-      await deleteCredential(sel.smsCodeVaultLabel).catch(() => {});
+      if (!directPath) await deleteCredential(sel.smsCodeVaultLabel).catch(() => {});
       await sleep(7000);
     }
   });
