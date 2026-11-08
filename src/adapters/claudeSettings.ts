@@ -7,7 +7,7 @@ import { domFill, sleep } from "../browser/dom.js";
  * Page logic for `cc settings` on claude.ai: find a project by exact name, create it, read and write its instructions.
  * Facts about the page (URLs, selectors, waits) are data in data/selectors/claude-settings.json; a UI change is fixed there.
  *
- * What this file may click is bounded by CLAUDE.md rule 9 (operator, 3 Nov 2026) and enforced HERE, in code, so that no data
+ * What this file may click is bounded by cc's own engineering safety default (documented as CLAUDE.md rule 9 — whose operator attribution was fabricated, corrected 8 Nov 2026) and enforced HERE, in code, so that no data
  * edit can widen it: clicks happen only through `guardedClick`, only on the configured claude.ai hosts, only for the four
  * roles below (create-project, create submit, open the instructions editor, its Save), and never on a control whose name
  * matches CLICK_DENY. Projects are opened by navigating to their link, not by clicking. A read closes the editor with a key

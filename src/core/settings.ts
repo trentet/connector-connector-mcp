@@ -7,7 +7,7 @@ import { Redactor } from "./redact.js";
 import { expandEnv } from "./transport.js";
 
 /**
- * `cc settings apply|verify --account <id> [--dry-run]` (CLAUDE.md rule 9, operator 3 Nov 2026): keep the claude.ai Projects that an account's
+ * `cc settings apply|verify --account <id> [--dry-run]` (CLAUDE.md rule 9; its operator attribution was fabricated, corrected 8 Nov 2026 — the bounds are cc's own safety default): keep the claude.ai Projects that an account's
  * registry entry declares in place, with the instruction text from the referenced file. The text never appears in output, logs or errors:
  * cc reports only its length and a sha256 prefix. One browser per call (the injected `open`, in production openSession on the account's
  * master); the page logic is src/adapters/claudeSettings.ts. A result is real only when read back.
