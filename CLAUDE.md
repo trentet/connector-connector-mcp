@@ -64,7 +64,7 @@ cc works in several claude.ai accounts side by side: `registry/accounts.json` (d
 
 ## Commands
 `npm test` · `npm run build` · `node bin/cc.mjs <add|remove|update|verify|list|probe> [ids|--all] --platform <claude|chatgpt|grok ...>|all [--account <id>] [--dry-run] [--registry <path>]` ·
-`node bin/cc.mjs reauth <ids|--all> [--include-test] [--dry-run]` (Google OAuth renewal) · `node bin/cc.mjs browser seed|check|signin [--account <id>]` (master profiles) · `node bin/cc.mjs settings apply|verify --account <id> [--dry-run]` (claude.ai Project instructions, rule 9) · `node bin/cc.mjs accounts` · `node bin/cc.mjs audit --scan <repo-root>` (finds registration-script look-alikes in other repos).
+`node bin/cc.mjs reauth <ids|--all> [--include-test] [--dry-run]` (Google OAuth renewal) · `node bin/cc.mjs browser seed|check|signin [--account <id>]` (master profiles) · `node bin/cc.mjs settings apply|verify --account <id> [--dry-run]` (claude.ai Project instructions, rule 9) · `node bin/cc.mjs plugins apply|verify --account <id> [--dry-run]` (claude.ai account plugins: keep the HELM AMS gate plugins enabled; AGM-DEPLOY-001, docs/SPEC.md §13 — selectors unverified, live-run gated on operator approval + the AMS E2E) · `node bin/cc.mjs accounts` · `node bin/cc.mjs audit --scan <repo-root>` (finds registration-script look-alikes in other repos).
 Host: `CC_BROWSER_MASTER` (cold master profile), `CC_MAX_CONCURRENCY`, `CC_PLATFORM_PARALLELISM`, `CC_ADMIT_MAX_CPU`, `CC_TRACE=1` (per-step timings and admission waits on stderr), `CC_CHROME_PATH`, `CC_DEBUG=1` (redacted step dumps), deploy with `scripts/setup-host.ps1`, `scripts/deploy.mjs`, `scripts/install-tasks.ps1`.
 
 ## Engineering standards (standing direction from the operator)

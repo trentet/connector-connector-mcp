@@ -22,11 +22,23 @@ export interface AccountDef {
    * instruction text stays in its file and never enters the registry, the repo, output or logs.
    */
   settings?: AccountSettings;
+  /**
+   * What `cc plugins apply|verify` keeps enabled on claude.ai for this account (AGM-DEPLOY-001 in trentet/helm-agent-management:
+   * deterministic, code-driven deployment of the HELM AMS gate plugins, so every new thread of the account is governed).
+   * References only — a marketplace repo ("owner/repo") and the plugin names to keep enabled; cc never carries a plugin's contents.
+   */
+  plugins?: AccountPlugins;
 }
 /** A text file on this machine. `%VAR%` is expanded; the result must be an absolute path. A reference, never the content. */
 export interface TextFileRef { type: "file"; path: string }
 export interface ProjectSettings { /** The project's name exactly as claude.ai shows it. */ name: string; instructions: TextFileRef }
 export interface AccountSettings { projects: ProjectSettings[] }
+/**
+ * The HELM AMS gate plugins this account keeps enabled. `marketplace` is the GitHub repo ("owner/repo") that carries the
+ * plugins' .claude-plugin/marketplace.json; `gates` are the plugin names to keep enabled (added from that marketplace).
+ * cc stores the names and the repo only — never a plugin's files — so nothing connector/plugin-specific lives in src/.
+ */
+export interface AccountPlugins { marketplace: string; gates: string[] }
 export interface Accounts { version: 1; default: string; accounts: AccountDef[] }
 
 export const DEFAULT_ACCOUNTS_PATH = () => path.resolve("registry", "accounts.json");
@@ -52,6 +64,7 @@ export function validateAccounts(a: unknown): string[] {
     const g = x?.signIn?.google;
     if (x?.signIn !== undefined && (!g || typeof g.vaultLabel !== "string" || !g.vaultLabel)) errs.push(`${w}.signIn.google.vaultLabel: required when signIn is present`);
     if (x?.settings !== undefined) errs.push(...validateSettings(x.settings, `${w}.settings`));
+    if (x?.plugins !== undefined) errs.push(...validatePlugins(x.plugins, `${w}.plugins`));
   });
   if (defaults > 1) errs.push("accounts: only one account may use the default master (leave out `master`)");
   if (typeof o.default !== "string" || !ids.has(o.default)) errs.push(`default: must name one of the accounts`);
@@ -81,6 +94,39 @@ export function validateSettings(s: unknown, w = "settings"): string[] {
     const extra = Object.keys(p ?? {}).filter((k) => k !== "name" && k !== "instructions");
     if (extra.length) errs.push(`${pw}: unknown field(s) ${extra.join(", ")} (only name and instructions)`);
   });
+  return errs;
+}
+
+/** A GitHub "owner/repo" marketplace reference (what claude.ai's "Add marketplace" field takes). */
+export function marketplaceProblem(m: unknown): string | undefined {
+  if (typeof m !== "string" || !m.trim()) return "a non-empty \"owner/repo\" string";
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/.test(m)) return "the form \"owner/repo\" (a GitHub marketplace repo)";
+  return undefined;
+}
+/** A plugin name as claude.ai lists it: kebab-case, non-empty, no spaces (so cc matches exactly and never guesses a near name). */
+export function pluginNameProblem(name: unknown): string | undefined {
+  if (typeof name !== "string" || !name) return "a non-empty plugin name";
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) return "a plugin name: lowercase letters, digits and dashes (exactly as claude.ai lists it)";
+  return undefined;
+}
+
+export function validatePlugins(p: unknown, w = "plugins"): string[] {
+  const errs: string[] = [];
+  const o = p as Partial<AccountPlugins> | undefined;
+  if (!o || typeof o !== "object") return [`${w}: { "marketplace": "owner/repo", "gates": ["<plugin-name>", ...] }`];
+  const mbad = marketplaceProblem(o.marketplace);
+  if (mbad) errs.push(`${w}.marketplace: ${mbad}`);
+  if (!Array.isArray(o.gates) || o.gates.length === 0) errs.push(`${w}.gates: at least one plugin name is required`);
+  else {
+    const seen = new Set<string>();
+    o.gates.forEach((g, i) => {
+      const bad = pluginNameProblem(g);
+      if (bad) errs.push(`${w}.gates[${i}]: ${bad}`);
+      else if (seen.has(g)) errs.push(`${w}.gates[${i}]: duplicate "${g}"`); else seen.add(g);
+    });
+  }
+  const extra = Object.keys(o).filter((k) => k !== "marketplace" && k !== "gates");
+  if (extra.length) errs.push(`${w}: unknown field(s) ${extra.join(", ")} (only marketplace and gates)`);
   return errs;
 }
 

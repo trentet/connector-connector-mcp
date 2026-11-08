@@ -1,5 +1,5 @@
 {
-  "_note": "The platform accounts cc works in. Each account has its own cold master browser profile (signed in once, then kept fresh), so connectors on one account are never touched by a run for another. `master` is a folder name next to the default master (CC_BROWSER_MASTER, else <helm base>/browser-master); the account without `master` uses the default itself. `signIn.google.vaultLabel` names the vault entry (username = the account's email, password = its Google password) that `cc browser signin` uses to sign the account in to claude.ai with Google. References only: no password or cookie is ever stored here. Optional `settings.projects[] { name, instructions: { type: \"file\", path } }` is what `cc settings apply|verify --account <id>` keeps on claude.ai (CLAUDE.md rule 9): the project with exactly that name, holding the text of that file; the text itself never goes in this file.",
+  "_note": "The platform accounts cc works in. Each account has its own cold master browser profile (signed in once, then kept fresh), so connectors on one account are never touched by a run for another. `master` is a folder name next to the default master (CC_BROWSER_MASTER, else <helm base>/browser-master); the account without `master` uses the default itself. `signIn.google.vaultLabel` names the vault entry (username = the account's email, password = its Google password) that `cc browser signin` uses to sign the account in to claude.ai with Google. References only: no password or cookie is ever stored here. Optional `settings.projects[] { name, instructions: { type: \"file\", path } }` is what `cc settings apply|verify --account <id>` keeps on claude.ai (CLAUDE.md rule 9): the project with exactly that name, holding the text of that file; the text itself never goes in this file. Optional `plugins { marketplace: \"owner/repo\", gates: [\"<plugin-name>\"] }` is what `cc plugins apply|verify --account <id>` keeps enabled on claude.ai (AGM-DEPLOY-001 in trentet/helm-agent-management): the HELM AMS gate plugins, added from that marketplace, so every new thread of the account is governed; references only, never a plugin's contents.",
   "version": 1,
   "default": "main",
   "accounts": [
@@ -8,7 +8,8 @@
       "description": "The original account: claude.ai, ChatGPT and Grok",
       "email": "trenterrolthomas@gmail.com",
       "platforms": ["claude", "chatgpt", "grok"],
-      "signIn": { "google": { "vaultLabel": "Google Account (trenterrolthomas@gmail.com)" } }
+      "signIn": { "google": { "vaultLabel": "Google Account (trenterrolthomas@gmail.com)" } },
+      "plugins": { "marketplace": "trentet/helm-report-templates", "gates": ["helm-reload-gate", "helm-permission-gate"] }
     },
     {
       "id": "trentfromrid",

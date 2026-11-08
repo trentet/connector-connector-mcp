@@ -142,6 +142,38 @@ export async function main(argv: string[]): Promise<number> {
       return res.ok ? 0 : 1;
     } catch (e) { console.error(`settings ${sub}: ${(e as Error).message}`); return 1; }
   }
+  if (args[0] === "plugins") {
+    const sub = args[1];
+    const usage = "usage: cc plugins <apply|verify> --account <id> [--dry-run] [--json]  (AGM-DEPLOY-001: keep the HELM AMS gate plugins enabled on the account)";
+    if (sub !== "apply" && sub !== "verify") { console.error(usage); return 2; }
+    const ai = args.indexOf("--account"), accountId = ai >= 0 ? args[ai + 1] : undefined;
+    if (!accountId || accountId.startsWith("--")) { console.error(`${usage}\n--account is required (see \`cc accounts\`); plugins are never applied to an implicit account`); return 2; }
+    const known = new Set(["apply", "verify", "--account", accountId, "--dry-run", "--json"]);
+    const stray = args.slice(2).filter((a) => !known.has(a));
+    if (stray.length) { console.error(`${usage}\nunknown argument(s): ${stray.join(" ")}`); return 2; }
+    try {
+      const { runPlugins, pluginsLogFile } = await import("./core/plugins.js");
+      const { claudePluginsDriver, loadPluginsSpec, BlockedError } = await import("./adapters/claudePlugins.js");
+      const acc = pickAccount(loadAccounts(), accountId);
+      if (!acc.plugins) { console.error(`account "${acc.id}" declares no plugins block in registry/accounts.json (nothing to ${sub})`); return 2; }
+      const spec = loadPluginsSpec();
+      const json = args.includes("--json");
+      const res = await runPlugins(sub, acc, {
+        dryRun: args.includes("--dry-run"),
+        logFile: pluginsLogFile(acc.id),
+        log: json ? undefined : (l) => console.log(l),
+        open: async () => {
+          const { masterDir, openSession } = await import("./browser/chrome.js");
+          const session = await openSession({ master: accountMaster(acc, masterDir()) });
+          session.touched?.add("claude"); // lets rotated claude.ai sign-in cookies merge back into this account's master
+          return { page: claudePluginsDriver(session.page, spec), close: () => session.close(), blockedKind: (e) => (e instanceof BlockedError ? e.kind : undefined) };
+        },
+      });
+      if (json) console.log(JSON.stringify(res, null, 2));
+      else for (const i of res.items) console.log(`${i.status.padEnd(8)} ${i.gate}${i.detail ? " - " + i.detail : ""}`);
+      return res.ok ? 0 : 1;
+    } catch (e) { console.error(`plugins ${sub}: ${(e as Error).message}`); return 1; }
+  }
   if (args[0] === "threads") {
     const pa = parseThreadsArgs(args.slice(1), loadAccounts());
     if ("error" in pa) { console.error(pa.error); return 2; }

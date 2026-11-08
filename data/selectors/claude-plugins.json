@@ -1,0 +1,20 @@
+{
+  "_note": "UI facts for `cc plugins` on claude.ai (Customize -> Plugins). AGM-DEPLOY-001. Every entry is { value, status, seen? }; status must become \"verified\" (with a dated `seen`) only after it is confirmed against the live page. Nothing here is verified yet — the selectors MUST be grounded live (Patchright on the account's host) before the first real `cc plugins apply`. The orchestration and bounds are already tested against an in-memory fake (test/plugins.test.ts); only these page facts are pending.",
+  "hosts": ["claude.ai"],
+  "pluginsUrl": { "value": "https://claude.ai/settings/plugins", "status": "unverified", "note": "Customize -> Plugins. May be a modal opened from the composer rather than a settings URL; confirm the real navigation live." },
+  "pluginRow": { "value": "[data-testid='plugin-row'], [role='listitem']", "status": "unverified", "note": "each plugin on the Yours tab" },
+  "pluginName": { "value": "[data-testid='plugin-name']", "status": "unverified" },
+  "enabledMarker": { "value": "[aria-checked='true'], [data-state='checked']", "status": "unverified", "note": "present inside a row when the plugin is switched on" },
+  "marketplaceRow": { "value": "[data-testid='marketplace-row']", "status": "unverified", "note": "an added marketplace; its text contains owner/repo" },
+  "addPluginButton": { "value": "Add plugin", "status": "unverified", "note": "opens the add menu (Add marketplace / browse)" },
+  "addMarketplaceButton": { "value": "Add marketplace", "status": "unverified" },
+  "marketplaceDialog": { "value": "[role='dialog']", "status": "unverified" },
+  "marketplaceField": { "value": "input[type='text'], input:not([type])", "status": "unverified", "note": "the owner/repo field" },
+  "marketplaceSubmit": { "value": "Add", "status": "unverified", "note": "submit inside the add-marketplace dialog" },
+  "discoverRow": { "value": "[data-testid='discover-plugin-row'], [role='listitem']", "status": "unverified", "note": "a plugin row in the added marketplace's Discover list" },
+  "discoverAddButton": { "value": "Add", "status": "unverified", "note": "the Add/Install control on a Discover row" },
+  "enableToggle": { "value": "[role='switch'], button[aria-label*='nable']", "status": "unverified", "note": "the on/off control on a Yours row; cc clicks it only when the row is currently OFF" },
+  "signedOutMarkers": ["log in", "sign in to claude"],
+  "humanCheck": { "titles": ["just a moment", "attention required"], "bodyMarkers": ["verify you are human", "checking your browser", "cloudflare"], "frameHosts": ["challenges.cloudflare.com", "hcaptcha.com"] },
+  "timing": { "pageMs": 30000, "elementMs": 10000, "listStableChecks": 3, "pollMs": 700, "settleMs": 1200 }
+}
