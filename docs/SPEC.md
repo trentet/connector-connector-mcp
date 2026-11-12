@@ -163,3 +163,21 @@ Problem: a connector that talks to Google holds a refresh token (`token.json`) t
 - **Code.** `src/core/settings.ts` (pre-checks, exact-name plan, idempotence, read-back, redacted output and log) and `src/adapters/claudeSettings.ts` (page driver; the only clicks go through `guardedClick`: claude.ai hosts, four roles, `CLICK_DENY`). CLI only (`src/cli.ts`); the MCP front door is unchanged.
 - **Flow (apply).** Resolve the account and every file (any failure: stop, no browser) -> one browser on the account's master clone -> read the Projects list until its count is stable -> exact match opens, none creates (then re-list and require exactly one), near match or duplicates refuse -> check the page heading equals the name -> open the editor, compare sha256 and length with the file -> equal: done, nothing saved; empty: write; different and non-empty: refuse, never overwrite -> after a write reopen the project and read back (up to `readBackAttempts`, `readBackDelayMs` apart) -> "ok ... N characters, sha256 <12 hex>". `verify` is the same read without any write; `--dry-run` stops before the browser.
 - **UI facts (2026-11-03).** Read-only discovery on the HELM host (setup session, through cc's own openSession): Projects list with "New project" (opens a Create a project dialog: `input[name=name]`, description, Create project enabled with the name alone, then /project/<uuid>); a pinned project is listed twice with the same href (deduped); the project page's h1 is its name and "Edit instructions" opens a Set project instructions dialog with one textarea and "Save instructions"; the starter project "How to use Claude" has no Edit instructions button and is protected. Still unverified: `projectName` (card inner layout; a name seen on another card line is refused, never created), `signedOutMarkers`, `humanCheck`. The fake page in `test/settings-browser.test.ts` mirrors these shapes; it proves the logic and the bounds, not the live page.
+
+## 13. Universal MCP tool schema freshness and repair (2026-11-12, issue #88)
+The binding requirements live in `docs/requirements.yaml` (REQ-U009, REQ-D011 through REQ-D014).
+Every registered production connector and each authorized platform/account must have an independently
+verified tool-schema catalog match, not just a Connected/Installed flag. Unknown or blocked is never
+current. Native, non-destructive refresh and post-refresh tool readback must be implemented for each
+platform; any unsupported platform remains BLOCKED, with evidence and notification.
+
+Source catalog: authenticated MCP tools/list against the actual live server, including normalized
+name, description, inputSchema, outputSchema and required fields. Installed catalog: authenticated
+platform-specific readback for that same connector installation, with exact account and identity
+confirmed, never guessed from a sign-in cookie. Preserve connector identity/auth/settings. New
+convergence code must be proven by deterministic tests and released under HELM dev/test/prod gates.
+
+Current gap (2026-11-12): ChatGPT and Grok update operations were not implemented in production; the
+Claude update path currently deletes then recreates. Existing draft PR #85 has a tested native
+ChatGPT Refresh path but needs rebase/release; none of these paths proves catalog freshness today.
+Do not state universal success without a verified result for every configured account and platform.
