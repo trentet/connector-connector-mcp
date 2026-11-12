@@ -57,11 +57,11 @@ const runInput = z.object({
   include_test: z.boolean().default(false).describe('With connectors ["*"], also include tier "test" connectors. Test connectors are on-demand: name them explicitly to add/remove one.'),
   dry_run: z.boolean().default(false).describe("Resolve and validate everything without touching any platform."),
   if_existing: z.enum(["skip", "update", "fail"]).optional(),
-  account: z.string().regex(/^[a-z0-9][a-z0-9-]*$/).optional().describe("Account id from cc_list_accounts (each has its own signed-in browser). Default: the server's default account."),
+  account: z.string().regex(/^[a-z0-9][a-z0-9-]*$/).optional().describe("Account id from cc_list_accounts (each has its own signed-in browser). Required: without it the run is refused (ACCOUNT_NOT_AUTHORIZED); the server's default account is never used, and each platform session must show this account signed in."),
 }).strict();
 
 const signinInput = z.object({
-  account: z.string().regex(/^[a-z0-9][a-z0-9-]*$/).optional().describe("Account id from cc_list_accounts. Default: the server's default account."),
+  account: z.string().regex(/^[a-z0-9][a-z0-9-]*$/).optional().describe("Account id from cc_list_accounts. Required: without it the sign-in is refused (ACCOUNT_NOT_AUTHORIZED); the server's default account is never used."),
   wait_for_vault_minutes: z.number().finite().min(0).max(30).default(0).describe("When the account's vault entry is missing, wait this long for it to be added (0 = fail at once)."),
 }).strict();
 

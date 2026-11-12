@@ -1,6 +1,10 @@
+// @reqs ACCT-C08
 import fs from "node:fs";
-import { chromium, type Cookie } from "patchright";
+import { chromium, type Browser, type Cookie, type Page } from "patchright";
+import { AccountNotAuthorizedError, assertSameAccount } from "../core/accountChoice.js";
+import type { BrowserSession } from "./chrome.js";
 import { launchChrome, loadAuthSpecs, masterDir, openSession, sessionHealthy, shutdownChrome } from "./chrome.js";
+import { readPlatformIdentity } from "./identity.js";
 import { acquireLane } from "./lanes.js";
 import { profileInUse, withMasterLock } from "./profile.js";
 
@@ -9,18 +13,47 @@ const domainMatches = (d0: string, hosts: string[]) => { const d = d0.replace(/^
 
 export interface SeedReport { copied: Record<string, number>; signedIn: Record<string, boolean> }
 
+/** The named account a seed copies for (accounts.json entry). */
+export interface SeedAccount { id: string; email?: string; platforms: string[] }
+export interface SeedOptions {
+  account: SeedAccount;
+  /** Connects to the source Chrome. Production: chromium.connectOverCDP on 127.0.0.1:<port>. */
+  connect?: (port: number) => Promise<Browser>;
+  /** Reads which account a platform shows signed in, on a page of the source browser. Production: data/selectors/identity.json. */
+  readIdentity?: (platform: string, page: Page) => Promise<string | undefined>;
+}
+
+/**
+ * ACCT-C08: every platform of the named account must show exactly that account signed in, in the source browser,
+ * before any cookie is read. No email to compare with, an unreadable account, or another account refuses the seed.
+ */
+export async function verifySeedSource(account: SeedAccount, read: (platform: string) => Promise<string | undefined>): Promise<void> {
+  if (!account.email) throw new AccountNotAuthorizedError(`account ${account.id} has no email to verify the source browser against; nothing was copied`);
+  if (!account.platforms.length) throw new AccountNotAuthorizedError(`account ${account.id} lists no platforms; nothing was copied`);
+  for (const p of account.platforms) assertSameAccount(p, account.email, await read(p).catch(() => undefined));
+}
+
 /**
  * One-time (and re-seed) setup of the COLD master: copy the platform sign-in cookies out of an already signed-in Chrome
  * (over CDP, in memory only: values are never printed, logged or written outside Chrome's own encrypted cookie store)
  * into the master profile, using a normally launched Chrome on the master itself. Reports counts per platform, never values.
+ * ACCT-C08: only the named account's platforms are copied, and only after the source browser shows exactly that account
+ * signed in on each of them (verifySeedSource); otherwise nothing is read, copied or written.
  */
-export async function seedMaster(fromPort: number, master = masterDir()): Promise<SeedReport> {
+export async function seedMaster(fromPort: number, master = masterDir(), o: SeedOptions): Promise<SeedReport> {
+  if (!o?.account) throw new AccountNotAuthorizedError("no account was named for the seed; nothing was copied");
   if (profileInUse(master)) throw new Error(`master profile ${master} is in use by a running Chrome; seed needs a cold master`);
-  const specs = loadAuthSpecs();
+  const specs = Object.fromEntries(Object.entries(loadAuthSpecs()).filter(([p]) => o.account.platforms.includes(p)));
   const hosts = Object.values(specs).flatMap((s) => [...s.hosts, ...s.ssoHosts]);
-  const src = await chromium.connectOverCDP(`http://127.0.0.1:${fromPort}`);
+  const read = o.readIdentity ?? ((p: string, page: Page) => readPlatformIdentity(p, { page } as unknown as BrowserSession));
+  const src = await (o.connect ?? ((port: number) => chromium.connectOverCDP(`http://127.0.0.1:${port}`)))(fromPort);
   let cookies: Cookie[];
-  try { cookies = (await src.contexts()[0].cookies()).filter((c) => domainMatches(c.domain, hosts)); } finally { await src.close().catch(() => {}); }
+  try {
+    const ctx = src.contexts()[0];
+    const page = await ctx.newPage();
+    try { await verifySeedSource(o.account, (p) => read(p, page)); } finally { await page.close().catch(() => {}); }
+    cookies = (await ctx.cookies()).filter((c) => domainMatches(c.domain, hosts));
+  } finally { await src.close().catch(() => {}); }
   const now = Math.floor(Date.now() / 1000);
   const prepared = cookies.map((c) => ({ ...c, expires: c.expires > 0 ? c.expires : now + LIFETIME_S }));
   const lane = await acquireLane();

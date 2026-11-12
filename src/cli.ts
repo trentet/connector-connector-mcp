@@ -180,7 +180,7 @@ export async function main(argv: string[]): Promise<number> {
         return 0;
       }
       if (sub === "seed") {
-        const r = await seedMaster(Number(flag("--from-port") ?? 9222), master);
+        const r = await seedMaster(Number(flag("--from-port") ?? 9222), master, { account: acc }); // ACCT-C08: verified before copying
         for (const p of Object.keys(r.copied)) console.log(`${p.padEnd(8)} ${String(r.copied[p]).padStart(3)} cookies copied, signed in: ${r.signedIn[p] ? "yes" : "NO"}`);
         return Object.values(r.signedIn).every(Boolean) ? 0 : 1;
       }

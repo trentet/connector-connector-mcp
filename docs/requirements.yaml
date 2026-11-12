@@ -3,7 +3,7 @@
 # behaviour is not backfilled here; gate.code and gate.tools_in_scope list exactly what this ledger covers.
 gate:
   id_pattern: '\b(?:REQ-[UDG]\d{3}|ACCT-(?:\d{3}|[PCV]\d{2}))\b'
-  code: ['^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
+  code: ['^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
   tests: ['^test/.+\.ts$']
   tool_files: ['^src/server/app\.ts$']
   tools_in_scope: [cc_signin, cc_run, cc_reauth]
@@ -192,3 +192,25 @@ requirements:
     ACCOUNT_NOT_AUTHORIZED, and the session is closed before any thread is read or setting changed.
   files: [src/cli.ts, src/browser/identity.ts]
   decision: {quote: "it would not be acceptable to just be blindly using the accounts that are already logged in without validating that we\u2019re actually logged into the correct account", at: '2026-11-11', source: main chat t119u, from: REQ-U005}
+- id: ACCT-C08
+  kind: derived
+  status: decided
+  title: cc browser seed copies sign-ins only from a source browser verified as the named account
+  text: >
+    cc browser seed takes only the account named with --account. Before any cookie is read from the source Chrome,
+    each of that account's platforms is opened there and its signed-in account read (data/selectors/identity.json);
+    every one must be exactly the account's email. Another account is ACCOUNT_MISMATCH; no email on the account, no
+    platforms, or an unreadable account (a platform with no reader included) is ACCOUNT_NOT_AUTHORIZED. Refused seeds
+    read, copy and write nothing. Only the named account's platforms (their hosts and sign-in hosts) are copied.
+  files: [src/browser/seed.ts, src/cli.ts]
+  decision: {quote: "without validating that we\u2019re actually logged into the correct account", at: '2026-11-11', source: main chat t119u, from: REQ-U005}
+- id: ACCT-C09
+  kind: derived
+  status: decided
+  title: The cc_run and cc_signin tool descriptions say the account is required
+  text: >
+    The account argument of cc_run and cc_signin is described as required, refused without it, and never defaulting
+    to the server's default account, matching what run() and the sign-in do (ACCT-001, ACCT-C01, ACCT-C05).
+  files: [src/server/app.ts]
+  tools: [cc_run, cc_signin]
+  decision: {quote: "it would not be acceptable to just be blindly using the accounts that are already logged in", at: '2026-11-11', source: main chat t119u, from: REQ-U005}
