@@ -6,6 +6,7 @@ import { loadRegistry } from "../src/core/registry.js";
 import { run } from "../src/core/runner.js";
 import { PLATFORMS, type Platform } from "../src/core/types.js";
 import { registryFixture } from "./fixtures.js";
+import { signedInAsMain } from "./fixtures.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const reg = loadRegistry(path.resolve("registry", "connectors.json"));
@@ -46,7 +47,7 @@ describe("one call, one browser per platform; platforms at the same time when as
   it("the three platforms overlap (wall time ~ the slowest, not the sum), each in its own session that touched only its platform", async () => {
     const h = harness(400);
     const t0 = Date.now();
-    const res = await run(reg, { op: "verify", connectors: ids, platforms: [...PLATFORMS] }, { deps, adapters: h.adapters, sessionFactory: h.sessionFactory, platformParallelism: 3 });
+    const res = await run(reg, { account: "main", op: "verify", connectors: ids, platforms: [...PLATFORMS] }, { readIdentity: signedInAsMain, deps, adapters: h.adapters, sessionFactory: h.sessionFactory, platformParallelism: 3 });
     const elapsed = Date.now() - t0;
     expect(res.ok).toBe(true);
     expect(res.items).toHaveLength(ids.length * PLATFORMS.length);
@@ -60,7 +61,7 @@ describe("one call, one browser per platform; platforms at the same time when as
 
   it("connectors on the same platform stay sequential, and results keep connector-major, platform-minor order", async () => {
     const h = harness(150);
-    const res = await run(reg, { op: "verify", connectors: ids, platforms: [...PLATFORMS] }, { deps, adapters: h.adapters, sessionFactory: h.sessionFactory, platformParallelism: 3 });
+    const res = await run(reg, { account: "main", op: "verify", connectors: ids, platforms: [...PLATFORMS] }, { readIdentity: signedInAsMain, deps, adapters: h.adapters, sessionFactory: h.sessionFactory, platformParallelism: 3 });
     const order = res.items.map((i) => `${i.connector}@${i.platform}`);
     expect(order).toEqual(ids.flatMap((id) => PLATFORMS.map((p) => `${id}@${p}`)));
     for (const p of PLATFORMS) {
@@ -72,12 +73,12 @@ describe("one call, one browser per platform; platforms at the same time when as
   it("by default every platform is allowed to overlap (the lane admission gate decides how much really does); CC_PLATFORM_PARALLELISM=1 forces one after another", async () => {
     delete process.env.CC_PLATFORM_PARALLELISM;
     const h = harness(100);
-    await run(reg, { op: "verify", connectors: ids.slice(0, 1), platforms: [...PLATFORMS] }, { deps, adapters: h.adapters, sessionFactory: h.sessionFactory });
+    await run(reg, { account: "main", op: "verify", connectors: ids.slice(0, 1), platforms: [...PLATFORMS] }, { readIdentity: signedInAsMain, deps, adapters: h.adapters, sessionFactory: h.sessionFactory });
     expect(h.peak()).toBe(3);
     process.env.CC_PLATFORM_PARALLELISM = "1";
     try {
       const h2 = harness(100);
-      await run(reg, { op: "verify", connectors: ids.slice(0, 1), platforms: [...PLATFORMS] }, { deps, adapters: h2.adapters, sessionFactory: h2.sessionFactory });
+      await run(reg, { account: "main", op: "verify", connectors: ids.slice(0, 1), platforms: [...PLATFORMS] }, { readIdentity: signedInAsMain, deps, adapters: h2.adapters, sessionFactory: h2.sessionFactory });
       expect(h2.peak()).toBe(1);
       expect(h2.peakSessions()).toBe(1); // one after another means ONE browser (and lane) at a time: each platform's browser is closed as soon as that platform is done
     } finally { delete process.env.CC_PLATFORM_PARALLELISM; }
@@ -85,16 +86,16 @@ describe("one call, one browser per platform; platforms at the same time when as
 
   it("platformParallelism caps how many platforms run together", async () => {
     const h = harness(200);
-    await run(reg, { op: "verify", connectors: ids.slice(0, 1), platforms: [...PLATFORMS] }, { deps, adapters: h.adapters, sessionFactory: h.sessionFactory, platformParallelism: 1 });
+    await run(reg, { account: "main", op: "verify", connectors: ids.slice(0, 1), platforms: [...PLATFORMS] }, { readIdentity: signedInAsMain, deps, adapters: h.adapters, sessionFactory: h.sessionFactory, platformParallelism: 1 });
     expect(h.peak()).toBe(1);
     const h2 = harness(200);
-    await run(reg, { op: "verify", connectors: ids.slice(0, 1), platforms: [...PLATFORMS] }, { deps, adapters: h2.adapters, sessionFactory: h2.sessionFactory, platformParallelism: 2 });
+    await run(reg, { account: "main", op: "verify", connectors: ids.slice(0, 1), platforms: [...PLATFORMS] }, { readIdentity: signedInAsMain, deps, adapters: h2.adapters, sessionFactory: h2.sessionFactory, platformParallelism: 2 });
     expect(h2.peak()).toBe(2);
   });
 
   it("a platform that fails (adapter error, or no browser available) does not disturb the others, and every opened session is still closed", async () => {
     const h = harness(100, { failPlatform: "grok", failOpen: "chatgpt" });
-    const res = await run(reg, { op: "verify", connectors: ids.slice(0, 1), platforms: [...PLATFORMS] }, { deps, adapters: h.adapters, sessionFactory: h.sessionFactory });
+    const res = await run(reg, { account: "main", op: "verify", connectors: ids.slice(0, 1), platforms: [...PLATFORMS] }, { readIdentity: signedInAsMain, deps, adapters: h.adapters, sessionFactory: h.sessionFactory });
     const by = Object.fromEntries(res.items.map((i) => [i.platform, i]));
     expect(by.claude.status).toBe("ok");
     expect(by.chatgpt.status).toBe("error");
@@ -107,16 +108,16 @@ describe("one call, one browser per platform; platforms at the same time when as
 
   it("a platform with nothing to do never opens a browser; dry runs open none", async () => {
     const h = harness(50);
-    await run(reg, { op: "verify", connectors: ["vault-mcp"], platforms: ["claude"] }, { deps, adapters: h.adapters, sessionFactory: h.sessionFactory });
+    await run(reg, { account: "main", op: "verify", connectors: ["vault-mcp"], platforms: ["claude"] }, { readIdentity: signedInAsMain, deps, adapters: h.adapters, sessionFactory: h.sessionFactory });
     expect(h.opened).toEqual(["claude"]);
     const h2 = harness(50);
-    await run(reg, { op: "add", connectors: ids, platforms: [...PLATFORMS], dryRun: true }, { deps, adapters: h2.adapters, sessionFactory: h2.sessionFactory });
+    await run(reg, { account: "main", op: "add", connectors: ids, platforms: [...PLATFORMS], dryRun: true }, { readIdentity: signedInAsMain, deps, adapters: h2.adapters, sessionFactory: h2.sessionFactory });
     expect(h2.opened).toEqual([]);
   });
 
   it("list and probe also run the platforms at the same time", async () => {
     const h = harness(300);
-    const res = await run(reg, { op: "probe", connectors: [], platforms: [...PLATFORMS] }, { deps, adapters: h.adapters, sessionFactory: h.sessionFactory, platformParallelism: 3 });
+    const res = await run(reg, { account: "main", op: "probe", connectors: [], platforms: [...PLATFORMS] }, { readIdentity: signedInAsMain, deps, adapters: h.adapters, sessionFactory: h.sessionFactory, platformParallelism: 3 });
     expect(res.items.map((i) => i.platform)).toEqual([...PLATFORMS]);
     expect(h.peak()).toBe(3);
   });

@@ -57,11 +57,11 @@ const runInput = z.object({
   include_test: z.boolean().default(false).describe('With connectors ["*"], also include tier "test" connectors. Test connectors are on-demand: name them explicitly to add/remove one.'),
   dry_run: z.boolean().default(false).describe("Resolve and validate everything without touching any platform."),
   if_existing: z.enum(["skip", "update", "fail"]).optional(),
-  account: z.string().regex(/^[a-z0-9][a-z0-9-]*$/).optional().describe("Account id from cc_list_accounts (each has its own signed-in browser). Default: the server's default account."),
+  account: z.string().regex(/^[a-z0-9][a-z0-9-]*$/).optional().describe("Account id from cc_list_accounts (each has its own signed-in browser). Required: without it the run is refused (ACCOUNT_NOT_AUTHORIZED); the server's default account is never used, and each platform session must show this account signed in."),
 }).strict();
 
 const signinInput = z.object({
-  account: z.string().regex(/^[a-z0-9][a-z0-9-]*$/).optional().describe("Account id from cc_list_accounts. Default: the server's default account."),
+  account: z.string().regex(/^[a-z0-9][a-z0-9-]*$/).optional().describe("Account id from cc_list_accounts. Required: without it the sign-in is refused (ACCOUNT_NOT_AUTHORIZED); the server's default account is never used."),
   wait_for_vault_minutes: z.number().finite().min(0).max(30).default(0).describe("When the account's vault entry is missing, wait this long for it to be added (0 = fail at once)."),
 }).strict();
 
@@ -85,6 +85,19 @@ export function unknownArgs(body: unknown): string[] | undefined {
     if (extra.length) return extra;
   }
   return undefined;
+}
+
+/** cc_signin's default: only the account named in the call, with its email; an owner registry entry must agree (ACCT-C01). */
+export async function defaultSigninFn(accountsPath: string | undefined, id: string | undefined, waitMs: number) {
+  const { pickAccount, accountMaster } = await import("../core/accounts.js");
+  const { assertSignInAccount } = await import("../core/accountChoice.js");
+  const all = loadAccounts(accountsPath);
+  const acc = pickAccount(all, id, process.env, "explicit");
+  await assertSignInAccount(acc);
+  const { masterDir } = await import("../browser/chrome.js");
+  const { signInAccount } = await import("../browser/signin.js");
+  const r = await signInAccount(acc, accountMaster(acc, masterDir()), { waitForVaultMs: waitMs });
+  return { status: r.status, account: acc.id, email: r.email, confirmed: r.confirmed };
 }
 
 export function buildMcpServer(opts: AppOptions): McpServer {
@@ -123,14 +136,7 @@ export function buildMcpServer(opts: AppOptions): McpServer {
       return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
     },
   );
-  const signinFn = opts.signinFn ?? (async (id: string | undefined, waitMs: number) => {
-    const { pickAccount, accountMaster } = await import("../core/accounts.js");
-    const { masterDir } = await import("../browser/chrome.js");
-    const { signInAccount } = await import("../browser/signin.js");
-    const acc = pickAccount(loadAccounts(opts.accountsPath), id);
-    const r = await signInAccount(acc, accountMaster(acc, masterDir()), { waitForVaultMs: waitMs });
-    return { status: r.status, account: acc.id, email: r.email, confirmed: r.confirmed };
-  });
+  const signinFn = opts.signinFn ?? ((id: string | undefined, waitMs: number) => defaultSigninFn(opts.accountsPath, id, waitMs));
   server.registerTool(
     "cc_signin",
     {

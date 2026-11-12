@@ -31,6 +31,14 @@ const parse = async (r: Response) => { const t = await r.text(); const m = /data
 const init = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "t", version: "0" } } };
 
 describe("http front door", () => {
+  it("ACCT-C09: cc_run and cc_signin describe the account as required, never as defaulting to the server's account", async () => {
+    const r = await parse(await rpc({ jsonrpc: "2.0", id: 9, method: "tools/list" }, { "x-api-key": TOKEN }));
+    for (const name of ["cc_run", "cc_signin"]) {
+      const d = r.result.tools.find((t: { name: string }) => t.name === name).inputSchema.properties.account.description as string;
+      expect(d).toMatch(/^Account id from cc_list_accounts.*Required: without it .* refused \(ACCOUNT_NOT_AUTHORIZED\); the server's default account is never used/);
+      expect(d).not.toMatch(/Default: the server's default account/);
+    }
+  });
   it("health is open; /mcp is token-gated (header or ?token=)", async () => {
     expect((await fetch(base + "/health")).status).toBe(200);
     expect((await rpc(init)).status).toBe(401);

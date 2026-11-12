@@ -3,7 +3,9 @@ import path from "node:path";
 import type { Page } from "patchright";
 import { domClick, domFill, sleep } from "../browser/dom.js";
 import { guarded, snapshot } from "../browser/chrome.js";
-import { getCredential } from "../core/vaultClient.js";
+import { assertFlowMethod, assertLoginAccount, assertMethodsAgree, ccMethodErrors } from "../core/accountChoice.js";
+import { detectSignInOptions, loadSignInOptions, resolveSignInMethod } from "../core/signInMethod.js";
+import { getCredential, signInStore } from "../core/vaultClient.js";
 import type { AdapterContext, AdapterOutcome, PlatformAdapter } from "./types.js";
 
 const sel = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "grok.json"), "utf8"));
@@ -38,17 +40,28 @@ async function isSignedIn(page: Page): Promise<boolean> {
   return (await page.getByRole("button", { name: /^sign in$/i }).count()) === 0 && (await page.getByRole("link", { name: /^sign in$/i }).count()) === 0;
 }
 
-/** Log in with the vault credential (resolved in this process only). */
+/**
+ * Log in with the vault credential (resolved in this process only). Typed only when the vault entry is exactly the
+ * account specified for this run, and an owner registry entry for grok.com agrees (ACCT-C02); otherwise nothing is typed.
+ * A signed-in grok.com session is never trusted as it is: the runner verifies it when the session opens (ACCT-C05).
+ */
 async function login(ctx: AdapterContext): Promise<void> {
   const s = await ctx.session();
   const page = s.page;
   const cred = await getCredential(sel.loginVaultLabel);
   if (!cred?.username || !cred?.password) throw new Error(`vault entry "${sel.loginVaultLabel}" is missing or has no username/password`);
+  const recorded = await assertLoginAccount({ service: "grok.com", label: sel.loginVaultLabel, username: cred.username, expected: ctx.account?.email });
   const redact = (x: string) => ctx.redact(x).split(cred.username!).join("<REDACTED>").split(cred.password!).join("<REDACTED>");
   await guarded(s, "grok-login", redact, async () => {
     await page.goto(sel.signInUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
     await sleep(2500);
     await dismissCookies(page);
+    // ACCT-C12: the entry's sign-in method (set, else settled from grok.com's options); then a check, not a default:
+    // this flow only types into the email-and-password form, so the recorded method must be email.
+    const detect = () => detectSignInOptions(loadSignInOptions(path.resolve("data", "selectors", "signin-options.json")), "grok.com", { url: () => page.url(), count: (q) => page.locator(q).count() });
+    const { method } = await resolveSignInMethod({ label: sel.loginVaultLabel, site: "grok.com", entryMethod: cred.signInMethod, detect }, { ...ccMethodErrors, store: signInStore });
+    assertMethodsAgree("grok.com", recorded, method);
+    assertFlowMethod("grok.com's email-and-password login", method, "email");
     await page.locator(sel.login.emailInput).fill(cred.username!);
     await page.getByRole("button", { name: rx(sel.login.next.name) }).first().click();
     await page.locator(sel.login.passwordInput).first().waitFor({ timeout: 15000 });

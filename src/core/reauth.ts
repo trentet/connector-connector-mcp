@@ -6,7 +6,9 @@ import path from "node:path";
 import { Redactor } from "./redact.js";
 import { expandEnv, transportFor, type Transport } from "./transport.js";
 import type { ConnectorDef, GoogleOAuthDef, Registry } from "./types.js";
-import { getCredential, getTotp } from "./vaultClient.js";
+import { getCredential, getTotp, signInStore } from "./vaultClient.js";
+import { detectSignInOptions, loadSignInOptions, resolveSignInMethod, type SignInStore } from "./signInMethod.js";
+import * as acctRule from "./accountChoice.js";
 
 /**
  * `cc reauth`: renew the Google OAuth grant (token.json) of every connector whose registry entry carries a `googleOAuth` block.
@@ -31,6 +33,8 @@ export interface GoogleAccountCredential { username?: string; password?: string;
 export interface ReauthDeps {
   transport: (def: GoogleOAuthDef) => Transport;
   vault: (label: string) => Promise<GoogleAccountCredential | undefined>;
+  /** ACCT-C12: where an entry's settled sign-in method is written (default: the vault through bw serve). */
+  signInStore?: SignInStore;
   /** The current authenticator code of a vault entry (called only for an entry whose registry `account.totp` is true). Absent = none available. */
   totp?: (label: string) => Promise<string | undefined>;
   /** Drive the consent URL in a browser until `isDone()` (the loopback server has the code). */
@@ -269,6 +273,10 @@ async function reauthOne(c: ConnectorDef, g: GoogleOAuthDef, req: ReauthRequest,
 
   const cred = await deps.vault(g.account.vaultLabel);
   if (!cred) throw new Error(`vault entry "${g.account.vaultLabel}" not found`);
+  // ACCT-C12: the entry's sign-in method (set, else settled from accounts.google.com's options; a dry run writes
+  // nothing), then a check, not a default: the consent is clicked through on Google's own pages, so it must be google.
+  const { method } = await resolveSignInMethod({ label: g.account.vaultLabel, site: "accounts.google.com", entryMethod: (cred as { signInMethod?: string }).signInMethod, write: !req.dryRun, detect: async () => detectSignInOptions(loadSignInOptions(path.resolve("data", "selectors", "signin-options.json")), "accounts.google.com") }, { ...acctRule.ccMethodErrors, store: deps.signInStore ?? signInStore });
+  acctRule.assertFlowMethod("the Google OAuth consent", method, "google");
   if (g.account.totp) cred.totp = () => (deps.totp ? deps.totp(g.account.vaultLabel) : Promise.resolve(undefined));
   red.add(cred.password); // the address is not a secret (it is in the vault label and the consent hint); the password is
 

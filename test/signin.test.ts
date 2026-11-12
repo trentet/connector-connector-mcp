@@ -1,3 +1,4 @@
+// @reqs ACCT-C01 ACCT-C06
 import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -17,8 +18,8 @@ function findChrome(): string | undefined {
   const root = process.env.PLAYWRIGHT_BROWSERS_PATH;
   if (!root || !fs.existsSync(root)) return undefined;
   const dir = fs.readdirSync(root).filter((d) => /^chromium-\d+$/.test(d)).sort().at(-1);
-  const exe = dir && `${root}/${dir}/chrome-linux/chrome`;
-  return exe && fs.existsSync(exe) ? exe : undefined;
+  if (!dir) return undefined;
+  return [`${root}/${dir}/chrome-linux/chrome`, `${root}/${dir}/chrome-win64/chrome.exe`, `${root}/${dir}/chrome-win/chrome.exe`].find((e) => fs.existsSync(e));
 }
 const browser: Browser | undefined = await chromium.launch({ headless: true, executablePath: findChrome() }).catch(() => undefined);
 
@@ -38,7 +39,8 @@ beforeAll(async () => {
       typed.password = u.searchParams.get("p") ?? undefined;
       const back = `${cBase}/callback`;
       if (flow === "allow") return send(`<label><input type="checkbox"> See your files</label><button onclick="location='${back}'">Allow</button>`);
-      return send(`<p>Sign in to Claude</p><button onclick="location='${back}'">Continue</button>`);
+      const who = flow === "nochip" ? "" : `<div data-email="${flow === "wrongchip" ? "other@example.test" : typed.email ?? ""}"></div>`;
+      return send(`${who}<p>Sign in to Claude</p><button onclick="location='${back}'">Continue</button>`);
     }
     if (u.pathname === "/accountchooser") return send(`<div role="link" onclick="location='${cBase}/callback'">Someone Else other@example.test</div><div role="link">Use another account</div>`);
     res.statusCode = 404; res.end("no");
@@ -97,10 +99,30 @@ describe.skipIf(!browser)("cc browser signin (real Chromium, fake claude.ai and 
     expect((await ctx.cookies(cBase)).some((c) => c.name === "sessionKey")).toBe(false);
     await ctx.close();
   });
+  it("ACCT-C06 Google showing another signed-in account: ACCOUNT_MISMATCH, Continue never clicked", async () => {
+    const { ctx, run } = await attempt("wrongchip");
+    await expect(run).rejects.toThrow(/^ACCOUNT_MISMATCH: /);
+    expect((await ctx.cookies(cBase)).some((c) => c.name === "sessionKey")).toBe(false);
+    await ctx.close();
+  });
+  it("ACCT-C06 Google showing no signed-in account: ACCOUNT_NOT_AUTHORIZED, Continue never clicked", async () => {
+    const { ctx, run } = await attempt("nochip");
+    await expect(run).rejects.toThrow(/^ACCOUNT_NOT_AUTHORIZED: /);
+    expect((await ctx.cookies(cBase)).some((c) => c.name === "sessionKey")).toBe(false);
+    await ctx.close();
+  });
+  it("ACCT-C01 claude.ai reporting no email: refused (an unverified session is never used)", async () => {
+    accountEmail = "";
+    const { ctx, run } = await attempt("ok");
+    await ctx.addCookies([{ name: "sessionKey", value: "sk-OLD", url: cBase }]);
+    await expect(run).rejects.toThrow(/^ACCOUNT_NOT_AUTHORIZED: /);
+    await ctx.close();
+    accountEmail = EMAIL;
+  });
   it("a sign-in that claude.ai reports as another email is removed and reported", async () => {
     accountEmail = "other@example.test";
     const { ctx, run } = await attempt("ok");
-    await expect(run).rejects.toThrow(/different account/);
+    await expect(run).rejects.toThrow(/^ACCOUNT_MISMATCH: .*different account/);
     expect((await ctx.cookies(cBase)).some((c) => c.name === "sessionKey")).toBe(false);
     await ctx.close();
     accountEmail = EMAIL;

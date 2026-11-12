@@ -70,17 +70,24 @@ describe("runner with accounts", () => {
   };
   it("opens the account's own master and skips the platforms the account is not used on", async () => {
     const h = harness();
-    const res = await run(reg, { op: "verify", connectors: ["demo"], platforms: [...PLATFORMS], account: "second" }, { accounts: ACC, adapters: h.adapters, sessionFactory: h.sessionFactory });
+    const res = await run(reg, { op: "verify", connectors: ["demo"], platforms: [...PLATFORMS], account: "second" }, { accounts: ACC, adapters: h.adapters, sessionFactory: h.sessionFactory, readIdentity: async () => "second@example.test" });
     expect(res.ok).toBe(true);
     expect(res.items.map((i) => [i.platform, i.status, i.account])).toEqual([["claude", "ok", "second"], ["chatgpt", "skipped", "second"], ["grok", "skipped", "second"]]);
     expect(h.masters).toEqual({ claude: "browser-master-second" });
   });
-  it("the default account keeps the default master and untagged results (unchanged behaviour)", async () => {
+  it("the default account keeps the default master and untagged results when named (ACCT-C05)", async () => {
     const h = harness();
-    const res = await run(reg, { op: "verify", connectors: ["demo"], platforms: [...PLATFORMS] }, { accounts: ACC, adapters: h.adapters, sessionFactory: h.sessionFactory });
+    const res = await run(reg, { op: "verify", connectors: ["demo"], platforms: [...PLATFORMS], account: "first" }, { accounts: ACC, adapters: h.adapters, sessionFactory: h.sessionFactory, readIdentity: async () => "first@example.test" });
     expect(res.items.every((i) => i.status === "ok" && i.account === undefined)).toBe(true);
     expect(Object.keys(h.masters).sort()).toEqual([...PLATFORMS].sort());
     expect(Object.values(h.masters).every((m) => m === undefined)).toBe(true);
+  });
+  it("no account named: the default is never assumed and no browser opens (ACCT-001)", async () => {
+    const h = harness();
+    const res = await run(reg, { op: "verify", connectors: ["demo"], platforms: [...PLATFORMS] }, { accounts: ACC, adapters: h.adapters, sessionFactory: h.sessionFactory });
+    expect(res.ok).toBe(false);
+    expect(res.items.every((i) => /^ACCOUNT_NOT_AUTHORIZED: /.test(i.detail ?? ""))).toBe(true);
+    expect(h.masters).toEqual({});
   });
   it("an unknown account fails the call without opening a browser", async () => {
     const h = harness();
@@ -94,7 +101,7 @@ describe("runner with accounts", () => {
 describe("account credential from the vault", () => {
   const second = ACC.accounts[1];
   it("uses the entry, and fills in the account email when the entry has no username", async () => {
-    const c = await accountCredential(second, 0, { vault: async () => ({ password: "pw-INVENTED-1" }) });
+    const c = await accountCredential(second, 0, { vault: async () => ({ password: "pw-INVENTED-1", signInMethod: "google" }) });
     expect(c).toMatchObject({ username: "second@example.test", password: "pw-INVENTED-1" });
   });
   it("refuses an entry whose username is another email (never signs the wrong account in)", async () => {
@@ -103,7 +110,7 @@ describe("account credential from the vault", () => {
   it("waits for a missing entry when asked, and says what to add without printing a secret", async () => {
     const lines: string[] = [];
     let waited = 0;
-    const c = await accountCredential(second, 60_000, { vault: async () => undefined, waitForVault: async (_l, ms) => { waited = ms; return { username: "second@example.test", password: "pw-INVENTED-3" }; } }, (l) => lines.push(l));
+    const c = await accountCredential(second, 60_000, { vault: async () => undefined, waitForVault: async (_l, ms) => { waited = ms; return { username: "second@example.test", password: "pw-INVENTED-3", signInMethod: "google" }; } }, (l) => lines.push(l));
     expect(waited).toBe(60_000);
     expect(c.password).toBe("pw-INVENTED-3");
     expect(lines.join("\n")).toMatch(/Google \(second\)/);
@@ -111,5 +118,8 @@ describe("account credential from the vault", () => {
   });
   it("fails clearly when the entry is still missing", async () => {
     await expect(accountCredential(second, 0, { vault: async () => undefined })).rejects.toThrow(/has no password/);
+    // ACCT-C11 ACCT-C12: an entry without a method is settled on pull (here the vault is unreachable: refused); another method mismatches
+    await expect(accountCredential(second, 0, { vault: async () => ({ password: "pw-INVENTED-4" }) })).rejects.toThrow(/^ACCOUNT_NOT_AUTHORIZED: .*records no sign-in method/);
+    await expect(accountCredential(second, 0, { vault: async () => ({ password: "pw-INVENTED-5", signInMethod: "email" }) })).rejects.toThrow(/^ACCOUNT_MISMATCH: .*performs only a google sign-in.*recorded for this account is email/);
   });
 });

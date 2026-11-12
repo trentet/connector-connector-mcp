@@ -4,6 +4,7 @@ import { run } from "../src/core/runner.js";
 import { validateRegistry } from "../src/core/registry.js";
 import type { PlatformAdapter } from "../src/adapters/types.js";
 import type { Registry } from "../src/core/types.js";
+import { signedInAsMain } from "./fixtures.js";
 
 /** Page stub: a login form (password field, user field, submit), a consent page (button only), or blank. */
 function fakePage(url: string, kind: "login" | "consent" | "blank") {
@@ -56,13 +57,13 @@ describe("connector login (vault credential)", () => {
   it("runner: watcher only for oauth connectors with oauthLogin; credential never appears in output; dry run says if the label resolves", async () => {
     const started: Array<string | undefined> = [];
     const watchLoginFn = (_c: unknown, url: string, cred: { password?: string } | undefined) => { started.push(url + "|" + (cred?.password ? "has-cred" : "no-cred")); return { stop: async () => ({ signedIn: 1, needsLogin: false }) }; };
-    const res = await run(reg, { op: "add", connectors: ["oa", "hd"], platforms: ["claude"] }, { adapters: { claude: adapter }, sessionFactory, deps, watchLogin: watchLoginFn as never });
+    const res = await run(reg, { account: "main", op: "add", connectors: ["oa", "hd"], platforms: ["claude"] }, { readIdentity: signedInAsMain, adapters: { claude: adapter }, sessionFactory, deps, watchLogin: watchLoginFn as never });
     expect(started).toEqual(["https://conn.example/mcp|has-cred"]);
     expect(res.items.find((i) => i.connector === "oa")?.detail).toContain("signed in via vault x1");
     expect(JSON.stringify(res)).not.toContain("s3cret-pw");
-    const dry = await run(reg, { op: "add", connectors: ["oa"], platforms: ["claude"], dryRun: true }, { adapters: { claude: adapter }, deps });
+    const dry = await run(reg, { account: "main", op: "add", connectors: ["oa"], platforms: ["claude"], dryRun: true }, { readIdentity: signedInAsMain, adapters: { claude: adapter }, deps });
     expect(dry.items[0].detail).toContain('vault "L" found');
-    const dryMissing = await run(reg, { op: "add", connectors: ["oa"], platforms: ["claude"], dryRun: true }, { adapters: { claude: adapter }, deps: { ...deps, vault: async () => undefined } });
+    const dryMissing = await run(reg, { account: "main", op: "add", connectors: ["oa"], platforms: ["claude"], dryRun: true }, { readIdentity: signedInAsMain, adapters: { claude: adapter }, deps: { ...deps, vault: async () => undefined } });
     expect(dryMissing.items[0].detail).toContain("MISSING");
   });
 });

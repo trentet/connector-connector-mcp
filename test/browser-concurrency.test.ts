@@ -11,6 +11,7 @@ import { run } from "../src/core/runner.js";
 import type { PlatformAdapter } from "../src/adapters/types.js";
 import { registryFixture } from "./fixtures.js";
 import { chromium } from "patchright";
+import { signedInAsMain } from "./fixtures.js";
 
 const CHROME = process.env.CC_TEST_CHROME ?? (fs.existsSync("/opt/pw-browsers") ? fs.readdirSync("/opt/pw-browsers").filter((d) => d.startsWith("chromium-")).map((d) => `/opt/pw-browsers/${d}/chrome-linux/chrome`).find((p) => fs.existsSync(p)) : undefined);
 const HEADLESS = "--headless=new --no-sandbox --disable-gpu";
@@ -165,7 +166,7 @@ describe.skipIf(!CHROME)("one Chrome process per run (real Chromium)", () => {
       return [platform, { platform, probe: act, list: async () => ({ names: [] }), add: act, remove: act, update: act, verify: act } as PlatformAdapter];
     })) as Record<(typeof plats)[number], PlatformAdapter>;
     const t0 = Date.now();
-    const res = await run(reg, { op: "add", connectors: ["cc-selftest"], platforms: [...plats] }, { deps, adapters, platformParallelism: 3 });
+    const res = await run(reg, { account: "main", op: "add", connectors: ["cc-selftest"], platforms: [...plats] }, { readIdentity: signedInAsMain, deps, adapters, platformParallelism: 3 });
     const elapsed = Date.now() - t0;
     expect(res.ok).toBe(true);
     expect(Math.max(...lockCounts)).toBe(3);                    // three browsers were alive together
@@ -203,8 +204,8 @@ describe.skipIf(!CHROME)("one Chrome process per run (real Chromium)", () => {
       return { platform, probe: act, list: async () => ({ names: [] }), add: act, remove: act, update: act, verify: act };
     };
     const [r1, r2] = await Promise.all([
-      run(reg, { op: "add", connectors: ["cc-selftest"], platforms: ["claude"] }, { deps, adapters: { claude: adapterFor("claude", "add") } }),
-      run(reg, { op: "verify", connectors: ["cc-selftest"], platforms: ["chatgpt"] }, { deps, adapters: { chatgpt: adapterFor("chatgpt", "verify") } }),
+      run(reg, { account: "main", op: "add", connectors: ["cc-selftest"], platforms: ["claude"] }, { readIdentity: signedInAsMain, deps, adapters: { claude: adapterFor("claude", "add") } }),
+      run(reg, { account: "main", op: "verify", connectors: ["cc-selftest"], platforms: ["chatgpt"] }, { readIdentity: signedInAsMain, deps, adapters: { chatgpt: adapterFor("chatgpt", "verify") } }),
     ]);
     for (const r of [r1, r2]) { expect(r.ok).toBe(true); expect(JSON.stringify(r)).not.toMatch(/Target page, context or browser has been closed/); for (const x of secrets) expect(JSON.stringify(r)).not.toContain(x); }
     expect(seen["add@claude"].before).toBeNull();   // saw none of the other run's state at start...

@@ -2,11 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium, type BrowserContext, type Page } from "patchright";
 import type { AccountDef } from "../core/accounts.js";
-import { getCredential, getTotp, waitForCredential, type VaultCredential } from "../core/vaultClient.js";
+import { getCredential, getTotp, signInStore, waitForCredential, type VaultCredential } from "../core/vaultClient.js";
 import { launchChrome, loadAuthSpecs, sessionHealthy, shutdownChrome } from "./chrome.js";
 import { sleep } from "./dom.js";
 import { advanceOneStep, isGoogleHost, loadConsentSpec, type ConsentSpec, type GoogleCredential } from "./googleConsent.js";
 import { acquireLane } from "./lanes.js";
+import { AccountMismatchError, assertFlowMethod, assertSameAccount, ccMethodErrors } from "../core/accountChoice.js";
+import { detectSignInOptions, loadSignInOptions, resolveSignInMethod, type SignInStore } from "../core/signInMethod.js";
 import { profileInUse, withMasterLock } from "./profile.js";
 
 /**
@@ -57,9 +59,10 @@ export async function driveSignIn(o: DriveSignInOptions): Promise<SignInResult> 
       const email = await signedInEmail(page, spec);
       if (email && o.email && email.toLowerCase() !== o.email.toLowerCase()) {
         await o.context.clearCookies({ domain: loginHost }).catch(() => undefined);
-        throw new Error(`claude.ai signed in as a different account than ${o.email}; its sign-in was removed from this profile`);
+        throw new AccountMismatchError("claude.ai signed in as a different account than the one named; its sign-in was removed from this profile");
       }
-      return { status, email, confirmed: !!email, steps };
+      assertSameAccount("claude.ai", o.email, email); // ACCT-C01: no readable email (or none specified) is refused, never "unconfirmed"
+      return { status, email, confirmed: true, steps };
     };
     if (await o.hasSession()) return await confirm("already-signed-in");
     await page.goto(spec.url, { waitUntil: "domcontentloaded" }).catch(() => undefined);
@@ -98,7 +101,7 @@ export async function driveSignIn(o: DriveSignInOptions): Promise<SignInResult> 
   } finally { await page.close().catch(() => undefined); }
 }
 
-export interface SignInDeps { vault?: (label: string) => Promise<VaultCredential | undefined>; waitForVault?: (label: string, ms: number) => Promise<VaultCredential | undefined>; totp?: (label: string) => Promise<string | undefined> }
+export interface SignInDeps { vault?: (label: string) => Promise<VaultCredential | undefined>; waitForVault?: (label: string, ms: number) => Promise<VaultCredential | undefined>; totp?: (label: string) => Promise<string | undefined>; /** ACCT-C12 */ signInStore?: SignInStore }
 
 /** The account's vault credential: waits up to `waitMs` for the entry when it is missing, and refuses one whose username is another email. */
 export async function accountCredential(acc: AccountDef, waitMs: number, deps: SignInDeps = {}, log: (l: string) => void = () => {}): Promise<GoogleCredential> {
@@ -111,6 +114,10 @@ export async function accountCredential(acc: AccountDef, waitMs: number, deps: S
   }
   if (!cred?.password) throw new Error(`vault entry "${g.vaultLabel}" has no password; add it to the vault and run the sign-in again`);
   if (cred.username && acc.email && cred.username.toLowerCase() !== acc.email.toLowerCase()) throw new Error(`vault entry "${g.vaultLabel}" is for a different email than account "${acc.id}"; not signing in`);
+  // ACCT-C12: the entry's sign-in method (set, else settled from accounts.google.com's options), then a check, not a
+  // default: this flow signs in through Google's own sign-in page, so the recorded method must be google.
+  const { method } = await resolveSignInMethod({ label: g.vaultLabel, site: "accounts.google.com", entryMethod: cred.signInMethod, detect: async () => detectSignInOptions(loadSignInOptions(path.resolve("data", "selectors", "signin-options.json")), "accounts.google.com") }, { ...ccMethodErrors, store: deps.signInStore ?? signInStore });
+  assertFlowMethod("cc's claude.ai sign-in through Google", method, "google");
   const out: GoogleCredential = { username: cred.username ?? acc.email, password: cred.password };
   if (g.totp) out.totp = () => (deps.totp ?? getTotp)(g.vaultLabel);
   return out;

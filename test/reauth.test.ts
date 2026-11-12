@@ -39,7 +39,7 @@ function deps(t: Transport, o: { vault?: ReauthDeps["vault"]; tokens?: TokenResp
   return {
     run,
     transport: () => t,
-    vault: o.vault ?? (async () => ({ username: "me@example.com", password: PASSWORD })),
+    vault: o.vault ?? (async () => ({ username: "me@example.com", password: PASSWORD, signInMethod: "google" })),
     // The fake "browser": read the redirect_uri + state out of the consent URL cc built and hit the real loopback server the way Google's redirect would.
     consent: o.consent ?? (async (a) => {
       run.consentCalls++; run.urls.push(a.url);

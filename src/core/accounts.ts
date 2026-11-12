@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { PLATFORMS, type Platform } from "./types.js";
+import { AccountNotAuthorizedError } from "./accountChoice.js";
 
 /**
  * The platform accounts cc works in (registry/accounts.json). Data, not code: an account's email and vault label live there, never in src/.
@@ -13,6 +14,8 @@ export interface AccountDef {
   email?: string;
   /** Platforms this account is used on; a run for any other platform is skipped. */
   platforms: Platform[];
+  /** ACCT-C10 ACCT-C12: a cross-check only (e.g. { "grok": "x" }): when the owner's registry entry records a login method it must be this one. Never itself the expected method. */
+  loginProvider?: Partial<Record<Platform, LoginProvider>>;
   /** Folder name of this account's master profile, next to the default master. Absent = the default master itself (one account at most). */
   master?: string;
   /** How `cc browser signin` signs this account in to claude.ai: with Google, using this vault entry (username + password, resolved in-process, never logged). */
@@ -28,6 +31,10 @@ export interface TextFileRef { type: "file"; path: string }
 export interface ProjectSettings { /** The project's name exactly as claude.ai shows it. */ name: string; instructions: TextFileRef }
 export interface AccountSettings { projects: ProjectSettings[] }
 export interface Accounts { version: 1; default: string; accounts: AccountDef[] }
+
+/** ACCT-C10: login methods an identity reader can report (data/selectors/identity.json providerMap values). */
+export const LOGIN_PROVIDERS = ["email", "google", "x", "apple", "github", "sso", "phone", "cursor", "android"] as const;
+export type LoginProvider = (typeof LOGIN_PROVIDERS)[number];
 
 export const DEFAULT_ACCOUNTS_PATH = () => path.resolve("registry", "accounts.json");
 const ID_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -52,6 +59,14 @@ export function validateAccounts(a: unknown): string[] {
     const g = x?.signIn?.google;
     if (x?.signIn !== undefined && (!g || typeof g.vaultLabel !== "string" || !g.vaultLabel)) errs.push(`${w}.signIn.google.vaultLabel: required when signIn is present`);
     if (x?.settings !== undefined) errs.push(...validateSettings(x.settings, `${w}.settings`));
+    if (x?.loginProvider !== undefined) {
+      const lp = x.loginProvider as unknown;
+      if (!lp || typeof lp !== "object" || Array.isArray(lp)) errs.push(`${w}.loginProvider: an object such as { "grok": "x" }`);
+      else for (const [p, v] of Object.entries(lp as Record<string, unknown>)) {
+        if (!PLATFORMS.includes(p as Platform)) errs.push(`${w}.loginProvider.${p}: not a platform (${PLATFORMS.join(", ")})`);
+        if (!LOGIN_PROVIDERS.includes(v as LoginProvider)) errs.push(`${w}.loginProvider.${p}: one of ${LOGIN_PROVIDERS.join(", ")}`);
+      }
+    }
   });
   if (defaults > 1) errs.push("accounts: only one account may use the default master (leave out `master`)");
   if (typeof o.default !== "string" || !ids.has(o.default)) errs.push(`default: must name one of the accounts`);
@@ -93,8 +108,18 @@ export function loadAccounts(file = DEFAULT_ACCOUNTS_PATH()): Accounts {
   return a;
 }
 
-/** The named account, else CC_ACCOUNT, else the file's default. An unknown id is an error, never a silent fallback to another account. */
-export function pickAccount(a: Accounts, id?: string, env = process.env): AccountDef {
+/**
+ * The named account, else CC_ACCOUNT, else the file's default. An unknown id is an error, never a silent fallback to another account.
+ * Purpose "explicit" (ACCT-001, ACCT-C01: cc browser *, cc_signin): only the account named in the call; the default, CC_ACCOUNT and
+ * "the only account" never choose one, so no name is ACCOUNT_NOT_AUTHORIZED. cc_run requires its account before calling this (runner.ts).
+ */
+export function pickAccount(a: Accounts, id?: string, env = process.env, purpose: "use" | "explicit" = "use"): AccountDef {
+  if (purpose === "explicit") {
+    if (id === undefined) throw new AccountNotAuthorizedError("no account was named; name one with --account / account (the accounts file's default and CC_ACCOUNT never choose one)");
+    const named = a.accounts.find((x) => x.id === id);
+    if (!named) throw new Error(`unknown account "${id}" (known: ${a.accounts.map((x) => x.id).join(", ")})`);
+    return named;
+  }
   const want = id ?? env.CC_ACCOUNT ?? a.default;
   const acc = a.accounts.find((x) => x.id === want);
   if (!acc) throw new Error(`unknown account "${want}" (known: ${a.accounts.map((x) => x.id).join(", ")})`);

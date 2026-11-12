@@ -1,0 +1,4 @@
+#!/bin/sh
+# Requirement gate (REQ-G001, REQ-G002): refuses a pre-push that breaks the ledger or its traceability.
+. "$(dirname "$0")/_gate.sh"
+gate pre-push

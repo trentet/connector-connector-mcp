@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { BrowserContext, Locator, Page } from "patchright";
 import { sleep } from "./dom.js";
+import { assertSameAccount } from "../core/accountChoice.js";
 
 /**
  * Drives Google's sign-in and OAuth consent screens for `cc reauth`, in a browser session cc already owns (cloned master profile, own lane).
@@ -37,30 +38,34 @@ export function loadConsentSpec(dir = path.resolve(process.env.CC_SELECTORS_DIR 
   return spec;
 }
 
-const EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+const EMAILS_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/g;
 const safeUrl = (u: string): string => { try { const x = new URL(u); return `${x.origin}${x.pathname}`; } catch { return "(unparseable url)"; } };
 export function isGoogleHost(url: string, spec: Pick<ConsentSpec, "googleHosts">): boolean {
   try { const h = new URL(url).hostname; return spec.googleHosts.some((g) => h === g || h.endsWith("." + g)); } catch { return false; }
 }
 
-async function clickIfVisible(page: Page, selector: string): Promise<boolean> {
+/** `before` runs after the control is found and before it is clicked; it throws to refuse the click (ACCT-C06). */
+type Guard = () => Promise<void>;
+async function clickIfVisible(page: Page, selector: string, before?: Guard): Promise<boolean> {
   const l = page.locator(selector).first();
   if ((await l.count()) === 0 || !(await l.isVisible().catch(() => false))) return false;
+  await before?.();
   await l.click({ timeout: 5000 }).catch(() => undefined);
   return true;
 }
-async function clickTextIfVisible(page: Page, text: RegExp): Promise<boolean> {
+async function clickTextIfVisible(page: Page, text: RegExp, before?: Guard): Promise<boolean> {
   const l = page.getByText(text, { exact: false }).first();
   if ((await l.count()) === 0 || !(await l.isVisible().catch(() => false))) return false;
+  await before?.();
   await l.click({ timeout: 5000 }).catch(() => undefined);
   return true;
 }
 /** Google's multi-scope consent summary appends a fresh Continue below the spent one without changing the URL: the live forward control is the bottom-most visible match. */
-async function clickLastTextIfVisible(page: Page, text: RegExp): Promise<boolean> {
+async function clickLastTextIfVisible(page: Page, text: RegExp, before?: Guard): Promise<boolean> {
   const l = page.getByText(text, { exact: false });
   for (let i = (await l.count()) - 1; i >= 0; i--) {
     const el = l.nth(i);
-    if (await el.isVisible().catch(() => false)) { await el.click({ timeout: 5000 }).catch(() => undefined); return true; }
+    if (await el.isVisible().catch(() => false)) { await before?.(); await el.click({ timeout: 5000 }).catch(() => undefined); return true; }
   }
   return false;
 }
@@ -70,31 +75,47 @@ async function clickAndAwaitNavigation(page: Page, el: Locator, settleMs = 4000)
   for (const end = Date.now() + settleMs; Date.now() < end && page.url() === before;) await sleep(200);
 }
 
-/** The account-chooser tile for OUR account (exact email match), else the first tile that is not page chrome. Excludes Google's account-switcher chip, which leads to a help page. */
-async function clickAccountChooserEntry(page: Page, spec: ConsentSpec, ownEmail?: string, exactOnly = false): Promise<string | undefined> {
+/**
+ * The account-chooser tile for OUR account only: the element whose text names our email and no other email (ACCT-C03).
+ * No other tile is ever clicked; without our account on the chooser this returns undefined. Excludes Google's
+ * account-switcher chip, which leads to a help page.
+ */
+export async function clickAccountChooserEntry(page: Page, spec: ConsentSpec, ownEmail?: string): Promise<string | undefined> {
+  if (!ownEmail) return undefined;
+  const own = ownEmail.trim().toLowerCase();
   const candidates = page.locator("button, a, div[role='link'], div[role='button'], li");
   const count = Math.min(await candidates.count(), 30);
   const chip = new RegExp(spec.accountSwitcherChipAria, "i");
-  const chrome = new RegExp(spec.accountChooserChrome, "i");
-  if (ownEmail) {
-    for (let i = 0; i < count; i++) {
-      const el = candidates.nth(i);
-      if (!(await el.isVisible().catch(() => false))) continue;
-      if (chip.test((await el.getAttribute("aria-label").catch(() => null)) ?? "")) continue;
-      const text = ((await el.textContent().catch(() => "")) ?? "").trim();
-      if (text.toLowerCase().includes(ownEmail.toLowerCase())) { await clickAndAwaitNavigation(page, el); return "clicked the account chooser entry for our own account"; }
-    }
-  }
-  if (exactOnly) return undefined;
   for (let i = 0; i < count; i++) {
     const el = candidates.nth(i);
     if (!(await el.isVisible().catch(() => false))) continue;
-    const text = ((await el.textContent().catch(() => "")) ?? "").trim();
-    if (!text || EMAIL_RE.test(text) || chrome.test(text)) continue;
-    await clickAndAwaitNavigation(page, el);
-    return "clicked an account chooser entry";
+    if (chip.test((await el.getAttribute("aria-label").catch(() => null)) ?? "")) continue;
+    const text = ((await el.textContent().catch(() => "")) ?? "").trim().toLowerCase();
+    const emails = new Set(text.match(EMAILS_RE) ?? []);
+    if (emails.size === 1 && emails.has(own)) { await clickAndAwaitNavigation(page, el); return "clicked the account chooser entry for our own account"; }
   }
   return undefined;
+}
+
+/**
+ * Every account a Google page shows as signed in: [data-email] values and the account chip's aria-label
+ * (spec.accountSwitcherChipAria). Email text elsewhere on the page is not identity. ACCT-C06; not yet checked against
+ * live Google, so a screen without these markers is refused (fail-closed).
+ */
+export async function googleIdentity(page: Page, spec: ConsentSpec): Promise<string[]> {
+  const raw = await page.evaluate((chip) => {
+    const re = new RegExp(chip, "i");
+    const out: string[] = [];
+    document.querySelectorAll("[data-email]").forEach((e) => { out.push(e.getAttribute("data-email") ?? ""); });
+    document.querySelectorAll("[aria-label]").forEach((e) => { const a = e.getAttribute("aria-label") ?? ""; if (re.test(a)) out.push(a); });
+    return out;
+  }, spec.accountSwitcherChipAria).catch(() => [] as string[]);
+  return [...new Set(raw.flatMap((s) => s.toLowerCase().match(EMAILS_RE) ?? []))];
+}
+
+/** ACCT-003 ACCT-C06: the Google page shows exactly our account as signed in; otherwise ACCOUNT_MISMATCH / ACCOUNT_NOT_AUTHORIZED. */
+export async function assertGoogleAccount(page: Page, spec: ConsentSpec, ownEmail?: string): Promise<void> {
+  assertSameAccount("Google", ownEmail, await googleIdentity(page, spec));
 }
 
 /** Counts and the visible button labels of a consent screen, for the log (no field values, no URL query). */
@@ -113,6 +134,9 @@ async function describeConsent(page: Page): Promise<string> {
 export type StepMode = "consent" | "signin";
 
 export async function advanceOneStep(page: Page, cred: GoogleCredential, spec: ConsentSpec, mode: StepMode = "consent"): Promise<string | undefined> {
+  // ACCT-C06: entering our own email, password and code signs in the specified account; every other click or consent
+  // below waits until the page shows that exact account as signed in (the chooser clicks only our own tile, ACCT-C03).
+  const guard: Guard = () => assertGoogleAccount(page, spec, cred.username);
   const email = page.locator(spec.emailInput).first();
   if ((await email.count()) > 0 && (await email.isVisible().catch(() => false))) {
     if (!cred.username) throw new Error("the Google account's vault entry has no username to enter at the email prompt");
@@ -143,12 +167,12 @@ export async function advanceOneStep(page: Page, cred: GoogleCredential, spec: C
     return "entered the authenticator code, pressed Enter";
   }
   if (page.url().includes(spec.paths.accountChooser)) {
-    const chosen = await clickAccountChooserEntry(page, spec, cred.username, mode === "signin");
+    const chosen = await clickAccountChooserEntry(page, spec, cred.username);
     if (chosen) return chosen;
   }
-  if (mode === "signin") return (await clickLastTextIfVisible(page, new RegExp(spec.continueText))) ? "clicked Continue" : undefined;
-  if (await clickTextIfVisible(page, new RegExp(spec.advancedText))) return "clicked Advanced (unverified-app notice)";
-  if (await clickTextIfVisible(page, new RegExp(spec.goToAppText))) return "clicked Go to <app> (unsafe)";
+  if (mode === "signin") return (await clickLastTextIfVisible(page, new RegExp(spec.continueText), guard)) ? "clicked Continue" : undefined;
+  if (await clickTextIfVisible(page, new RegExp(spec.advancedText), guard)) return "clicked Advanced (unverified-app notice)";
+  if (await clickTextIfVisible(page, new RegExp(spec.goToAppText), guard)) return "clicked Go to <app> (unsafe)";
   // A consent screen (the v2 summary or the newer v3 page) lists each requested scope with its own checkbox, UNCHECKED by default for an
   // app in Testing status; continuing with any left unchecked makes Google grant fewer scopes than asked (or redirect with error=access_denied).
   // Tick every visible unchecked box first, then continue.
@@ -161,14 +185,15 @@ export async function advanceOneStep(page: Page, cred: GoogleCredential, spec: C
       const aria = await cb.getAttribute("aria-checked").catch(() => null);
       const checked = aria !== null ? aria === "true" : await cb.isChecked().catch(() => true);
       if (!checked) {
+        await guard();
         if (aria !== null) await cb.click({ timeout: 5000 }).catch(() => undefined); else await cb.check({ timeout: 5000 }).catch(() => undefined);
         return `checked scope box ${i + 1}/${n}`;
       }
     }
   }
-  if (await clickLastTextIfVisible(page, new RegExp(spec.continueText))) return "clicked Continue";
-  if (await clickLastTextIfVisible(page, new RegExp(spec.allowText))) return "clicked Allow";
-  if (await clickTextIfVisible(page, new RegExp(spec.selectAllText))) return "clicked Select all";
+  if (await clickLastTextIfVisible(page, new RegExp(spec.continueText), guard)) return "clicked Continue";
+  if (await clickLastTextIfVisible(page, new RegExp(spec.allowText), guard)) return "clicked Allow";
+  if (await clickTextIfVisible(page, new RegExp(spec.selectAllText), guard)) return "clicked Select all";
   return undefined;
 }
 

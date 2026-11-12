@@ -102,7 +102,7 @@ export interface RunRequest {
   /** Also select tier "test" connectors when connectors includes "*". */
   includeTest?: boolean;
   ifExisting?: "skip" | "update" | "fail";
-  /** registry/accounts.json id; default CC_ACCOUNT, else the file's default. Each account has its own signed-in browser profile. */
+  /** registry/accounts.json id. Required (ACCT-001, ACCT-C05): run() refuses without it; CC_ACCOUNT and the file's default never choose one. Each account has its own signed-in browser profile. */
   account?: string;
 }
 

@@ -3,7 +3,9 @@ import path from "node:path";
 import type { Page } from "patchright";
 import { guarded } from "../browser/chrome.js";
 import { sleep } from "../browser/dom.js";
-import { deleteCredential, getCredential, waitForCredential } from "../core/vaultClient.js";
+import { deleteCredential, getCredential, signInStore, waitForCredential } from "../core/vaultClient.js";
+import { detectSignInOptions, loadSignInOptions, resolveSignInMethod } from "../core/signInMethod.js";
+import * as acctRule from "../core/accountChoice.js";
 import type { AdapterContext, AdapterOutcome, PlatformAdapter } from "./types.js";
 
 const sel = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "chatgpt.json"), "utf8"));
@@ -35,6 +37,10 @@ async function login(ctx: AdapterContext): Promise<void> {
     await sleep(3500);
     if (cur.url().includes("accounts.google.com")) {
       if (!google?.password) throw new Error(`Google asked for credentials but vault entry "${sel.loginVaultLabel}" has no password`);
+      // ACCT-C12: the entry's sign-in method (set, else settled from accounts.google.com's options), then a check, not
+      // a default: this flow signs in through "Continue with Google", so the recorded method must be google.
+      const { method } = await resolveSignInMethod({ label: sel.loginVaultLabel, site: "accounts.google.com", entryMethod: google.signInMethod, detect: async () => detectSignInOptions(loadSignInOptions(path.resolve("data", "selectors", "signin-options.json")), "accounts.google.com") }, { ...acctRule.ccMethodErrors, store: signInStore });
+      acctRule.assertFlowMethod("chatgpt.com's Continue with Google login", method, "google");
       if (await cur.locator(sel.login.googleEmailInput).count()) {
         await cur.locator(sel.login.googleEmailInput).fill(google.username ?? "");
         await cur.getByRole("button", { name: rx(sel.login.googleNext) }).click();
