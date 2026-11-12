@@ -1,0 +1,129 @@
+# Requirements ledger for connector-connector-mcp (cc): the account authorization rule (2026-11-11) and the gate that enforces it.
+# Scope (owner t117u, 2026-11-11): only the new account-rule work and the files it adds or changes. Existing
+# behaviour is not backfilled here; gate.code and gate.tools_in_scope list exactly what this ledger covers.
+gate:
+  id_pattern: '\b(?:REQ-[UDG]\d{3}|ACCT-(?:\d{3}|[PCV]\d{2}))\b'
+  code: ['^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
+  tests: ['^test/.+\.ts$']
+  tool_files: ['^src/server/app\.ts$']
+  tools_in_scope: [cc_signin]
+requirements:
+- id: REQ-U001
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-08'
+  source: main chat t97u 2026-11-08 ~10:19 PM CST (owner, verbatim)
+  quotes:
+  - Remember all requirements must exist in specification before being developed, retroactively and proactively
+  implemented_by: [REQ-G001]
+- id: REQ-U002
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-09'
+  source: main chat t99u 2026-11-09 ~8:42 PM CST (owner, verbatim)
+  quotes:
+  - There must be requirements and tests. PRs are not allowed if there is no traceability from requirement down to test cases
+  implemented_by: [REQ-G002]
+- id: REQ-U003
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-11'
+  source: main chat t113u 2026-11-11 (owner, verbatim)
+  quotes:
+  - "It\u2019s absolutely unacceptable for this to ever happen again. You must never under any circumstances ever use an account or log into an account if you have not already been explicitly fucking told as to what you should be using when there\u2019s more than one fucking account available. This must be programmatically and determinist enforced in such a way that makes it impossible for you to make this mistake ever again for anything ever"
+  implemented_by: [ACCT-001, ACCT-002]
+- id: REQ-U004
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-11'
+  source: main chat t114u 2026-11-11 (owner, verbatim; refines REQ-U003)
+  quotes:
+  - "The Grok account that we are currently on is the only one that should be getting used by default. Effectively when we are dealing with accounts, we first check what account we are already on and then that\u2019s the one that we assume unless we are explicitly told otherwise."
+  implemented_by: [ACCT-001]
+- id: REQ-G001
+  kind: derived
+  status: decided
+  title: Spec before code, enforced by the requirement gate
+  text: >
+    Every requirement is logged in docs/requirements.yaml before the code that implements it. scripts/req_gate.py
+    runs at commit-msg, pre-commit and pre-push (git config core.hooksPath scripts/hooks): a commit must cite at least
+    one known, decided requirement id; code and tests may not cite an undecided one; a blocked entry cannot be removed;
+    a file covered only by undecided entries cannot change.
+  files: [scripts/req_gate.py, scripts/req_gate_selftest.py, 'scripts/hooks/*']
+  decision: {quote: Remember all requirements must exist in specification before being developed, retroactively and proactively, at: '2026-11-08 22:19 CST', source: main chat t97u, from: REQ-U001}
+- id: REQ-G002
+  kind: derived
+  status: decided
+  title: Requirement-to-test traceability
+  text: >
+    Every decided requirement is cited in a test file (or listed under untraced with a why, never given a fake test);
+    every code file is covered by a logged requirement; every registered MCP tool is covered by a decided requirement
+    and named in a test. The gate refuses a commit or push that breaks any of these.
+  files: [scripts/req_gate.py, scripts/req_gate_selftest.py, 'scripts/hooks/*']
+  decision: {quote: PRs are not allowed if there is no traceability from requirement down to test cases, at: '2026-11-09 20:42 CST', source: main chat t99u, from: REQ-U002}
+- id: ACCT-001
+  kind: derived
+  status: decided
+  title: Use the account already in use; otherwise only the owner-named one; otherwise refuse
+  text: >
+    Before any sign-in, account selection or credential fill for a service, a tool uses the account already signed
+    in for that service. It uses a different account only when the owner explicitly named it in the account
+    authorization registry (vault-mcp, written only by the owner's own typed form). With no signed-in account and no
+    registry entry it uses an account only when exactly one could apply; otherwise it refuses with
+    ACCOUNT_NOT_AUTHORIZED and acts on nothing. On an account chooser page the count is unknown, so it refuses.
+  decision: {quote: "we first check what account we are already on and then that\u2019s the one that we assume unless we are explicitly told otherwise", at: '2026-11-11', source: main chat t114u, from: [REQ-U004, REQ-U003]}
+- id: ACCT-002
+  kind: derived
+  status: decided
+  title: Nothing but the owner's explicit naming authorizes an account
+  text: >
+    A configured default, the CC_ACCOUNT setting, a vault entry or its label, a vault used_with record, and account
+    files kept in a code repository are never authorization to use an account.
+  decision: {quote: "if you have not already been explicitly fucking told as to what you should be using when there\u2019s more than one fucking account available", at: '2026-11-11', source: main chat t113u, from: REQ-U003}
+- id: ACCT-C01
+  kind: derived
+  status: decided
+  title: A claude.ai sign-in uses the owner-named account, or the only one that could sign in
+  text: >
+    pickAccount for a sign-in (cc browser signin, cc_signin) never takes the accounts file's default or CC_ACCOUNT:
+    the account must be named in the call, or be the only account with a sign-in entry. Before signing in,
+    the owner's registry entry for cc-signin:<account id> must name that account's email; with no entry the account
+    must be the only one that can sign in. Otherwise ACCOUNT_NOT_AUTHORIZED, before any browser or vault use.
+  files: [src/core/accounts.ts, src/core/accountChoice.ts, src/cli.ts, src/server/app.ts]
+  tools: [cc_signin]
+  decision: {quote: "if you have not already been explicitly fucking told as to what you should be using when there\u2019s more than one fucking account available", at: '2026-11-11', source: main chat t113u, from: REQ-U003}
+- id: ACCT-C02
+  kind: derived
+  status: decided
+  title: grok.com email login uses the owner-named or the only possible account
+  text: >
+    The grok adapter uses a signed-in grok.com session as it is. Only when grok.com shows signed out does it log in,
+    and then only when the owner named the vault entry's username for grok.com in the registry, or when no other
+    vault login with a different username has a URI on grok.com or x.ai; otherwise ACCOUNT_NOT_AUTHORIZED and
+    nothing is typed. Login summaries drop passwords.
+  files: [src/adapters/grok.ts, src/core/accountChoice.ts, src/core/vaultClient.ts]
+  decision: {quote: "we first check what account we are already on and then that\u2019s the one that we assume unless we are explicitly told otherwise", at: '2026-11-11', source: main chat t114u, from: [REQ-U004, REQ-U003]}
+- id: ACCT-C03
+  kind: derived
+  status: decided
+  title: The Google account chooser is never answered with the first tile
+  text: >
+    On Google's account chooser cc clicks only the element whose text names our own account's email and no other
+    email. The fallback that clicked the first non-chrome tile is removed; without our account on the chooser
+    nothing is clicked.
+  files: [src/browser/googleConsent.ts]
+  decision: {quote: "You must never under any circumstances ever use an account or log into an account if you have not already been explicitly fucking told as to what you should be using", at: '2026-11-11', source: main chat t113u, from: REQ-U003}
+- id: ACCT-C04
+  kind: derived
+  status: decided
+  title: Read-only registry check with signature verification
+  text: >
+    src/core/accountRegistry.ts reads account-authorization/<service> from bw serve and verifies its Ed25519 signature
+    with the key vault-mcp serves (VAULT_MCP_URL, default http://127.0.0.1:3000). Authorized, none, tampered
+    (missing or wrong signature, another key, two entries) or unavailable. It writes nothing.
+  files: [src/core/accountRegistry.ts]
+  decision: {quote: This must be programmatically and determinist enforced in such a way that makes it impossible for you to make this mistake ever again for anything ever, at: '2026-11-11', source: main chat t113u, from: REQ-U003}

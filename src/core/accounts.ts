@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { PLATFORMS, type Platform } from "./types.js";
+import { AccountNotAuthorizedError } from "./accountChoice.js";
 
 /**
  * The platform accounts cc works in (registry/accounts.json). Data, not code: an account's email and vault label live there, never in src/.
@@ -93,8 +94,22 @@ export function loadAccounts(file = DEFAULT_ACCOUNTS_PATH()): Accounts {
   return a;
 }
 
-/** The named account, else CC_ACCOUNT, else the file's default. An unknown id is an error, never a silent fallback to another account. */
-export function pickAccount(a: Accounts, id?: string, env = process.env): AccountDef {
+/**
+ * The named account, else CC_ACCOUNT, else the file's default. An unknown id is an error, never a silent fallback to another account.
+ * For a sign-in (purpose "signin", ACCT-C01) the default and CC_ACCOUNT never choose: the account must be named, or be the only
+ * account with a sign-in entry; otherwise ACCOUNT_NOT_AUTHORIZED.
+ */
+export function pickAccount(a: Accounts, id?: string, env = process.env, purpose: "use" | "signin" = "use"): AccountDef {
+  if (purpose === "signin") {
+    if (id !== undefined) {
+      const named = a.accounts.find((x) => x.id === id);
+      if (!named) throw new Error(`unknown account "${id}" (known: ${a.accounts.map((x) => x.id).join(", ")})`);
+      return named;
+    }
+    const able = a.accounts.filter((x) => x.signIn?.google);
+    if (able.length === 1) return able[0]!;
+    throw new AccountNotAuthorizedError(`${able.length} accounts could sign in; name one with --account (the default and CC_ACCOUNT never choose the account for a sign-in)`);
+  }
   const want = id ?? env.CC_ACCOUNT ?? a.default;
   const acc = a.accounts.find((x) => x.id === want);
   if (!acc) throw new Error(`unknown account "${want}" (known: ${a.accounts.map((x) => x.id).join(", ")})`);

@@ -87,6 +87,19 @@ export function unknownArgs(body: unknown): string[] | undefined {
   return undefined;
 }
 
+/** cc_signin's default: the account is picked for a sign-in and must be owner-named or the only one that can sign in (ACCT-C01). */
+export async function defaultSigninFn(accountsPath: string | undefined, id: string | undefined, waitMs: number) {
+  const { pickAccount, accountMaster } = await import("../core/accounts.js");
+  const { assertSignInAccount } = await import("../core/accountChoice.js");
+  const all = loadAccounts(accountsPath);
+  const acc = pickAccount(all, id, process.env, "signin");
+  await assertSignInAccount(all, acc);
+  const { masterDir } = await import("../browser/chrome.js");
+  const { signInAccount } = await import("../browser/signin.js");
+  const r = await signInAccount(acc, accountMaster(acc, masterDir()), { waitForVaultMs: waitMs });
+  return { status: r.status, account: acc.id, email: r.email, confirmed: r.confirmed };
+}
+
 export function buildMcpServer(opts: AppOptions): McpServer {
   const server = new McpServer({ name: "connector-connector-mcp", version: opts.version ?? packageVersion() });
   const runFn = opts.runFn ?? ((reg, req) => import("../adapters/index.js").then(({ ADAPTERS }) => coreRun(reg, req, { adapters: ADAPTERS })));
@@ -123,14 +136,7 @@ export function buildMcpServer(opts: AppOptions): McpServer {
       return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
     },
   );
-  const signinFn = opts.signinFn ?? (async (id: string | undefined, waitMs: number) => {
-    const { pickAccount, accountMaster } = await import("../core/accounts.js");
-    const { masterDir } = await import("../browser/chrome.js");
-    const { signInAccount } = await import("../browser/signin.js");
-    const acc = pickAccount(loadAccounts(opts.accountsPath), id);
-    const r = await signInAccount(acc, accountMaster(acc, masterDir()), { waitForVaultMs: waitMs });
-    return { status: r.status, account: acc.id, email: r.email, confirmed: r.confirmed };
-  });
+  const signinFn = opts.signinFn ?? ((id: string | undefined, waitMs: number) => defaultSigninFn(opts.accountsPath, id, waitMs));
   server.registerTool(
     "cc_signin",
     {

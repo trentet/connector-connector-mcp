@@ -37,7 +37,7 @@ export function loadConsentSpec(dir = path.resolve(process.env.CC_SELECTORS_DIR 
   return spec;
 }
 
-const EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+const EMAILS_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/g;
 const safeUrl = (u: string): string => { try { const x = new URL(u); return `${x.origin}${x.pathname}`; } catch { return "(unparseable url)"; } };
 export function isGoogleHost(url: string, spec: Pick<ConsentSpec, "googleHosts">): boolean {
   try { const h = new URL(url).hostname; return spec.googleHosts.some((g) => h === g || h.endsWith("." + g)); } catch { return false; }
@@ -70,29 +70,24 @@ async function clickAndAwaitNavigation(page: Page, el: Locator, settleMs = 4000)
   for (const end = Date.now() + settleMs; Date.now() < end && page.url() === before;) await sleep(200);
 }
 
-/** The account-chooser tile for OUR account (exact email match), else the first tile that is not page chrome. Excludes Google's account-switcher chip, which leads to a help page. */
-async function clickAccountChooserEntry(page: Page, spec: ConsentSpec, ownEmail?: string, exactOnly = false): Promise<string | undefined> {
+/**
+ * The account-chooser tile for OUR account only: the element whose text names our email and no other email (ACCT-C03).
+ * No other tile is ever clicked; without our account on the chooser this returns undefined. Excludes Google's
+ * account-switcher chip, which leads to a help page.
+ */
+export async function clickAccountChooserEntry(page: Page, spec: ConsentSpec, ownEmail?: string): Promise<string | undefined> {
+  if (!ownEmail) return undefined;
+  const own = ownEmail.trim().toLowerCase();
   const candidates = page.locator("button, a, div[role='link'], div[role='button'], li");
   const count = Math.min(await candidates.count(), 30);
   const chip = new RegExp(spec.accountSwitcherChipAria, "i");
-  const chrome = new RegExp(spec.accountChooserChrome, "i");
-  if (ownEmail) {
-    for (let i = 0; i < count; i++) {
-      const el = candidates.nth(i);
-      if (!(await el.isVisible().catch(() => false))) continue;
-      if (chip.test((await el.getAttribute("aria-label").catch(() => null)) ?? "")) continue;
-      const text = ((await el.textContent().catch(() => "")) ?? "").trim();
-      if (text.toLowerCase().includes(ownEmail.toLowerCase())) { await clickAndAwaitNavigation(page, el); return "clicked the account chooser entry for our own account"; }
-    }
-  }
-  if (exactOnly) return undefined;
   for (let i = 0; i < count; i++) {
     const el = candidates.nth(i);
     if (!(await el.isVisible().catch(() => false))) continue;
-    const text = ((await el.textContent().catch(() => "")) ?? "").trim();
-    if (!text || EMAIL_RE.test(text) || chrome.test(text)) continue;
-    await clickAndAwaitNavigation(page, el);
-    return "clicked an account chooser entry";
+    if (chip.test((await el.getAttribute("aria-label").catch(() => null)) ?? "")) continue;
+    const text = ((await el.textContent().catch(() => "")) ?? "").trim().toLowerCase();
+    const emails = new Set(text.match(EMAILS_RE) ?? []);
+    if (emails.size === 1 && emails.has(own)) { await clickAndAwaitNavigation(page, el); return "clicked the account chooser entry for our own account"; }
   }
   return undefined;
 }
@@ -143,7 +138,7 @@ export async function advanceOneStep(page: Page, cred: GoogleCredential, spec: C
     return "entered the authenticator code, pressed Enter";
   }
   if (page.url().includes(spec.paths.accountChooser)) {
-    const chosen = await clickAccountChooserEntry(page, spec, cred.username, mode === "signin");
+    const chosen = await clickAccountChooserEntry(page, spec, cred.username);
     if (chosen) return chosen;
   }
   if (mode === "signin") return (await clickLastTextIfVisible(page, new RegExp(spec.continueText))) ? "clicked Continue" : undefined;
