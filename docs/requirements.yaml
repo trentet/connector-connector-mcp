@@ -55,6 +55,16 @@ requirements:
   quotes:
   - "The connector connector is required to be actually using the very specific accounts for each platform based off of the specific accounts that are actually going to be used for that run. So if we have a script that has a fucking schedule where we have specific accounts being defined as being used and passed in and being provided somehow then yes we would do that. But like it would not be acceptable to just be blindly using the accounts that are already logged in without validating that we\u2019re actually logged into the correct account. That\u2019s how you end up with catastrophic problems otherwise like imagine accidentally checking out on Amazon for $7000 purchase and then it\u2019s on the wrong fucking account that\u2019s fucking disastrous like shit like that is never ever acceptable for us to have any height of lack of safeguards"
   implemented_by: [ACCT-001, ACCT-002, ACCT-003]
+- id: REQ-U006
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-11'
+  source: main chat t120u 2026-11-11 (owner, verbatim)
+  quotes:
+  - "You\u2019re telling me that you don\u2019t have any way of identifying what email address is currently being used to login and whether or not it\u2019s like like a email login or a Google login or an X login?"
+  implemented_by: [ACCT-C10]
+
 - id: REQ-G001
   kind: derived
   status: decided
@@ -214,3 +224,17 @@ requirements:
   files: [src/server/app.ts]
   tools: [cc_run, cc_signin]
   decision: {quote: "it would not be acceptable to just be blindly using the accounts that are already logged in", at: '2026-11-11', source: main chat t119u, from: REQ-U005}
+- id: ACCT-C10
+  kind: derived
+  status: decided
+  title: grok.com's signed-in email and login method are read, and must match the run's account
+  text: >
+    data/selectors/identity.json has a reader for grok: grok.com's same-origin GET /api/auth/session, email at
+    session.email and login method at session.signInMethod (enum name or number mapped to email, google, x, apple,
+    github, sso, phone, cursor or android; a status other than authenticated identifies nothing). src/browser/identity.ts
+    reports both. Every check (cc_run sessions, cc threads, cc settings, cc browser seed) requires the email to be the
+    account's, and, when the account entry sets loginProvider for the platform, the login method to be that one:
+    another is ACCOUNT_MISMATCH, an unreadable one ACCOUNT_NOT_AUTHORIZED. The reader is not yet seen signed in live.
+  files: [src/browser/identity.ts, src/core/accountChoice.ts, src/core/accounts.ts, src/core/runner.ts, src/browser/seed.ts, src/cli.ts]
+  tools: [cc_run]
+  decision: {quote: "whether or not it\u2019s like like a email login or a Google login or an X login", at: '2026-11-11', source: main chat t120u, from: REQ-U006}

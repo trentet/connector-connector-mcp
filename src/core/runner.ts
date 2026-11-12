@@ -4,8 +4,8 @@ import { watchLogin, type LoginCredential, type LoginWatcher } from "../browser/
 import { notImplementedAdapter, type PlatformAdapter, type ResolvedConnector } from "../adapters/types.js";
 import { accountMaster, loadAccounts, pickAccount, type AccountDef, type Accounts } from "./accounts.js";
 import { Redactor } from "./redact.js";
-import { AccountNotAuthorizedError, assertSameAccount } from "./accountChoice.js";
-import { readPlatformIdentity } from "../browser/identity.js";
+import { AccountNotAuthorizedError, assertSameIdentity, expectedIdentity, type SeenIdentity } from "./accountChoice.js";
+import { readPlatformAccount } from "../browser/identity.js";
 import { resolve, defaultDeps, type ResolveDeps } from "./secrets.js";
 import type { ConnectorDef, ItemResult, Platform, Registry, RunRequest, RunResult } from "./types.js";
 
@@ -21,7 +21,7 @@ export interface RunnerOptions {
   /** Starts the connector-login watcher (injectable for tests); defaults to the real one. */
   watchLogin?: (context: BrowserContext, connectorUrl: string, cred: LoginCredential | undefined) => LoginWatcher;
   /** Reads which account a platform session is signed in as (ACCT-C05; injectable for tests); defaults to data/selectors/identity.json. */
-  readIdentity?: (platform: Platform, session: BrowserSession) => Promise<string | undefined>;
+  readIdentity?: (platform: Platform, session: BrowserSession) => Promise<SeenIdentity>;
 }
 
 interface Task { idx: number; platform: Platform; connector?: ConnectorDef }
@@ -69,8 +69,8 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
   // ACCT-003 ACCT-C05: no adapter acts in a session until its signed-in account is read and is exactly the run's account.
   async function verifiedSession(platform: Platform, s: BrowserSession): Promise<BrowserSession> {
     try {
-      const seen = await (opts.readIdentity ?? readPlatformIdentity)(platform, s).catch(() => undefined);
-      assertSameAccount(platform, acc.email, seen);
+      const seen = await (opts.readIdentity ?? readPlatformAccount)(platform, s).catch(() => undefined);
+      assertSameIdentity(platform, expectedIdentity(acc, platform), seen); // ACCT-C10: and the login method, when the account specifies one
       return s;
     } catch (e) { await s.close().catch(() => undefined); throw e; }
   }

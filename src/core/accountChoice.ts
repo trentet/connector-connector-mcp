@@ -1,4 +1,4 @@
-// @reqs ACCT-001 ACCT-002 ACCT-003 ACCT-C01 ACCT-C02 ACCT-C05
+// @reqs ACCT-001 ACCT-002 ACCT-003 ACCT-C01 ACCT-C02 ACCT-C05 ACCT-C10
 /**
  * The account rule (owner t119u, 2026-11-11). Every sign-in, credential fill or account-scoped action runs for an
  * account specified for that run: passed in explicitly by the caller (cc_run / cc_signin account, the connector's
@@ -39,6 +39,31 @@ export function assertSameAccount(where: string, expected: string | undefined, s
   const got = (Array.isArray(seen) ? [...seen] : typeof seen === "string" ? [seen] : []).map((s) => normAccount(s)).filter(Boolean);
   if (got.length === 0) throw new AccountNotAuthorizedError(`the account signed in on ${where} could not be read; an unverified session is never used`);
   if (got.some((g) => g !== want)) throw new AccountMismatchError(`${where} shows a signed-in account other than the one specified for this run; refusing`);
+}
+
+/** ACCT-C10: the account a session must show: its email, and its login method when the account entry specifies one. */
+export interface ExpectedIdentity { email?: string; provider?: string }
+/** What a reader saw: an email (or several), or an email with the login method it was signed in with. */
+export type SeenIdentity = string | readonly string[] | { email?: string; provider?: string } | undefined;
+
+/**
+ * ACCT-003 ACCT-C10: the email must be exactly the expected one (assertSameAccount). When the account specifies a login
+ * method (email, google, x, ...), the session's must be that one too: another is ACCOUNT_MISMATCH, an unreadable one
+ * ACCOUNT_NOT_AUTHORIZED. Messages carry no email.
+ */
+export function assertSameIdentity(where: string, expected: ExpectedIdentity, seen: SeenIdentity): void {
+  const obj = seen && typeof seen === "object" && !Array.isArray(seen) ? (seen as { email?: string; provider?: string }) : undefined;
+  assertSameAccount(where, expected.email, obj ? obj.email : (seen as string | readonly string[] | undefined));
+  const want = expected.provider?.trim().toLowerCase();
+  if (!want) return;
+  const got = obj?.provider?.trim().toLowerCase();
+  if (!got) throw new AccountNotAuthorizedError(`the login method signed in on ${where} could not be read, and this account must use ${want}; an unverified session is never used`);
+  if (got !== want) throw new AccountMismatchError(`${where} is signed in with a login method other than the one specified for this account (${want}); refusing`);
+}
+
+/** The identity a platform session must show for an account entry (its email, and loginProvider[platform] when set). */
+export function expectedIdentity(acc: { email?: string; loginProvider?: Partial<Record<string, string>> }, platform: string): ExpectedIdentity {
+  return { email: acc.email, provider: acc.loginProvider?.[platform] };
 }
 
 /** A registry entry, when the owner made one, must name the same account as the run; a tampered entry refuses. */

@@ -1,4 +1,4 @@
-// @reqs ACCT-001 ACCT-002 ACCT-003 ACCT-C01 ACCT-C02 ACCT-C03 ACCT-C04 ACCT-C05 ACCT-C06 ACCT-C07
+// @reqs ACCT-001 ACCT-002 ACCT-003 ACCT-C01 ACCT-C02 ACCT-C03 ACCT-C04 ACCT-C05 ACCT-C06 ACCT-C07 ACCT-C10
 import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -7,11 +7,11 @@ import path from "node:path";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { chromium, type Browser } from "patchright";
 import { afterAll, describe, expect, it } from "vitest";
-import { pickAccount, type Accounts } from "../src/core/accounts.js";
-import { AccountMismatchError, AccountNotAuthorizedError, assertLoginAccount, assertSameAccount, assertSignInAccount, signInService } from "../src/core/accountChoice.js";
+import { LOGIN_PROVIDERS, pickAccount, validateAccounts, type Accounts } from "../src/core/accounts.js";
+import { AccountMismatchError, AccountNotAuthorizedError, assertLoginAccount, assertSameAccount, assertSameIdentity, assertSignInAccount, signInService } from "../src/core/accountChoice.js";
 import { lookupAccount, verifyEntry, type Lookup, type RegistryItem } from "../src/core/accountRegistry.js";
 import { advanceOneStep, assertGoogleAccount, clickAccountChooserEntry, googleIdentity, loadConsentSpec } from "../src/browser/googleConsent.js";
-import { loadIdentityProbes, openVerifiedSession, readPlatformIdentity } from "../src/browser/identity.js";
+import { loadIdentityProbes, openVerifiedSession, readPlatformAccount, readPlatformIdentity } from "../src/browser/identity.js";
 import { runThreads } from "../src/threads.js";
 import { run } from "../src/core/runner.js";
 import type { Registry } from "../src/core/types.js";
@@ -182,13 +182,92 @@ describe("ACCT-C05 cc_run: the run's account is required and each session's sign
     expect(r.items[0]!.detail).toMatch(/ACCOUNT_NOT_AUTHORIZED: /);
     expect(h.acted).toBe(0);
   });
-  it("grok has no identity reader, so its signed-in account is unknown (refused) and nothing is navigated", async () => {
-    expect(loadIdentityProbes().grok?.fetch).toBeUndefined();
+  it("a platform without a reader is unknown and nothing is navigated; claude and grok (ACCT-C10) have readers", async () => {
     let navigated = 0;
     const s = { page: { goto: async () => { navigated++; }, evaluate: async () => ({}) } } as unknown as BrowserSession;
-    expect(await readPlatformIdentity("grok", s)).toBeUndefined();
+    expect(await readPlatformIdentity("nowhere", s)).toBeUndefined();
     expect(navigated).toBe(0);
     expect(loadIdentityProbes().claude).toMatchObject({ fetch: "https://claude.ai/api/account", emailField: "email_address" });
+    expect(loadIdentityProbes().grok?.fetch).toBe("https://grok.com/api/auth/session");
+  });
+});
+
+describe("ACCT-C10 grok.com: the signed-in email and its login method are read, and must match the run's account", () => {
+  const grok = loadIdentityProbes().grok!;
+  const sessionWith = (body: unknown) => {
+    const h = { navigated: [] as string[], fetched: [] as string[] };
+    const s = { page: { goto: async (u: string) => { h.navigated.push(u); }, evaluate: async (_f: unknown, u: string) => { h.fetched.push(u); return body; } } } as unknown as BrowserSession;
+    return { h, s };
+  };
+  it("the reader is grok.com's same-origin session endpoint: session.email and session.signInMethod (not yet seen signed in live)", () => {
+    expect(grok).toMatchObject({ page: "https://grok.com/", fetch: "https://grok.com/api/auth/session", statusField: "status", okStatus: "authenticated", emailField: "session.email", providerField: "session.signInMethod", liveVerified: false });
+  });
+  it("tells an email login, Google and X apart, by enum name or number", async () => {
+    for (const [m, want] of [["EMAIL_PASSWORD", "email"], [1, "email"], ["EMAIL_CODE", "email"], ["GOOGLE_OAUTH2", "google"], [2, "google"], ["X_OAUTH2", "x"], [3, "x"], ["x_oauth2", "x"], ["APPLE_OAUTH2", "apple"]] as const) {
+      const { h, s } = sessionWith({ status: "authenticated", session: { email: A, userId: "u-1", signInMethod: m } });
+      expect(await readPlatformAccount("grok", s)).toEqual({ email: A, provider: want, providerRaw: String(m) });
+      expect(h).toEqual({ navigated: ["https://grok.com/"], fetched: ["https://grok.com/api/auth/session"] });
+    }
+  });
+  it("signed out (the live response {\"status\":\"unauthenticated\"}), blocked, no email, or no JSON: nothing is identified", async () => {
+    for (const body of [{ status: "unauthenticated" }, { status: "blocked", session: { email: A, signInMethod: "X_OAUTH2" } }, { status: "authenticated", session: { signInMethod: "X_OAUTH2" } }, null, "not json"]) {
+      expect(await readPlatformAccount("grok", sessionWith(body).s)).toEqual({});
+    }
+  });
+  it("a missing, UNSPECIFIED or unrecognised login method reports the email with no provider", async () => {
+    for (const m of [undefined, "UNSPECIFIED", 0, "SOMETHING_NEW"]) {
+      const r = await readPlatformAccount("grok", sessionWith({ session: { email: A, ...(m === undefined ? {} : { signInMethod: m }) } }).s);
+      expect(r.email).toBe(A);
+      expect(r.provider).toBeUndefined();
+    }
+  });
+  it("every provider the reader can report is one an account entry may specify", () => {
+    for (const v of Object.values(grok.providerMap ?? {})) expect(LOGIN_PROVIDERS).toContain(v);
+  });
+  it("the email must match; the login method must match too when the account specifies one", async () => {
+    assertSameIdentity("grok", { email: A }, { email: A, provider: "google" });
+    assertSameIdentity("grok", { email: A, provider: "x" }, { email: A.toUpperCase(), provider: "X" });
+    await mismatched(() => assertSameIdentity("grok", { email: A, provider: "x" }, { email: B, provider: "x" }));
+    await mismatched(() => assertSameIdentity("grok", { email: A, provider: "x" }, { email: A, provider: "google" }));
+    await refused(() => assertSameIdentity("grok", { email: A, provider: "x" }, { email: A }));
+    await refused(() => assertSameIdentity("grok", { email: A, provider: "x" }, A));
+    await refused(() => assertSameIdentity("grok", { email: A }, {}));
+    await refused(() => assertSameIdentity("grok", { email: A }, undefined));
+  });
+  it("cc_run: a session signed in with another login method than the account's is refused and nothing acts", async () => {
+    const reg: Registry = { version: 1, connectors: [{ id: "demo", name: "Demo", url: { type: "literal", value: "https://demo.example.test/mcp" }, auth: { mode: "none" }, platforms: ["claude"] }] };
+    const accts = { version: 1, default: "main", accounts: [{ id: "main", email: A, platforms: ["claude"], loginProvider: { claude: "google" } }] } as unknown as Accounts;
+    const go = async (seen: unknown) => {
+      let acted = 0;
+      const fake = { close: async () => {}, touched: new Set<string>() } as unknown as BrowserSession;
+      const adapter: PlatformAdapter = { platform: "claude", list: async () => ({ names: [] }), add: async () => ({ status: "ok" }), remove: async () => ({ status: "ok" }), update: async () => ({ status: "ok" }), verify: async (ctx) => { await ctx.session(); acted++; return { status: "ok" }; }, probe: async () => ({ status: "ok" }) };
+      const r = await run(reg, { op: "verify", connectors: ["demo"], platforms: ["claude"], account: "main" }, { accounts: accts, adapters: { claude: adapter }, sessionFactory: async () => fake, readIdentity: async () => seen as never });
+      return { detail: r.items[0]!.detail ?? "", acted };
+    };
+    expect((await go({ email: A, provider: "google" })).acted).toBe(1);
+    const m = await go({ email: A, provider: "x" });
+    expect(m.detail).toMatch(/ACCOUNT_MISMATCH: /);
+    expect(m.acted).toBe(0);
+    for (const seen of [{ email: A }, A]) {
+      const u = await go(seen);
+      expect(u.detail).toMatch(/ACCOUNT_NOT_AUTHORIZED: /);
+      expect(u.acted).toBe(0);
+    }
+  });
+  it("cc threads / settings / seed: openVerifiedSession checks the login method too", async () => {
+    let closed = 0;
+    const s = { close: async () => { closed++; } } as unknown as BrowserSession;
+    await mismatched(openVerifiedSession("grok", { email: A, provider: "x" }, async () => s, async () => ({ email: A, provider: "google" })));
+    expect(closed).toBe(1);
+    expect(await openVerifiedSession("grok", { email: A, provider: "x" }, async () => s, async () => ({ email: A, provider: "x" }))).toBe(s);
+  });
+  it("accounts.json: loginProvider names a platform and a known login method", () => {
+    const base = { version: 1, default: "main", accounts: [{ id: "main", email: A, platforms: ["grok"] }] };
+    const withLp = (lp: unknown) => ({ ...base, accounts: [{ ...base.accounts[0], loginProvider: lp }] });
+    expect(validateAccounts(withLp({ grok: "x" }))).toEqual([]);
+    expect(validateAccounts(withLp({ grok: "twitter" })).join(" ")).toMatch(/loginProvider\.grok/);
+    expect(validateAccounts(withLp({ amazon: "email" })).join(" ")).toMatch(/loginProvider\.amazon: not a platform/);
+    expect(validateAccounts(withLp("x")).join(" ")).toMatch(/loginProvider: an object/);
   });
 });
 

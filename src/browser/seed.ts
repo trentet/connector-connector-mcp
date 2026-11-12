@@ -1,10 +1,10 @@
-// @reqs ACCT-C08
+// @reqs ACCT-C08 ACCT-C10
 import fs from "node:fs";
 import { chromium, type Browser, type Cookie, type Page } from "patchright";
-import { AccountNotAuthorizedError, assertSameAccount } from "../core/accountChoice.js";
+import { AccountNotAuthorizedError, assertSameIdentity, expectedIdentity, type SeenIdentity } from "../core/accountChoice.js";
 import type { BrowserSession } from "./chrome.js";
 import { launchChrome, loadAuthSpecs, masterDir, openSession, sessionHealthy, shutdownChrome } from "./chrome.js";
-import { readPlatformIdentity } from "./identity.js";
+import { readPlatformAccount } from "./identity.js";
 import { acquireLane } from "./lanes.js";
 import { profileInUse, withMasterLock } from "./profile.js";
 
@@ -14,23 +14,23 @@ const domainMatches = (d0: string, hosts: string[]) => { const d = d0.replace(/^
 export interface SeedReport { copied: Record<string, number>; signedIn: Record<string, boolean> }
 
 /** The named account a seed copies for (accounts.json entry). */
-export interface SeedAccount { id: string; email?: string; platforms: string[] }
+export interface SeedAccount { id: string; email?: string; platforms: string[]; loginProvider?: Partial<Record<string, string>> }
 export interface SeedOptions {
   account: SeedAccount;
   /** Connects to the source Chrome. Production: chromium.connectOverCDP on 127.0.0.1:<port>. */
   connect?: (port: number) => Promise<Browser>;
   /** Reads which account a platform shows signed in, on a page of the source browser. Production: data/selectors/identity.json. */
-  readIdentity?: (platform: string, page: Page) => Promise<string | undefined>;
+  readIdentity?: (platform: string, page: Page) => Promise<SeenIdentity>;
 }
 
 /**
  * ACCT-C08: every platform of the named account must show exactly that account signed in, in the source browser,
  * before any cookie is read. No email to compare with, an unreadable account, or another account refuses the seed.
  */
-export async function verifySeedSource(account: SeedAccount, read: (platform: string) => Promise<string | undefined>): Promise<void> {
+export async function verifySeedSource(account: SeedAccount, read: (platform: string) => Promise<SeenIdentity>): Promise<void> {
   if (!account.email) throw new AccountNotAuthorizedError(`account ${account.id} has no email to verify the source browser against; nothing was copied`);
   if (!account.platforms.length) throw new AccountNotAuthorizedError(`account ${account.id} lists no platforms; nothing was copied`);
-  for (const p of account.platforms) assertSameAccount(p, account.email, await read(p).catch(() => undefined));
+  for (const p of account.platforms) assertSameIdentity(p, expectedIdentity(account, p), await read(p).catch(() => undefined)); // ACCT-C10
 }
 
 /**
@@ -45,7 +45,7 @@ export async function seedMaster(fromPort: number, master = masterDir(), o: Seed
   if (profileInUse(master)) throw new Error(`master profile ${master} is in use by a running Chrome; seed needs a cold master`);
   const specs = Object.fromEntries(Object.entries(loadAuthSpecs()).filter(([p]) => o.account.platforms.includes(p)));
   const hosts = Object.values(specs).flatMap((s) => [...s.hosts, ...s.ssoHosts]);
-  const read = o.readIdentity ?? ((p: string, page: Page) => readPlatformIdentity(p, { page } as unknown as BrowserSession));
+  const read = o.readIdentity ?? ((p: string, page: Page) => readPlatformAccount(p, { page } as unknown as BrowserSession));
   const src = await (o.connect ?? ((port: number) => chromium.connectOverCDP(`http://127.0.0.1:${port}`)))(fromPort);
   let cookies: Cookie[];
   try {

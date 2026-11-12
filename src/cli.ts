@@ -133,9 +133,9 @@ export async function main(argv: string[]): Promise<number> {
         log: json ? undefined : (l) => console.log(l),
         open: async () => {
           const { masterDir, openSession } = await import("./browser/chrome.js");
-          const { openVerifiedSession } = await import("./browser/identity.js");
+          const { openVerifiedSession, expectedIdentity } = await import("./browser/identity.js");
           // ACCT-C07: nothing is read or changed until claude.ai shows exactly this account signed in.
-          const session = await openVerifiedSession("claude", acc.email, () => openSession({ master: accountMaster(acc, masterDir()) }));
+          const session = await openVerifiedSession("claude", expectedIdentity(acc, "claude"), () => openSession({ master: accountMaster(acc, masterDir()) }));
           session.touched?.add("claude"); // lets rotated claude.ai sign-in cookies merge back into this account's master
           return { page: claudeSettingsDriver(session.page, spec), close: () => session.close(), blockedKind: (e) => (e instanceof BlockedError ? e.kind : undefined) };
         },
@@ -148,9 +148,9 @@ export async function main(argv: string[]): Promise<number> {
     const pa = parseThreadsArgs(args.slice(1), loadAccounts());
     if ("error" in pa) { console.error(pa.error); return 2; }
     const { masterDir, openSession } = await import("./browser/chrome.js");
-    const { openVerifiedSession } = await import("./browser/identity.js");
+    const { openVerifiedSession, expectedIdentity } = await import("./browser/identity.js");
     // ACCT-C07: the threads are read only once claude.ai shows exactly the named account signed in.
-    const rep = await runThreads({ open: () => openVerifiedSession("claude", pa.account.email, () => openSession({ master: accountMaster(pa.account, masterDir()) })), account: pa.account.id });
+    const rep = await runThreads({ open: () => openVerifiedSession("claude", expectedIdentity(pa.account, "claude"), () => openSession({ master: accountMaster(pa.account, masterDir()) })), account: pa.account.id });
     if (pa.json) console.log(JSON.stringify(rep, null, 2));
     else for (const l of formatReport(rep)) console.log(l);
     return rep.ok ? 0 : 1;

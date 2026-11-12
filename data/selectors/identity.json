@@ -16,8 +16,44 @@
       "note": "ChatGPT's session endpoint; not yet seen live by cc. If it yields no email every chatgpt run is refused (fail-closed), never allowed."
     },
     "grok": {
+      "page": "https://grok.com/",
+      "fetch": "https://grok.com/api/auth/session",
+      "statusField": "status",
+      "okStatus": "authenticated",
+      "emailField": "session.email",
+      "providerField": "session.signInMethod",
+      "providerMap": {
+        "1": "email",
+        "2": "google",
+        "3": "x",
+        "4": "apple",
+        "5": "sso",
+        "6": "sso",
+        "7": "sso",
+        "8": "github",
+        "9": "email",
+        "10": "cursor",
+        "11": "cursor",
+        "12": "android",
+        "13": "sso",
+        "14": "phone",
+        "EMAIL_PASSWORD": "email",
+        "EMAIL_CODE": "email",
+        "GOOGLE_OAUTH2": "google",
+        "X_OAUTH2": "x",
+        "APPLE_OAUTH2": "apple",
+        "GITHUB_OAUTH2": "github",
+        "SSO": "sso",
+        "KEYCLOAK_OIDC": "sso",
+        "SPACEX_OIDC": "sso",
+        "OKTA_OIDC": "sso",
+        "PHONE_CODE": "phone",
+        "CURSOR_PARTNER": "cursor",
+        "CURSOR_SIGN_IN_LINK": "cursor",
+        "ANDROID_RESTORE_KEY": "android"
+      },
       "liveVerified": false,
-      "note": "No identity reader known for grok.com: every grok run is refused (ACCOUNT_NOT_AUTHORIZED) until one is probed live and added here."
+      "note": "ACCT-C10. grok.com's web app reads its session from same-origin GET /api/auth/session (its auth client: fetch(`${baseUrl ?? '/api/auth'}/session`)); seen live signed out: HTTP 200 {\"status\":\"unauthenticated\"}. Signed in, third-party clients read session.email and session.userId; the login method is prod_auth.Session.sign_in_method (enum SignInMethod, from grok.com's own bundled proto descriptor; the web app's user object carries it as signInMethod). The signed-in shape, and whether signInMethod appears in this response as a name or a number, is NOT yet seen live: no email means unknown (refused); no login method means the provider is unknown, refused whenever the account specifies one."
     }
   }
 }
