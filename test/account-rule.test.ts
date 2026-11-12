@@ -1,4 +1,4 @@
-// @reqs ACCT-001 ACCT-002 ACCT-003 ACCT-C01 ACCT-C02 ACCT-C03 ACCT-C04 ACCT-C05 ACCT-C06 ACCT-C07 ACCT-C10 ACCT-C11
+// @reqs ACCT-001 ACCT-002 ACCT-003 ACCT-C01 ACCT-C02 ACCT-C03 ACCT-C04 ACCT-C05 ACCT-C06 ACCT-C07 ACCT-C10 ACCT-C11 ACCT-C12
 import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -91,7 +91,7 @@ describe("ACCT-001 ACCT-C01 cc_signin / cc browser: the account is the one named
 
 describe("ACCT-C02 grok.com email login only for the run's specified account", () => {
   const label = "Grok (grok.com email login)";
-  const base = { service: "grok.com", label, username: A, expected: A, signInMethod: "email", method: "email" };
+  const base = { service: "grok.com", label, username: A, expected: A };
   it("no account specified for the run: refused", async () => {
     await refused(assertLoginAccount({ ...base, expected: undefined }, { lookup: reg({}) }));
   });
@@ -234,14 +234,14 @@ describe("ACCT-C10 grok.com: the signed-in email and its login method are read, 
     await refused(() => assertSameIdentity("grok", { email: A }, {}));
     await refused(() => assertSameIdentity("grok", { email: A }, undefined));
   });
-  it("cc_run: a session signed in with another login method than the account's is refused and nothing acts", async () => {
+  it("cc_run: a session signed in with another login method than the owner recorded is refused and nothing acts (ACCT-C11)", async () => {
     const reg: Registry = { version: 1, connectors: [{ id: "demo", name: "Demo", url: { type: "literal", value: "https://demo.example.test/mcp" }, auth: { mode: "none" }, platforms: ["claude"] }] };
     const accts = { version: 1, default: "main", accounts: [{ id: "main", email: A, platforms: ["claude"], loginProvider: { claude: "google" } }] } as unknown as Accounts;
     const go = async (seen: unknown) => {
       let acted = 0;
       const fake = { close: async () => {}, touched: new Set<string>() } as unknown as BrowserSession;
       const adapter: PlatformAdapter = { platform: "claude", list: async () => ({ names: [] }), add: async () => ({ status: "ok" }), remove: async () => ({ status: "ok" }), update: async () => ({ status: "ok" }), verify: async (ctx) => { await ctx.session(); acted++; return { status: "ok" }; }, probe: async () => ({ status: "ok" }) };
-      const r = await run(reg, { op: "verify", connectors: ["demo"], platforms: ["claude"], account: "main" }, { accounts: accts, adapters: { claude: adapter }, sessionFactory: async () => fake, readIdentity: async () => seen as never });
+      const r = await run(reg, { op: "verify", connectors: ["demo"], platforms: ["claude"], account: "main" }, { accounts: accts, adapters: { claude: adapter }, sessionFactory: async () => fake, readIdentity: async () => seen as never, lookup: async (svc) => (svc === "claude.ai" ? authorized("claude.ai", A, "google") : { status: "none", service: svc }) });
       return { detail: r.items[0]!.detail ?? "", acted };
     };
     expect((await go({ email: A, provider: "google" })).acted).toBe(1);
@@ -271,30 +271,30 @@ describe("ACCT-C10 grok.com: the signed-in email and its login method are read, 
   });
 });
 
-describe("ACCT-C11 the login method comes from the owner's verified registry entry; a vault login records its method", () => {
+describe("ACCT-C11 ACCT-C12 the expected login method is only the one the owner recorded; older entries stay valid", () => {
   const incomplete: Lookup = { status: "incomplete", service: "grok.com", account: A, reason: "no method" };
-  it("registryIdentity: the recorded method is the expected provider; none recorded is refused; a differing accounts.json one mismatches", async () => {
+  it("registryIdentity: the recorded method is the expected provider; loginProvider is only a cross-check; an older entry still names its account", async () => {
     expect(await registryIdentity("grok", { email: A }, { lookup: reg({ "grok.com": authorized("grok.com", A, "email") }) })).toEqual({ email: A, provider: "email" });
-    expect(await registryIdentity("grok", { email: A, provider: "x" }, { lookup: reg({}) })).toEqual({ email: A, provider: "x" });
-    await refused(registryIdentity("grok", { email: A }, { lookup: reg({ "grok.com": incomplete }) }));
+    expect(await registryIdentity("grok", { email: A, provider: "x" }, { lookup: reg({}) })).toEqual({ email: A });
+    expect(await registryIdentity("grok", { email: A }, { lookup: reg({ "grok.com": incomplete }) })).toEqual({ email: A });
+    await mismatched(registryIdentity("grok", { email: A }, { lookup: reg({ "grok.com": { ...incomplete, account: B } }) }));
     await mismatched(registryIdentity("grok", { email: A, provider: "google" }, { lookup: reg({ "grok.com": authorized("grok.com", A, "email") }) }));
     await mismatched(registryIdentity("grok", { email: A }, { lookup: reg({ "grok.com": authorized("grok.com", B, "email") }) }));
   });
-  it("the grok email login: the vault entry must record email; the owner's entry must say email", async () => {
-    const base = { service: "grok.com", label: "Grok (grok.com email login)", username: A, expected: A, method: "email" };
-    await refused(assertLoginAccount({ ...base }, { lookup: reg({}) }));
-    await mismatched(assertLoginAccount({ ...base, signInMethod: "google" }, { lookup: reg({}) }));
-    await assertLoginAccount({ ...base, signInMethod: "EMAIL" }, { lookup: reg({}) });
-    await mismatched(assertLoginAccount({ ...base, signInMethod: "email" }, { lookup: reg({ "grok.com": authorized("grok.com", A, "google") }) }));
-    await refused(assertLoginAccount({ ...base, signInMethod: "email" }, { lookup: reg({ "grok.com": incomplete }) }));
+  it("assertLoginAccount returns only the registry's recorded method (none: undefined), never one for the platform", async () => {
+    const base = { service: "grok.com", label: "Grok (grok.com email login)", username: A, expected: A };
+    expect(await assertLoginAccount(base, { lookup: reg({}) })).toBeUndefined();
+    expect(await assertLoginAccount(base, { lookup: reg({ "grok.com": authorized("grok.com", A, "x") }) })).toBe("x");
+    expect(await assertLoginAccount(base, { lookup: reg({ "grok.com": incomplete }) })).toBeUndefined();
+    await mismatched(assertLoginAccount(base, { lookup: reg({ "grok.com": { ...incomplete, account: B } }) }));
   });
-  it("claude.ai's Google sign-in: an owner entry recording another method mismatches; one recording none is refused", async () => {
+  it("claude.ai's Google sign-in: a recorded method other than google mismatches; an older entry without one is fine", async () => {
     const second = accounts(2).accounts[1]!;
     const svc = signInService("second-acct");
     await mismatched(assertSignInAccount(second, { lookup: reg({ [svc]: authorized(svc, B, "email") }) }));
-    await refused(assertSignInAccount(second, { lookup: reg({ [svc]: { status: "incomplete", service: svc, account: B, reason: "x" } }) }));
+    await assertSignInAccount(second, { lookup: reg({ [svc]: { status: "incomplete", service: svc, account: B, reason: "x" } }) });
   });
-  it("cc_run: an owner entry without a method refuses every item; a recorded method must be the session's", async () => {
+  it("cc_run: an older entry without a method verifies the email only; a recorded method must be the session's", async () => {
     const regy: Registry = { version: 1, connectors: [{ id: "demo", name: "Demo", url: { type: "literal", value: "https://demo.example.test/mcp" }, auth: { mode: "none" }, platforms: ["claude"] }] };
     const accts = { version: 1, default: "main", accounts: [{ id: "main", email: A, platforms: ["claude"] }] } as unknown as Accounts;
     const go = async (lookup: Lookup, seen: unknown) => {
@@ -304,8 +304,9 @@ describe("ACCT-C11 the login method comes from the owner's verified registry ent
       const r = await run(regy, { op: "verify", connectors: ["demo"], platforms: ["claude"], account: "main" }, { accounts: accts, adapters: { claude: adapter }, sessionFactory: async () => fake, readIdentity: async () => seen as never, lookup: async () => lookup });
       return { detail: r.items[0]!.detail ?? "", acted };
     };
-    const inc = await go({ status: "incomplete", service: "claude.ai", account: A, reason: "x" }, { email: A, provider: "google" });
-    expect(inc.detail).toMatch(/ACCOUNT_NOT_AUTHORIZED: /); expect(inc.acted).toBe(0);
+    expect((await go({ status: "incomplete", service: "claude.ai", account: A, reason: "x" }, { email: A, provider: "email" })).acted).toBe(1);
+    const other = await go({ status: "incomplete", service: "claude.ai", account: A, reason: "x" }, { email: B, provider: "google" });
+    expect(other.detail).toMatch(/ACCOUNT_MISMATCH: /); expect(other.acted).toBe(0);
     expect((await go(authorized("claude.ai", A, "google"), { email: A, provider: "google" })).acted).toBe(1);
     const mm = await go(authorized("claude.ai", A, "email"), { email: A, provider: "google" });
     expect(mm.detail).toMatch(/ACCOUNT_MISMATCH: /); expect(mm.acted).toBe(0);

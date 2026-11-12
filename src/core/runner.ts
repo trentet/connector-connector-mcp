@@ -73,7 +73,7 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
   async function verifiedSession(platform: Platform, s: BrowserSession): Promise<BrowserSession> {
     try {
       const seen = await (opts.readIdentity ?? readPlatformAccount)(platform, s).catch(() => undefined);
-      // ACCT-C10 ACCT-C11: and the login method: the owner's recorded one, else the account's loginProvider.
+      // ACCT-C10 ACCT-C11 ACCT-C12: and the login method, when the owner recorded one (loginProvider only cross-checks it).
       assertSameIdentity(platform, await registryIdentity(platform, expectedIdentity(acc, platform), { lookup: opts.lookup }), seen);
       return s;
     } catch (e) { await s.close().catch(() => undefined); throw e; }

@@ -118,8 +118,8 @@ describe("account credential from the vault", () => {
   });
   it("fails clearly when the entry is still missing", async () => {
     await expect(accountCredential(second, 0, { vault: async () => undefined })).rejects.toThrow(/has no password/);
-    // ACCT-C11: the Google sign-in uses only a vault entry that records it is a Google sign-in
+    // ACCT-C11 ACCT-C12: an entry without a method is settled on pull (here the vault is unreachable: refused); another method mismatches
     await expect(accountCredential(second, 0, { vault: async () => ({ password: "pw-INVENTED-4" }) })).rejects.toThrow(/^ACCOUNT_NOT_AUTHORIZED: .*records no sign-in method/);
-    await expect(accountCredential(second, 0, { vault: async () => ({ password: "pw-INVENTED-5", signInMethod: "email" }) })).rejects.toThrow(/^ACCOUNT_MISMATCH: .*email sign-in, not google/);
+    await expect(accountCredential(second, 0, { vault: async () => ({ password: "pw-INVENTED-5", signInMethod: "email" }) })).rejects.toThrow(/^ACCOUNT_MISMATCH: .*performs only a google sign-in.*recorded for this account is email/);
   });
 });

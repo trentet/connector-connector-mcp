@@ -3,7 +3,7 @@
 # behaviour is not backfilled here; gate.code and gate.tools_in_scope list exactly what this ledger covers.
 gate:
   id_pattern: '\b(?:REQ-[UDG]\d{3}|ACCT-(?:\d{3}|[PCV]\d{2}))\b'
-  code: ['^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
+  code: ['^src/core/signInMethod\.ts$', '^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
   tests: ['^test/.+\.ts$']
   tool_files: ['^src/server/app\.ts$']
   tools_in_scope: [cc_signin, cc_run, cc_reauth]
@@ -74,6 +74,15 @@ requirements:
   quotes:
   - "This is why the vault must be clear on what login platform is being used"
   implemented_by: [ACCT-C11]
+- id: REQ-U008
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-11'
+  source: main chat t124u 2026-11-11 (owner, verbatim)
+  quotes:
+  - "OK so you need to make sure that it\u2019s actually going to allow everything to exist as it is but in the future if someone wants to pull the account from the vault, it has to check to see if that value is populated regarding what mode it is or what kind of like login and type it is. If it\u2019s not then it\u2019s required to then determine what\u2019s even available. If for example, there is only one sign in type option available then it can just go ahead and answer it by itself and populate that. But if there\u2019s multiple logins available, then it needs to be keeping track of what those options are and then it needs to be storing that in association with that particular website and then the login credential vault would have to have some kind of correspondence regarding which login method it\u2019s using for that particular set of credentials."
+  implemented_by: [ACCT-C12]
 - id: REQ-G001
   kind: derived
   status: decided
@@ -252,12 +261,33 @@ requirements:
   status: decided
   title: The expected login method comes from the owner's verified registry entry; vault logins must record theirs
   text: >
-    The registry entry (vault-mcp's signed registry rule) is verified with its signed sign-in method; one without a method
-    (incomplete) is refused (ACCOUNT_NOT_AUTHORIZED). cc_run, cc threads, cc settings and cc browser seed take the
-    expected login method from the owner's entry for the platform's service (claude.ai, chatgpt.com, grok.com), and an
-    accounts.json loginProvider that differs is ACCOUNT_MISMATCH. A sign-in uses a vault login only when it records
-    its sign-in method and that is the method the sign-in uses (grok.com email login: email; claude.ai, chatgpt.com
-    and connector reauth: google); none recorded is ACCOUNT_NOT_AUTHORIZED, another is ACCOUNT_MISMATCH.
+    The registry entry (vault-mcp's signed registry rule) is verified with its signed sign-in method. The expected login
+    method of a session is only ever the one the owner recorded there; an accounts.json loginProvider is a cross-check
+    against it (differs: ACCOUNT_MISMATCH), never a source, and no platform has a built-in expected method. With no
+    recorded method the session's email alone is verified. ACCT-C12 (REQ-U008): an older entry signed without a
+    method (incomplete) still names its account and is not refused for that; the method of a vault login is settled
+    when it is pulled (ACCT-C12).
   files: [src/core/accountRegistry.ts, src/core/accountChoice.ts, src/core/vaultClient.ts, src/core/runner.ts, src/browser/identity.ts, src/browser/seed.ts, src/browser/signin.ts, src/adapters/grok.ts, src/adapters/chatgpt.ts, src/core/reauth.ts, src/cli.ts]
   tools: [cc_run, cc_signin, cc_reauth]
   decision: {quote: "This is why the vault must be clear on what login platform is being used", at: '2026-11-11', source: main chat t123u, from: REQ-U007}
+- id: ACCT-C12
+  kind: derived
+  status: decided
+  title: A vault login's sign-in method is settled when it is pulled; flows check it, never default it
+  text: >
+    Existing entries stay valid as they are. When cc pulls a vault login for a sign-in (grok.com login, claude.ai
+    sign-in through Google, chatgpt.com Continue with Google, connector reauth) it uses the entry's sign_in_method
+    when set. When not set, the site's sign-in options come from the vault's per-site record
+    (sign-in-options/<site>: site, options, detected_at, source), else from data/selectors/signin-options.json (a
+    fixed list, or markers read on the site's own sign-in page). Exactly one option is written to the entry's
+    sign_in_method with sign_in_method_source "auto: only option" (the owner-authorized write; a reauth dry run writes
+    nothing) and used. Several are stored in the per-site record and the sign-in is refused (ACCOUNT_NOT_AUTHORIZED:
+    sign-in method must be chosen) with the options, until the owner sets the entry's sign_in_method to one of them.
+    Detection that fails, matches nothing, or reads an unknown method is unknown and refused. The method used must
+    equal a method the registry recorded. A flow that can perform only one kind of sign-in checks the recorded method
+    against it, as a check and never a default: grok.com's login types into its email-and-password form (email);
+    claude.ai sign-in, chatgpt.com and reauth go through Google's own pages (google). Any other recorded method is
+    ACCOUNT_MISMATCH.
+  files: [src/core/signInMethod.ts, src/core/vaultClient.ts, src/core/accountChoice.ts, src/adapters/grok.ts, src/adapters/chatgpt.ts, src/browser/signin.ts, src/core/reauth.ts, data/selectors/signin-options.json]
+  tools: [cc_run, cc_signin, cc_reauth]
+  decision: {quote: "OK so you need to make sure that it\u2019s actually going to allow everything to exist as it is but in the future if someone wants to pull the account from the vault, it has to check to see if that value is populated regarding what mode it is or what kind of like login and type it is. If it\u2019s not then it\u2019s required to then determine what\u2019s even available. If for example, there is only one sign in type option available then it can just go ahead and answer it by itself and populate that. But if there\u2019s multiple logins available, then it needs to be keeping track of what those options are and then it needs to be storing that in association with that particular website and then the login credential vault would have to have some kind of correspondence regarding which login method it\u2019s using for that particular set of credentials.", at: '2026-11-11', source: main chat t124u, from: REQ-U008}

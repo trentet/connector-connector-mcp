@@ -1,0 +1,45 @@
+{
+  "_note": "ACCT-C12 (owner t124u): which sign-in options a site offers, used only when a vault entry pulled for a sign-in records no sign_in_method and the vault holds no sign-in-options/<site> record. fixed: the site's only way in, known from the site itself. markers: per login method, Playwright selectors that show that option on the site's own sign-in page (hosts); an option counts when one of its selectors matches. A site not listed, a page on another host, or no marker matched is unknown, and the sign-in is refused. liveVerified says whether the markers were seen on the real page; methods outside the reader's values (email, google, x, apple, github, sso, phone, cursor, android) are not listed.",
+  "sites": {
+    "accounts.google.com": {
+      "fixed": ["google"],
+      "liveVerified": true,
+      "note": "A Google Account's own credentials sign in only to Google: its sign-in page takes the account's email or phone, then its password (seen 2026-11-11 with no cookies or credentials: one identifier field and Next, no other provider)."
+    },
+    "grok.com": {
+      "hosts": ["accounts.x.ai", "grok.com"],
+      "page": "https://accounts.x.ai/sign-in",
+      "markers": {
+        "email": ["input[type=email]", "button:text-matches(\"(sign in|log in|login|continue) with email\", \"i\")"],
+        "x": ["button:text-matches(\"(sign in|log in|login|continue) with (x|twitter)\\\\b\", \"i\")"],
+        "google": ["button:text-matches(\"(sign in|log in|login|continue) with google\", \"i\")"],
+        "apple": ["button:text-matches(\"(sign in|log in|login|continue) with apple\", \"i\")"]
+      },
+      "liveVerified": false,
+      "note": "Not yet seen live: a cookie-less headless load on 2026-11-11 got a 403 challenge page, so these markers are from the page's usual wording. Read on the sign-in page the login flow itself opens."
+    },
+    "claude.ai": {
+      "hosts": ["claude.ai"],
+      "page": "https://claude.ai/login",
+      "markers": {
+        "email": ["input[type=email]", "button:text-matches(\"continue with email\", \"i\")"],
+        "google": ["button:text-matches(\"continue with google\", \"i\")"],
+        "sso": ["button:text-matches(\"continue with sso\", \"i\")"]
+      },
+      "liveVerified": false,
+      "note": "Not yet seen live (a cookie-less headless load on 2026-11-11 got a 403 challenge page)."
+    },
+    "chatgpt.com": {
+      "hosts": ["chatgpt.com", "auth.openai.com"],
+      "page": "https://auth.openai.com/log-in",
+      "markers": {
+        "email": ["input[type=email]"],
+        "google": ["button:text-matches(\"continue with google\", \"i\")"],
+        "apple": ["button:text-matches(\"continue with apple\", \"i\")"],
+        "phone": ["button:text-matches(\"continue with phone\", \"i\")"]
+      },
+      "liveVerified": false,
+      "note": "Not yet seen live (a cookie-less headless load on 2026-11-11 got a 403 challenge page). Its Microsoft option is not one of the reader's values and is not listed."
+    }
+  }
+}

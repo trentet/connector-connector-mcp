@@ -14,7 +14,7 @@ export interface AccountDef {
   email?: string;
   /** Platforms this account is used on; a run for any other platform is skipped. */
   platforms: Platform[];
-  /** ACCT-C10: how this account signs in on a platform (e.g. { "grok": "x" }). When set, a session signed in another way is refused. */
+  /** ACCT-C10 ACCT-C12: a cross-check only (e.g. { "grok": "x" }): when the owner's registry entry records a login method it must be this one. Never itself the expected method. */
   loginProvider?: Partial<Record<Platform, LoginProvider>>;
   /** Folder name of this account's master profile, next to the default master. Absent = the default master itself (one account at most). */
   master?: string;

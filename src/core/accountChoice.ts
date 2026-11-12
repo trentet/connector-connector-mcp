@@ -1,4 +1,4 @@
-// @reqs ACCT-001 ACCT-002 ACCT-003 ACCT-C01 ACCT-C02 ACCT-C05 ACCT-C10 ACCT-C11
+// @reqs ACCT-001 ACCT-002 ACCT-003 ACCT-C01 ACCT-C02 ACCT-C05 ACCT-C10 ACCT-C11 ACCT-C12
 /**
  * The account rule (owner t119u, 2026-11-11). Every sign-in, credential fill or account-scoped action runs for an
  * account specified for that run: passed in explicitly by the caller (cc_run / cc_signin account, the connector's
@@ -68,51 +68,60 @@ export function expectedIdentity(acc: { email?: string; loginProvider?: Partial<
 
 /**
  * A registry entry, when the owner made one, must name the same account as the run; a tampered entry refuses.
- * ACCT-C11: returns the sign-in method the owner recorded with it; an entry that records none is refused.
+ * ACCT-C11: returns the sign-in method the owner recorded with it. ACCT-C12: an older entry signed without one
+ * (incomplete) still names its account; it simply records no method (the entry's own method is settled on pull).
  */
 async function registryAgrees(service: string, expected: string, deps: ChoiceDeps): Promise<string | undefined> {
   const lookup = await (deps.lookup ?? ((s: string) => lookupAccount(s)))(service);
   if (lookup.status === "tampered") throw new AccountNotAuthorizedError(`the account authorization for ${lookup.service} is invalid (${lookup.reason}); refusing`);
-  if (lookup.status === "incomplete") throw new AccountNotAuthorizedError(`the owner's account authorization for ${lookup.service} records no sign-in method, so how the account signs in is not specified; refusing until the owner enters it again`);
-  if (lookup.status === "authorized" && lookup.account !== normAccount(expected)) {
+  if ((lookup.status === "authorized" || lookup.status === "incomplete") && lookup.account !== normAccount(expected)) {
     throw new AccountMismatchError(`the account specified for this run is not the one the owner named for ${lookup.service}; refusing`);
   }
   return lookup.status === "authorized" ? lookup.signInMethod : undefined;
 }
 
-/** ACCT-C11: the registry service each platform's account is named under. */
+/** ACCT-C11: the registry service each platform's account is named under (services, not login methods). */
 export const PLATFORM_SERVICE: Record<string, string> = { claude: "claude.ai", chatgpt: "chatgpt.com", grok: "grok.com" };
 
 /**
- * ACCT-C11: the identity a platform session must show, with the login method taken from the owner's verified registry
- * entry when there is one (it overrides nothing silently: an accounts.json loginProvider that differs is
- * ACCOUNT_MISMATCH). An entry without a method is refused; no entry leaves the accounts.json identity as it is.
+ * ACCT-C11 ACCT-C12: the identity a platform session must show. The login method is only ever the one the owner
+ * recorded in the verified registry entry; an accounts.json loginProvider is a cross-check against it (differs:
+ * ACCOUNT_MISMATCH), never a source. With no recorded method the email alone is verified.
  */
 export async function registryIdentity(platform: string, base: ExpectedIdentity, deps: ChoiceDeps = {}): Promise<ExpectedIdentity> {
-  if (!normAccount(base.email)) return base; // refused by the identity check itself
+  if (!normAccount(base.email)) return { email: base.email }; // refused by the identity check itself
   const recorded = await registryAgrees(PLATFORM_SERVICE[platform] ?? platform, base.email!, deps);
   const own = base.provider?.trim().toLowerCase();
   if (recorded && own && recorded !== own) throw new AccountMismatchError(`the login method in accounts.json for ${platform} is not the one the owner recorded for it; refusing`);
-  return { ...base, provider: recorded ?? base.provider };
+  return recorded ? { email: base.email, provider: recorded } : { email: base.email };
 }
 
-/** ACCT-C11: a vault login is used only when it records its sign-in method and that is the method this sign-in uses. */
-export function assertVaultLoginMethod(label: string, recorded: string | null | undefined, method: string): void {
-  const got = String(recorded ?? "").trim().toLowerCase();
-  if (!got) throw new AccountNotAuthorizedError(`vault entry "${label}" records no sign-in method, so it is not used (the owner sets it in the vault); refusing`);
-  if (got !== method) throw new AccountMismatchError(`vault entry "${label}" is a ${got} sign-in, not ${method}; not signing in`);
+/**
+ * ACCT-C12: a check, not a default. A flow that can only perform one kind of sign-in (typing into an email-and-password
+ * form, or clicking through Google's own sign-in or consent) proceeds only when the account's recorded method is that
+ * one; any other recorded method is ACCOUNT_MISMATCH.
+ */
+export function assertFlowMethod(flow: string, recorded: string, performs: string): void {
+  if (recorded !== performs) throw new AccountMismatchError(`${flow} performs only a ${performs} sign-in, but the sign-in method recorded for this account is ${recorded}; refusing`);
 }
+
+/** ACCT-C12: the method the registry recorded and the vault entry's must be the same when both exist. */
+export function assertMethodsAgree(where: string, registry: string | undefined, entry: string): void {
+  if (registry && registry !== entry) throw new AccountMismatchError(`the owner's registry entry for ${where} records a ${registry} sign-in, but the vault entry records ${entry}; refusing`);
+}
+
+/** ACCT-C12: the refusal and mismatch errors resolveSignInMethod raises in cc. */
+export const ccMethodErrors = { refuse: (m: string) => new AccountNotAuthorizedError(m), mismatch: (m: string) => new AccountMismatchError(m) };
 
 /**
  * ACCT-C02: before cc types a vault login into a site's own sign-in form. The run's specified account (`expected`)
  * is required, the vault entry's username must be exactly it, and an owner registry entry for the service must agree.
+ * Returns the sign-in method the registry recorded, if any (ACCT-C12: the entry's own method is settled on pull).
  */
-export async function assertLoginAccount(o: { service: string; label: string; username: string; expected?: string; /** ACCT-C11 */ signInMethod?: string | null; method: string }, deps: ChoiceDeps = {}): Promise<void> {
+export async function assertLoginAccount(o: { service: string; label: string; username: string; expected?: string }, deps: ChoiceDeps = {}): Promise<string | undefined> {
   if (!normAccount(o.expected)) throw new AccountNotAuthorizedError(`no account is specified for signing in to ${o.service}; refusing`);
   if (normAccount(o.username) !== normAccount(o.expected)) throw new AccountMismatchError(`vault entry "${o.label}" is not the account specified for this run; not signing in`);
-  assertVaultLoginMethod(o.label, o.signInMethod, o.method);
-  const recorded = await registryAgrees(o.service, o.expected!, deps);
-  if (recorded && recorded !== o.method) throw new AccountMismatchError(`the owner recorded a ${recorded} sign-in for ${o.service}, not ${o.method}; not signing in`);
+  return await registryAgrees(o.service, o.expected!, deps);
 }
 
 /** The registry service under which the owner may name the Google account for one cc account's claude.ai sign-in. */
@@ -125,5 +134,5 @@ export const signInService = (accountId: string) => `cc-signin:${accountId.toLow
 export async function assertSignInAccount(acc: AccountDef, deps: ChoiceDeps = {}): Promise<void> {
   if (!normAccount(acc.email)) throw new AccountNotAuthorizedError(`account "${acc.id}" has no email, so the account to sign in is not specified; refusing`);
   const recorded = await registryAgrees(signInService(acc.id), acc.email!, deps);
-  if (recorded && recorded !== "google") throw new AccountMismatchError(`the owner recorded a ${recorded} sign-in for ${signInService(acc.id)}, but cc signs in to claude.ai with Google; refusing`);
+  if (recorded) assertFlowMethod("cc's claude.ai sign-in through Google", recorded, "google"); // ACCT-C12: a check against the recorded method
 }
