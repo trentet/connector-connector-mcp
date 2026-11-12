@@ -19,7 +19,7 @@ cc audit --google [--root <dir> ...] [--github <owner>] [--registry <path>] [--j
 cc audit --scan <repo-root> [--json]     (find per-repo registration / Google-reauth scripts that cc replaces)
 cc reauth [connector-id ...|--all] [--include-test] [--dry-run] [--only-if-older-than <days>] [--registry <path>] [--json]   (renew the Google OAuth token of connectors with a googleOAuth registry block; --only-if-older-than skips one renewed more recently, for a second renewer)
 cc settings <apply|verify> --account <id> [--dry-run] [--json]   (claude.ai Projects of an account: create the declared project if missing and set its instructions from the referenced file when they are empty (apply; different existing instructions are refused, never overwritten), or compare read-only (verify); prints only length and sha256 prefix, never the text)
-cc threads [--account <id>] [--json]                       (read-only: list the claude.ai/code threads as id, status, title, and say plainly what could and could not be read; one browser, never writes to claude.ai)
+cc threads --account <id> [--json]                       (read-only: list the claude.ai/code threads as id, status, title, and say plainly what could and could not be read; one browser, never writes to claude.ai)
 cc <op> [connector-id ...|--all] [--platform <claude|chatgpt|grok ...>|all] [--account <id>] [--dry-run] [--include-test] [--registry <path>] [--if-existing skip|update|fail] [--json]
 ops: ${OPS.join(", ")}`;
 
@@ -64,8 +64,8 @@ export function parseFlags(args: string[]): ParsedFlags | { error: string } {
   return { ids, platforms, dryRun, includeTest, json, ifExisting, registryPath, onlyIfOlderThanDays, account };
 }
 
-const THREADS_USAGE = "usage: cc threads [--account <id>] [--json]";
-/** `cc threads` arguments (issue #81). No --account reads the default account (or CC_ACCOUNT), as every other op; anything unknown is an error and nothing is opened. */
+const THREADS_USAGE = "usage: cc threads --account <id> [--json]";
+/** `cc threads` arguments (issue #81). --account is required (ACCT-C07): the default account and CC_ACCOUNT never choose one; anything unknown is an error and nothing is opened. */
 export function parseThreadsArgs(rest: string[], accounts: Accounts, env: NodeJS.ProcessEnv = process.env): { account: AccountDef; json: boolean } | { error: string } {
   let id: string | undefined, json = false;
   for (let i = 0; i < rest.length; i++) {
@@ -74,7 +74,7 @@ export function parseThreadsArgs(rest: string[], accounts: Accounts, env: NodeJS
     else if (a === "--account") { const v = rest[++i]; if (!v || v.startsWith("--")) return { error: `${THREADS_USAGE}\n--account needs an account id (see \`cc accounts\`)` }; id = v; }
     else return { error: `${THREADS_USAGE}\nunknown argument: ${a}` };
   }
-  try { return { account: pickAccount(accounts, id, env), json }; } catch (e) { return { error: `${THREADS_USAGE}\n${(e as Error).message}` }; }
+  try { return { account: pickAccount(accounts, id, env, "explicit"), json }; } catch (e) { return { error: `${THREADS_USAGE}\n${(e as Error).message}` }; }
 }
 
 export async function main(argv: string[]): Promise<number> {
@@ -121,7 +121,7 @@ export async function main(argv: string[]): Promise<number> {
     try {
       const { runSettings, settingsLogFile } = await import("./core/settings.js");
       const { claudeSettingsDriver, loadSettingsSpec, BlockedError } = await import("./adapters/claudeSettings.js");
-      const acc = pickAccount(loadAccounts(), accountId);
+      const acc = pickAccount(loadAccounts(), accountId, process.env, "explicit"); // ACCT-C07
       const spec = loadSettingsSpec();
       const json = args.includes("--json");
       const res = await runSettings(sub, acc, {
@@ -133,7 +133,9 @@ export async function main(argv: string[]): Promise<number> {
         log: json ? undefined : (l) => console.log(l),
         open: async () => {
           const { masterDir, openSession } = await import("./browser/chrome.js");
-          const session = await openSession({ master: accountMaster(acc, masterDir()) });
+          const { openVerifiedSession } = await import("./browser/identity.js");
+          // ACCT-C07: nothing is read or changed until claude.ai shows exactly this account signed in.
+          const session = await openVerifiedSession("claude", acc.email, () => openSession({ master: accountMaster(acc, masterDir()) }));
           session.touched?.add("claude"); // lets rotated claude.ai sign-in cookies merge back into this account's master
           return { page: claudeSettingsDriver(session.page, spec), close: () => session.close(), blockedKind: (e) => (e instanceof BlockedError ? e.kind : undefined) };
         },
@@ -146,7 +148,9 @@ export async function main(argv: string[]): Promise<number> {
     const pa = parseThreadsArgs(args.slice(1), loadAccounts());
     if ("error" in pa) { console.error(pa.error); return 2; }
     const { masterDir, openSession } = await import("./browser/chrome.js");
-    const rep = await runThreads({ open: () => openSession({ master: accountMaster(pa.account, masterDir()) }), account: pa.account.id });
+    const { openVerifiedSession } = await import("./browser/identity.js");
+    // ACCT-C07: the threads are read only once claude.ai shows exactly the named account signed in.
+    const rep = await runThreads({ open: () => openVerifiedSession("claude", pa.account.email, () => openSession({ master: accountMaster(pa.account, masterDir()) })), account: pa.account.id });
     if (pa.json) console.log(JSON.stringify(rep, null, 2));
     else for (const l of formatReport(rep)) console.log(l);
     return rep.ok ? 0 : 1;

@@ -1,4 +1,4 @@
-// @reqs ACCT-001 ACCT-002 ACCT-003 ACCT-C01 ACCT-C02 ACCT-C03 ACCT-C04 ACCT-C05 ACCT-C06
+// @reqs ACCT-001 ACCT-002 ACCT-003 ACCT-C01 ACCT-C02 ACCT-C03 ACCT-C04 ACCT-C05 ACCT-C06 ACCT-C07
 import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -11,7 +11,8 @@ import { pickAccount, type Accounts } from "../src/core/accounts.js";
 import { AccountMismatchError, AccountNotAuthorizedError, assertLoginAccount, assertSameAccount, assertSignInAccount, signInService } from "../src/core/accountChoice.js";
 import { lookupAccount, verifyEntry, type Lookup, type RegistryItem } from "../src/core/accountRegistry.js";
 import { advanceOneStep, assertGoogleAccount, clickAccountChooserEntry, googleIdentity, loadConsentSpec } from "../src/browser/googleConsent.js";
-import { loadIdentityProbes, readPlatformIdentity } from "../src/browser/identity.js";
+import { loadIdentityProbes, openVerifiedSession, readPlatformIdentity } from "../src/browser/identity.js";
+import { runThreads } from "../src/threads.js";
 import { run } from "../src/core/runner.js";
 import type { Registry } from "../src/core/types.js";
 import type { BrowserSession } from "../src/browser/chrome.js";
@@ -105,6 +106,39 @@ describe("ACCT-C02 grok.com email login only for the run's specified account", (
   });
 });
 
+describe("ACCT-C07 cc threads / cc settings: the named account is verified signed in before anything is read or changed", () => {
+  const fake = () => { const h = { opened: 0, closed: 0 }; const s = { close: async () => { h.closed++; } } as unknown as BrowserSession; return { h, open: async () => { h.opened++; return s; }, s }; };
+  it("signed in as the named account: the session is returned", async () => {
+    const f = fake();
+    expect(await openVerifiedSession("claude", A, f.open, async () => A.toUpperCase())).toBe(f.s);
+    expect(f.h).toEqual({ opened: 1, closed: 0 });
+  });
+  it("another account signed in: ACCOUNT_MISMATCH and the session is closed", async () => {
+    const f = fake();
+    await failsWith(openVerifiedSession("claude", A, f.open, async () => B), AccountMismatchError, /ACCOUNT_MISMATCH: /);
+    expect(f.h).toEqual({ opened: 1, closed: 1 });
+  });
+  it("signed-in account unknown (nothing read, or the reader failed): ACCOUNT_NOT_AUTHORIZED and the session is closed", async () => {
+    for (const read of [async () => undefined, async () => { throw new Error("page crashed"); }]) {
+      const f = fake();
+      await failsWith(openVerifiedSession("claude", A, f.open, read), AccountNotAuthorizedError, /ACCOUNT_NOT_AUTHORIZED: /);
+      expect(f.h).toEqual({ opened: 1, closed: 1 });
+    }
+  });
+  it("no account specified: refused before any browser opens", async () => {
+    const f = fake();
+    await failsWith(openVerifiedSession("claude", undefined, f.open, async () => A), AccountNotAuthorizedError, /ACCOUNT_NOT_AUTHORIZED: /);
+    expect(f.h.opened).toBe(0);
+  });
+  it("cc threads with a session signed in as another account reads nothing and reports the refusal", async () => {
+    const f = fake();
+    const rep = await runThreads({ open: () => openVerifiedSession("claude", A, f.open, async () => B), account: "main" });
+    expect(rep.ok).toBe(false);
+    expect(JSON.stringify(rep)).toContain("ACCOUNT_MISMATCH");
+    expect(f.h.closed).toBe(1);
+  });
+});
+
 describe("ACCT-C05 cc_run: the run's account is required and each session's signed-in account is verified", () => {
   const demo: Registry = { version: 1, connectors: [{ id: "demo", name: "Demo", url: { type: "literal", value: "https://demo.example.test/mcp" }, auth: { mode: "none" }, platforms: ["claude"] }] };
   const harness = (seen: string | undefined) => {
@@ -191,7 +225,7 @@ function findChrome(): string | undefined {
   return ["chrome-win64", "chrome-win"].map((d) => path.join(root, dir, d, "chrome.exe")).find((exe) => fs.existsSync(exe));
 }
 const browser: Browser | undefined = await chromium.launch({ headless: true, executablePath: findChrome() }).catch(() => undefined);
-afterAll(async () => { await browser?.close(); });
+afterAll(async () => { await browser?.close(); }, 30_000); // closing Chromium can take >10s while the full suite loads the host
 
 describe.skipIf(!browser)("ACCT-C03 the Google account chooser: only our own tile, never the first one (real Chromium)", { timeout: 30_000 }, () => {
   const html = `<body><ul>

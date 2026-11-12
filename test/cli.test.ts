@@ -1,3 +1,4 @@
+// @reqs ACCT-C07
 import { describe, expect, it } from "vitest";
 import { parseFlags, parseThreadsArgs } from "../src/cli.js";
 import type { Accounts } from "../src/core/accounts.js";
@@ -40,9 +41,10 @@ describe("cli threads --account (issue #81)", () => {
     { id: "third", platforms: ["claude"], master: "browser-master-third" },
   ] } as unknown as Accounts;
   it("no --account reads the default account; --account picks another; --json is kept", () => {
-    expect(parseThreadsArgs([], accts, {})).toMatchObject({ account: { id: "main" }, json: false });
+    // ACCT-C07: no --account is refused; the default and CC_ACCOUNT never choose the account.
+    expect(parseThreadsArgs([], accts, {})).toEqual({ error: expect.stringMatching(/ACCOUNT_NOT_AUTHORIZED: /) });
     expect(parseThreadsArgs(["--account", "third", "--json"], accts, {})).toMatchObject({ account: { id: "third" }, json: true });
-    expect(parseThreadsArgs([], accts, { CC_ACCOUNT: "third" })).toMatchObject({ account: { id: "third" } });
+    expect(parseThreadsArgs([], accts, { CC_ACCOUNT: "third" })).toEqual({ error: expect.stringMatching(/ACCOUNT_NOT_AUTHORIZED: /) });
   });
   it("an unknown account, a missing value or a stray argument is an error and opens nothing", () => {
     expect(parseThreadsArgs(["--account", "nobody"], accts, {})).toHaveProperty("error");

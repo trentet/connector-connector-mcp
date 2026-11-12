@@ -180,3 +180,15 @@ requirements:
   files: [src/browser/googleConsent.ts, src/core/accountChoice.ts]
   tools: [cc_reauth, cc_signin]
   decision: {quote: "it would not be acceptable to just be blindly using the accounts that are already logged in without validating that we\u2019re actually logged into the correct account", at: '2026-11-11', source: main chat t119u, from: REQ-U005}
+- id: ACCT-C07
+  kind: derived
+  status: decided
+  title: cc threads and cc settings act only for the named account, verified signed in
+  text: >
+    cc threads and cc settings take only the account named with --account (pickAccount "explicit"; the accounts
+    file's default and CC_ACCOUNT never choose one; none named is ACCOUNT_NOT_AUTHORIZED and nothing opens). Their
+    browser session is returned (src/browser/identity.ts openVerifiedSession) only once claude.ai's account endpoint
+    reports exactly that account's email; another account is ACCOUNT_MISMATCH, an unreadable one
+    ACCOUNT_NOT_AUTHORIZED, and the session is closed before any thread is read or setting changed.
+  files: [src/cli.ts, src/browser/identity.ts]
+  decision: {quote: "it would not be acceptable to just be blindly using the accounts that are already logged in without validating that we\u2019re actually logged into the correct account", at: '2026-11-11', source: main chat t119u, from: REQ-U005}
