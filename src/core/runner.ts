@@ -4,7 +4,8 @@ import { watchLogin, type LoginCredential, type LoginWatcher } from "../browser/
 import { notImplementedAdapter, type PlatformAdapter, type ResolvedConnector } from "../adapters/types.js";
 import { accountMaster, loadAccounts, pickAccount, type AccountDef, type Accounts } from "./accounts.js";
 import { Redactor } from "./redact.js";
-import { AccountNotAuthorizedError, assertSameIdentity, expectedIdentity, type SeenIdentity } from "./accountChoice.js";
+import { AccountNotAuthorizedError, assertSameIdentity, expectedIdentity, registryIdentity, type SeenIdentity } from "./accountChoice.js";
+import type { Lookup } from "./accountRegistry.js";
 import { readPlatformAccount } from "../browser/identity.js";
 import { resolve, defaultDeps, type ResolveDeps } from "./secrets.js";
 import type { ConnectorDef, ItemResult, Platform, Registry, RunRequest, RunResult } from "./types.js";
@@ -22,6 +23,8 @@ export interface RunnerOptions {
   watchLogin?: (context: BrowserContext, connectorUrl: string, cred: LoginCredential | undefined) => LoginWatcher;
   /** Reads which account a platform session is signed in as (ACCT-C05; injectable for tests); defaults to data/selectors/identity.json. */
   readIdentity?: (platform: Platform, session: BrowserSession) => Promise<SeenIdentity>;
+  /** ACCT-C11: the owner's account authorization registry (default: the vault's). */
+  lookup?: (service: string) => Promise<Lookup>;
 }
 
 interface Task { idx: number; platform: Platform; connector?: ConnectorDef }
@@ -70,7 +73,8 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
   async function verifiedSession(platform: Platform, s: BrowserSession): Promise<BrowserSession> {
     try {
       const seen = await (opts.readIdentity ?? readPlatformAccount)(platform, s).catch(() => undefined);
-      assertSameIdentity(platform, expectedIdentity(acc, platform), seen); // ACCT-C10: and the login method, when the account specifies one
+      // ACCT-C10 ACCT-C11: and the login method: the owner's recorded one, else the account's loginProvider.
+      assertSameIdentity(platform, await registryIdentity(platform, expectedIdentity(acc, platform), { lookup: opts.lookup }), seen);
       return s;
     } catch (e) { await s.close().catch(() => undefined); throw e; }
   }

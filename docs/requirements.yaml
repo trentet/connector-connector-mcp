@@ -65,6 +65,15 @@ requirements:
   - "You\u2019re telling me that you don\u2019t have any way of identifying what email address is currently being used to login and whether or not it\u2019s like like a email login or a Google login or an X login?"
   implemented_by: [ACCT-C10]
 
+- id: REQ-U007
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-11'
+  source: main chat t123u 2026-11-11 (owner, verbatim)
+  quotes:
+  - "This is why the vault must be clear on what login platform is being used"
+  implemented_by: [ACCT-C11]
 - id: REQ-G001
   kind: derived
   status: decided
@@ -238,3 +247,17 @@ requirements:
   files: [src/browser/identity.ts, src/core/accountChoice.ts, src/core/accounts.ts, src/core/runner.ts, src/browser/seed.ts, src/cli.ts]
   tools: [cc_run]
   decision: {quote: "whether or not it\u2019s like like a email login or a Google login or an X login", at: '2026-11-11', source: main chat t120u, from: REQ-U006}
+- id: ACCT-C11
+  kind: derived
+  status: decided
+  title: The expected login method comes from the owner's verified registry entry; vault logins must record theirs
+  text: >
+    The registry entry (vault-mcp's signed registry rule) is verified with its signed sign-in method; one without a method
+    (incomplete) is refused (ACCOUNT_NOT_AUTHORIZED). cc_run, cc threads, cc settings and cc browser seed take the
+    expected login method from the owner's entry for the platform's service (claude.ai, chatgpt.com, grok.com), and an
+    accounts.json loginProvider that differs is ACCOUNT_MISMATCH. A sign-in uses a vault login only when it records
+    its sign-in method and that is the method the sign-in uses (grok.com email login: email; claude.ai, chatgpt.com
+    and connector reauth: google); none recorded is ACCOUNT_NOT_AUTHORIZED, another is ACCOUNT_MISMATCH.
+  files: [src/core/accountRegistry.ts, src/core/accountChoice.ts, src/core/vaultClient.ts, src/core/runner.ts, src/browser/identity.ts, src/browser/seed.ts, src/browser/signin.ts, src/adapters/grok.ts, src/adapters/chatgpt.ts, src/core/reauth.ts, src/cli.ts]
+  tools: [cc_run, cc_signin, cc_reauth]
+  decision: {quote: "This is why the vault must be clear on what login platform is being used", at: '2026-11-11', source: main chat t123u, from: REQ-U007}

@@ -12,7 +12,8 @@ async function bwFetch(path: string, method = "GET"): Promise<unknown> {
   return body?.data ?? body;
 }
 
-export interface VaultCredential { username?: string; password?: string }
+/** signInMethod (ACCT-C11): the entry's sign_in_method field (the vault's login-entry rule); undefined when it records none. */
+export interface VaultCredential { username?: string; password?: string; signInMethod?: string }
 
 export async function getCredential(label: string): Promise<VaultCredential | undefined> {
   const list = (await bwFetch("/list/object/items")) as { data?: { id: string; name: string }[] } | { id: string; name: string }[];
@@ -20,8 +21,9 @@ export async function getCredential(label: string): Promise<VaultCredential | un
   const matches = items.filter((i) => i.name === label);
   if (matches.length === 0) return undefined;
   if (matches.length > 1) throw new Error(`vault label "${label}" is ambiguous (${matches.length} entries)`);
-  const item = (await bwFetch(`/object/item/${matches[0].id}`)) as { login?: { username?: string | null; password?: string | null } };
-  return { username: item.login?.username ?? undefined, password: item.login?.password ?? undefined };
+  const item = (await bwFetch(`/object/item/${matches[0].id}`)) as { login?: { username?: string | null; password?: string | null }; fields?: { name?: string | null; value?: string | null }[] | null };
+  const method = (item.fields ?? []).find((f) => f?.name === "sign_in_method")?.value;
+  return { username: item.login?.username ?? undefined, password: item.login?.password ?? undefined, ...(method ? { signInMethod: method } : {}) };
 }
 
 /**

@@ -101,7 +101,7 @@ describe("runner with accounts", () => {
 describe("account credential from the vault", () => {
   const second = ACC.accounts[1];
   it("uses the entry, and fills in the account email when the entry has no username", async () => {
-    const c = await accountCredential(second, 0, { vault: async () => ({ password: "pw-INVENTED-1" }) });
+    const c = await accountCredential(second, 0, { vault: async () => ({ password: "pw-INVENTED-1", signInMethod: "google" }) });
     expect(c).toMatchObject({ username: "second@example.test", password: "pw-INVENTED-1" });
   });
   it("refuses an entry whose username is another email (never signs the wrong account in)", async () => {
@@ -110,7 +110,7 @@ describe("account credential from the vault", () => {
   it("waits for a missing entry when asked, and says what to add without printing a secret", async () => {
     const lines: string[] = [];
     let waited = 0;
-    const c = await accountCredential(second, 60_000, { vault: async () => undefined, waitForVault: async (_l, ms) => { waited = ms; return { username: "second@example.test", password: "pw-INVENTED-3" }; } }, (l) => lines.push(l));
+    const c = await accountCredential(second, 60_000, { vault: async () => undefined, waitForVault: async (_l, ms) => { waited = ms; return { username: "second@example.test", password: "pw-INVENTED-3", signInMethod: "google" }; } }, (l) => lines.push(l));
     expect(waited).toBe(60_000);
     expect(c.password).toBe("pw-INVENTED-3");
     expect(lines.join("\n")).toMatch(/Google \(second\)/);
@@ -118,5 +118,8 @@ describe("account credential from the vault", () => {
   });
   it("fails clearly when the entry is still missing", async () => {
     await expect(accountCredential(second, 0, { vault: async () => undefined })).rejects.toThrow(/has no password/);
+    // ACCT-C11: the Google sign-in uses only a vault entry that records it is a Google sign-in
+    await expect(accountCredential(second, 0, { vault: async () => ({ password: "pw-INVENTED-4" }) })).rejects.toThrow(/^ACCOUNT_NOT_AUTHORIZED: .*records no sign-in method/);
+    await expect(accountCredential(second, 0, { vault: async () => ({ password: "pw-INVENTED-5", signInMethod: "email" }) })).rejects.toThrow(/^ACCOUNT_MISMATCH: .*email sign-in, not google/);
   });
 });

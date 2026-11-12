@@ -49,7 +49,7 @@ async function login(ctx: AdapterContext): Promise<void> {
   const page = s.page;
   const cred = await getCredential(sel.loginVaultLabel);
   if (!cred?.username || !cred?.password) throw new Error(`vault entry "${sel.loginVaultLabel}" is missing or has no username/password`);
-  await assertLoginAccount({ service: "grok.com", label: sel.loginVaultLabel, username: cred.username, expected: ctx.account?.email });
+  await assertLoginAccount({ service: "grok.com", label: sel.loginVaultLabel, username: cred.username, expected: ctx.account?.email, signInMethod: cred.signInMethod, method: "email" }); // ACCT-C11: an email login
   const redact = (x: string) => ctx.redact(x).split(cred.username!).join("<REDACTED>").split(cred.password!).join("<REDACTED>");
   await guarded(s, "grok-login", redact, async () => {
     await page.goto(sel.signInUrl, { waitUntil: "domcontentloaded", timeout: 45000 });

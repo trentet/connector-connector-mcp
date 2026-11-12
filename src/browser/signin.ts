@@ -7,7 +7,7 @@ import { launchChrome, loadAuthSpecs, sessionHealthy, shutdownChrome } from "./c
 import { sleep } from "./dom.js";
 import { advanceOneStep, isGoogleHost, loadConsentSpec, type ConsentSpec, type GoogleCredential } from "./googleConsent.js";
 import { acquireLane } from "./lanes.js";
-import { AccountMismatchError, assertSameAccount } from "../core/accountChoice.js";
+import { AccountMismatchError, assertSameAccount, assertVaultLoginMethod } from "../core/accountChoice.js";
 import { profileInUse, withMasterLock } from "./profile.js";
 
 /**
@@ -113,6 +113,7 @@ export async function accountCredential(acc: AccountDef, waitMs: number, deps: S
   }
   if (!cred?.password) throw new Error(`vault entry "${g.vaultLabel}" has no password; add it to the vault and run the sign-in again`);
   if (cred.username && acc.email && cred.username.toLowerCase() !== acc.email.toLowerCase()) throw new Error(`vault entry "${g.vaultLabel}" is for a different email than account "${acc.id}"; not signing in`);
+  assertVaultLoginMethod(g.vaultLabel, cred.signInMethod, "google"); // ACCT-C11: a Google sign-in uses only an entry that records it is one
   const out: GoogleCredential = { username: cred.username ?? acc.email, password: cred.password };
   if (g.totp) out.totp = () => (deps.totp ?? getTotp)(g.vaultLabel);
   return out;

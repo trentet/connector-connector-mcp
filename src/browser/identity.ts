@@ -9,9 +9,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { BrowserSession } from "./chrome.js";
-import { AccountNotAuthorizedError, assertSameIdentity, expectedIdentity, type ExpectedIdentity, type SeenIdentity } from "../core/accountChoice.js";
+import { AccountNotAuthorizedError, assertSameIdentity, expectedIdentity, registryIdentity, type ExpectedIdentity, type SeenIdentity } from "../core/accountChoice.js";
 
-export { expectedIdentity };
+export { expectedIdentity, registryIdentity };
 
 export interface IdentityProbe {
   page?: string;

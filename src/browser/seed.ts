@@ -1,7 +1,7 @@
-// @reqs ACCT-C08 ACCT-C10
+// @reqs ACCT-C08 ACCT-C10 ACCT-C11
 import fs from "node:fs";
 import { chromium, type Browser, type Cookie, type Page } from "patchright";
-import { AccountNotAuthorizedError, assertSameIdentity, expectedIdentity, type SeenIdentity } from "../core/accountChoice.js";
+import { AccountNotAuthorizedError, assertSameIdentity, expectedIdentity, registryIdentity, type ChoiceDeps, type SeenIdentity } from "../core/accountChoice.js";
 import type { BrowserSession } from "./chrome.js";
 import { launchChrome, loadAuthSpecs, masterDir, openSession, sessionHealthy, shutdownChrome } from "./chrome.js";
 import { readPlatformAccount } from "./identity.js";
@@ -27,10 +27,10 @@ export interface SeedOptions {
  * ACCT-C08: every platform of the named account must show exactly that account signed in, in the source browser,
  * before any cookie is read. No email to compare with, an unreadable account, or another account refuses the seed.
  */
-export async function verifySeedSource(account: SeedAccount, read: (platform: string) => Promise<SeenIdentity>): Promise<void> {
+export async function verifySeedSource(account: SeedAccount, read: (platform: string) => Promise<SeenIdentity>, deps: ChoiceDeps = {}): Promise<void> {
   if (!account.email) throw new AccountNotAuthorizedError(`account ${account.id} has no email to verify the source browser against; nothing was copied`);
   if (!account.platforms.length) throw new AccountNotAuthorizedError(`account ${account.id} lists no platforms; nothing was copied`);
-  for (const p of account.platforms) assertSameIdentity(p, expectedIdentity(account, p), await read(p).catch(() => undefined)); // ACCT-C10
+  for (const p of account.platforms) assertSameIdentity(p, await registryIdentity(p, expectedIdentity(account, p), deps), await read(p).catch(() => undefined)); // ACCT-C10 ACCT-C11
 }
 
 /**

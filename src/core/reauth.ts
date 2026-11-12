@@ -7,6 +7,7 @@ import { Redactor } from "./redact.js";
 import { expandEnv, transportFor, type Transport } from "./transport.js";
 import type { ConnectorDef, GoogleOAuthDef, Registry } from "./types.js";
 import { getCredential, getTotp } from "./vaultClient.js";
+import * as acctRule from "./accountChoice.js";
 
 /**
  * `cc reauth`: renew the Google OAuth grant (token.json) of every connector whose registry entry carries a `googleOAuth` block.
@@ -269,6 +270,7 @@ async function reauthOne(c: ConnectorDef, g: GoogleOAuthDef, req: ReauthRequest,
 
   const cred = await deps.vault(g.account.vaultLabel);
   if (!cred) throw new Error(`vault entry "${g.account.vaultLabel}" not found`);
+  acctRule.assertVaultLoginMethod(g.account.vaultLabel, (cred as { signInMethod?: string }).signInMethod, "google"); // ACCT-C11: a Google sign-in
   if (g.account.totp) cred.totp = () => (deps.totp ? deps.totp(g.account.vaultLabel) : Promise.resolve(undefined));
   red.add(cred.password); // the address is not a secret (it is in the vault label and the consent hint); the password is
 

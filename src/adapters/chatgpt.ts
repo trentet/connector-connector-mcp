@@ -4,6 +4,7 @@ import type { Page } from "patchright";
 import { guarded } from "../browser/chrome.js";
 import { sleep } from "../browser/dom.js";
 import { deleteCredential, getCredential, waitForCredential } from "../core/vaultClient.js";
+import * as acctRule from "../core/accountChoice.js";
 import type { AdapterContext, AdapterOutcome, PlatformAdapter } from "./types.js";
 
 const sel = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "chatgpt.json"), "utf8"));
@@ -35,6 +36,7 @@ async function login(ctx: AdapterContext): Promise<void> {
     await sleep(3500);
     if (cur.url().includes("accounts.google.com")) {
       if (!google?.password) throw new Error(`Google asked for credentials but vault entry "${sel.loginVaultLabel}" has no password`);
+      acctRule.assertVaultLoginMethod(sel.loginVaultLabel, google.signInMethod, "google"); // ACCT-C11
       if (await cur.locator(sel.login.googleEmailInput).count()) {
         await cur.locator(sel.login.googleEmailInput).fill(google.username ?? "");
         await cur.getByRole("button", { name: rx(sel.login.googleNext) }).click();
