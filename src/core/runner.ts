@@ -4,6 +4,8 @@ import { watchLogin, type LoginCredential, type LoginWatcher } from "../browser/
 import { notImplementedAdapter, type PlatformAdapter, type ResolvedConnector } from "../adapters/types.js";
 import { accountMaster, loadAccounts, pickAccount, type AccountDef, type Accounts } from "./accounts.js";
 import { Redactor } from "./redact.js";
+import { AccountNotAuthorizedError, assertSameAccount } from "./accountChoice.js";
+import { readPlatformIdentity } from "../browser/identity.js";
 import { resolve, defaultDeps, type ResolveDeps } from "./secrets.js";
 import type { ConnectorDef, ItemResult, Platform, Registry, RunRequest, RunResult } from "./types.js";
 
@@ -18,6 +20,8 @@ export interface RunnerOptions {
   platformParallelism?: number;
   /** Starts the connector-login watcher (injectable for tests); defaults to the real one. */
   watchLogin?: (context: BrowserContext, connectorUrl: string, cred: LoginCredential | undefined) => LoginWatcher;
+  /** Reads which account a platform session is signed in as (ACCT-C05; injectable for tests); defaults to data/selectors/identity.json. */
+  readIdentity?: (platform: Platform, session: BrowserSession) => Promise<string | undefined>;
 }
 
 interface Task { idx: number; platform: Platform; connector?: ConnectorDef }
@@ -36,7 +40,11 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
   const red = new Redactor();
   // The account picks the browser profile (each account has its own sign-ins) and the platforms it may touch. An unknown account fails the whole call.
   let acc: AccountDef, tag: { account?: string };
-  try { const all = opts.accounts ?? loadAccounts(); acc = pickAccount(all, req.account); tag = acc.id === all.default ? {} : { account: acc.id }; }
+  // ACCT-001 ACCT-C05: the run names its account; the accounts file's default and CC_ACCOUNT never choose one.
+  try {
+    if (!req.account) throw new AccountNotAuthorizedError("no account was specified for this run; pass the account (cc_run account, --account)");
+    const all = opts.accounts ?? loadAccounts(); acc = pickAccount(all, req.account); tag = acc.id === all.default ? {} : { account: acc.id };
+  }
   catch (e) { return { ok: false, items: req.platforms.map((p) => ({ connector: req.connectors.join(",") || "*", platform: p, op: req.op, status: "error" as const, detail: (e as Error).message })) }; }
   const deps = opts.deps ?? defaultDeps;
   const adapter = (p: Platform) => opts.adapters?.[p] ?? notImplementedAdapter(p);
@@ -49,7 +57,8 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
     let p = sessions.get(platform);
     if (!p) {
       const t = Date.now();
-      p = opts.sessionFactory ? opts.sessionFactory(platform, acc.master) : (async () => { const c = await import("../browser/chrome.js"); return c.openSession({ master: accountMaster(acc, c.masterDir()) }); })();
+      const open = opts.sessionFactory ? opts.sessionFactory(platform, acc.master) : (async () => { const c = await import("../browser/chrome.js"); return c.openSession({ master: accountMaster(acc, c.masterDir()) }); })();
+      p = open.then((s) => verifiedSession(platform, s));
       sessions.set(platform, p);
       void p.then(() => trace(`${platform}: browser ready in ${((Date.now() - t) / 1000).toFixed(1)}s`), () => trace(`${platform}: browser failed to open`));
     }
@@ -57,6 +66,14 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
     s.touched?.add(platform); // records that this browser drove this platform (decides whether its refreshed sign-in is merged back)
     return s;
   };
+  // ACCT-003 ACCT-C05: no adapter acts in a session until its signed-in account is read and is exactly the run's account.
+  async function verifiedSession(platform: Platform, s: BrowserSession): Promise<BrowserSession> {
+    try {
+      const seen = await (opts.readIdentity ?? readPlatformIdentity)(platform, s).catch(() => undefined);
+      assertSameAccount(platform, acc.email, seen);
+      return s;
+    } catch (e) { await s.close().catch(() => undefined); throw e; }
+  }
   const closeSession = async (platform: Platform) => {
     const p = sessions.get(platform);
     sessions.delete(platform);
@@ -126,7 +143,7 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
         if (wantLogin && !watcher) watcher = (opts.watchLogin ?? watchLogin)(s.context, rc!.url, cred);
         return s;
       };
-      const ctx = { platform, redact: (x: string) => red.redact(x), session: wantLogin ? session : baseSession };
+      const ctx = { platform, account: acc, redact: (x: string) => red.redact(x), session: wantLogin ? session : baseSession };
       const a = adapter(platform);
       const ifx = req.ifExisting ?? reg.defaults?.ifExisting ?? "skip";
       const out =

@@ -1,3 +1,4 @@
+// @reqs ACCT-C06
 import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -17,8 +18,8 @@ function findChrome(): string | undefined {
   const root = process.env.PLAYWRIGHT_BROWSERS_PATH;
   if (!root || !fs.existsSync(root)) return undefined;
   const dir = fs.readdirSync(root).filter((d) => /^chromium-\d+$/.test(d)).sort().at(-1);
-  const exe = dir && `${root}/${dir}/chrome-linux/chrome`;
-  return exe && fs.existsSync(exe) ? exe : undefined;
+  if (!dir) return undefined;
+  return [`${root}/${dir}/chrome-linux/chrome`, `${root}/${dir}/chrome-win64/chrome.exe`, `${root}/${dir}/chrome-win/chrome.exe`].find((e) => fs.existsSync(e));
 }
 const browser: Browser | undefined = await chromium.launch({ headless: true, executablePath: findChrome() }).catch(() => undefined);
 
@@ -32,16 +33,20 @@ function route(req: http.IncomingMessage, res: http.ServerResponse): void {
   const u = new URL(req.url ?? "/", base);
   const redirect = u.searchParams.get("redirect_uri") ?? "", state = u.searchParams.get("state") ?? "";
   const send = (html: string) => { res.setHeader("content-type", "text/html"); res.end(page(html)); };
-  const carry = `redirect_uri=${encodeURIComponent(redirect)}&state=${encodeURIComponent(state)}`;
+  // ACCT-C06: the account Google shows as signed in (?who=, default our own; "none" shows none).
+  const whoParam = u.searchParams.get("who");
+  const carry = `redirect_uri=${encodeURIComponent(redirect)}&state=${encodeURIComponent(state)}${whoParam ? `&who=${encodeURIComponent(whoParam)}` : ""}`;
+  const who = whoParam ?? "me@example.com";
+  const chip = who === "none" ? "" : `<div data-email="${who}"></div>`;
   if (u.pathname === "/o/oauth2/v2/auth") return send(`<input id="identifierId" type="email"><button id="identifierNext" onclick="location='/pw?${carry}'">Next</button>`);
   if (u.pathname === "/pw") return send(`<input type="password" name="Passwd"><button id="passwordNext" onclick="location='/signin/oauth/v2/consentsummary?${carry}'">Next</button>`);
   if (u.pathname === "/signin/oauth/v2/consentsummary") {
-    return send(`<label><input type="checkbox" id="a"> Drive</label><label><input type="checkbox" id="b"> Docs</label>
+    return send(`${chip}<label><input type="checkbox" id="a"> Drive</label><label><input type="checkbox" id="b"> Docs</label>
       <button onclick="var ok=document.getElementById('a').checked&&document.getElementById('b').checked; location='${redirect}?'+(ok?'code=FIXTURECODE':'error=access_denied')+'&state=${encodeURIComponent(state)}'">Continue</button>`);
   }
   if (u.pathname === "/signin/oauth/v3/consent") {
     // Google's newer consent page: ARIA checkboxes (not <input>), one per scope, unchecked by default.
-    return send(`<div role="checkbox" aria-checked="false" id="s1" onclick="this.setAttribute('aria-checked', this.getAttribute('aria-checked')==='true'?'false':'true')" style="width:20px;height:20px;border:1px solid #000"></div> Drive
+    return send(`${chip}<div role="checkbox" aria-checked="false" id="s1" onclick="this.setAttribute('aria-checked', this.getAttribute('aria-checked')==='true'?'false':'true')" style="width:20px;height:20px;border:1px solid #000"></div> Drive
       <div role="checkbox" aria-checked="false" id="s2" onclick="this.setAttribute('aria-checked', this.getAttribute('aria-checked')==='true'?'false':'true')" style="width:20px;height:20px;border:1px solid #000"></div> Docs
       <button onclick="var ok=document.getElementById('s1').getAttribute('aria-checked')==='true'&&document.getElementById('s2').getAttribute('aria-checked')==='true'; location='${redirect}?'+(ok?'code=FIXTURECODE':'error=access_denied')+'&state=${encodeURIComponent(state)}'">Continue</button>`);
   }
@@ -73,9 +78,9 @@ beforeAll(async () => {
 afterAll(async () => { server?.close(); loopback?.close(); await browser?.close(); });
 
 const spec = (over: Partial<ConsentSpec["limits"]> = {}): ConsentSpec => ({ ...loadConsentSpec(), googleHosts: ["127.0.0.1"], limits: { ...loadConsentSpec().limits, settleMs: 60, overallTimeoutMs: 30_000, maxSteps: 12, twoFaGraceMs: 600, ...over } });
-const authUrl = (p = "/o/oauth2/v2/auth") => `${base}${p}?redirect_uri=${encodeURIComponent(loopbackBase)}&state=st-1`;
+const authUrl = (p = "/o/oauth2/v2/auth", extra = "") => `${base}${p}?redirect_uri=${encodeURIComponent(loopbackBase)}&state=st-1${extra}`;
 
-describe.skipIf(!browser)("Google consent driver (real Chromium, fake Google)", () => {
+describe.skipIf(!browser)("Google consent driver (real Chromium, fake Google)", { timeout: 30_000 }, () => {
   it("signs in, ticks every scope box, continues, and stops once the redirect delivered the code", async () => {
     delivered = {};
     const ctx = await browser!.newContext();
@@ -130,7 +135,7 @@ describe.skipIf(!browser)("Google consent driver (real Chromium, fake Google)", 
     delivered = {};
     let asked = 0;
     try {
-      await driveConsent({ context: ctx, url: authUrl("/signin/challenge/totp"), credential: { username: "u", password: "p", totp: async () => { asked++; return "123456"; } }, isDone: () => delivered.code !== undefined || delivered.error !== undefined, log: (l) => lines.push(l), spec: spec() });
+      await driveConsent({ context: ctx, url: authUrl("/signin/challenge/totp"), credential: { username: "me@example.com", password: "p", totp: async () => { asked++; return "123456"; } }, isDone: () => delivered.code !== undefined || delivered.error !== undefined, log: (l) => lines.push(l), spec: spec() });
     } finally { await ctx.close(); }
     expect(asked).toBe(1);
     expect(delivered).toMatchObject({ code: "FIXTURECODE", error: undefined });
@@ -160,6 +165,35 @@ describe.skipIf(!browser)("Google consent driver (real Chromium, fake Google)", 
       const filled = await ctx.pages()[0]?.locator("input[type=password]").inputValue().catch(() => "");
       expect(filled ?? "").toBe("");
     } finally { await ctx.close(); }
+  });
+});
+
+describe.skipIf(!browser)("ACCT-C06 cc_reauth: Google consent only while the specified account is signed in (real Chromium, fake Google)", { timeout: 30_000 }, () => {
+  const attempt = async (who: string) => {
+    delivered = {};
+    const ctx = await browser!.newContext();
+    const lines: string[] = [];
+    try {
+      return { err: await driveConsent({ context: ctx, url: authUrl("/o/oauth2/v2/auth", `&who=${encodeURIComponent(who)}`), credential: { username: "me@example.com", password: PASSWORD }, isDone: () => !!(delivered.code || delivered.error), log: (l) => lines.push(l), spec: spec() }).then(() => undefined, (e: Error) => e), lines };
+    } finally { await ctx.close(); }
+  };
+  it("a different Google account signed in: ACCOUNT_MISMATCH, no scope ticked, nothing consented", async () => {
+    const { err, lines } = await attempt("other@example.com");
+    expect(String(err?.message)).toMatch(/^ACCOUNT_MISMATCH: /);
+    expect(String(err?.message)).not.toMatch(/@/);
+    expect(delivered).toEqual({});
+    expect(lines.join("\n")).not.toMatch(/checked scope box|clicked Continue/);
+  });
+  it("no signed-in Google account shown (unverifiable): ACCOUNT_NOT_AUTHORIZED, nothing consented", async () => {
+    const { err, lines } = await attempt("none");
+    expect(String(err?.message)).toMatch(/^ACCOUNT_NOT_AUTHORIZED: /);
+    expect(delivered).toEqual({});
+    expect(lines.join("\n")).not.toMatch(/checked scope box|clicked Continue/);
+  });
+  it("the specified account signed in: consent completes", async () => {
+    const { err } = await attempt("ME@example.com");
+    expect(err).toBeUndefined();
+    expect(delivered).toMatchObject({ code: "FIXTURECODE" });
   });
 });
 

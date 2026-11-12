@@ -3,6 +3,7 @@ import { parseRow, sameName } from "../src/adapters/claude.js";
 import { run } from "../src/core/runner.js";
 import { loadRegistry } from "../src/core/registry.js";
 import type { PlatformAdapter } from "../src/adapters/types.js";
+import { signedInAsMain } from "./fixtures.js";
 
 describe("claude list parsing (rows captured live 2026-10-01)", () => {
   it("parses the REAL raw innerText (icon-font characters between cells), captured live", () => {
@@ -37,7 +38,7 @@ describe("runner list/probe", () => {
     let listCalls = 0, closed = 0;
     const adapter: PlatformAdapter = { platform: "claude", list: async () => { listCalls++; return { names: ["a", "b"] }; }, add: async () => ({ status: "ok" }), remove: async () => ({ status: "ok" }), update: async () => ({ status: "ok" }), verify: async () => ({ status: "ok" }), probe: async () => ({ status: "ok" }) };
     const reg = loadRegistry("registry/connectors.json");
-    const res = await run(reg, { op: "list", connectors: ["*"], platforms: ["claude"] }, { adapters: { claude: adapter }, sessionFactory: async () => ({ close: async () => { closed++; } }) as never });
+    const res = await run(reg, { account: "main", op: "list", connectors: ["*"], platforms: ["claude"] }, { readIdentity: signedInAsMain, adapters: { claude: adapter }, sessionFactory: async () => ({ close: async () => { closed++; } }) as never });
     expect(listCalls).toBe(1);
     expect(res.items).toHaveLength(1);
     expect(res.items[0].detail).toBe("a, b");
@@ -49,7 +50,7 @@ describe("runner list/probe", () => {
     const reg = loadRegistry("registry/connectors.json");
     const env = { HELM_X: "x" };
     void env;
-    const res = await run(reg, { op: "verify", connectors: ["helm-drive"], platforms: ["claude"] }, { adapters: { claude: adapter }, deps: { env: {}, readFile: () => "https://mcp.trentt.me/mcp?token=abcd1234", vault: async () => undefined } });
+    const res = await run(reg, { account: "main", op: "verify", connectors: ["helm-drive"], platforms: ["claude"] }, { readIdentity: signedInAsMain, adapters: { claude: adapter }, deps: { env: {}, readFile: () => "https://mcp.trentt.me/mcp?token=abcd1234", vault: async () => undefined } });
     expect(res.ok).toBe(true);
     expect(seen).toBe("HELM Drive Connector");
   });

@@ -3,10 +3,10 @@
 # behaviour is not backfilled here; gate.code and gate.tools_in_scope list exactly what this ledger covers.
 gate:
   id_pattern: '\b(?:REQ-[UDG]\d{3}|ACCT-(?:\d{3}|[PCV]\d{2}))\b'
-  code: ['^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
+  code: ['^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
   tests: ['^test/.+\.ts$']
   tool_files: ['^src/server/app\.ts$']
-  tools_in_scope: [cc_signin]
+  tools_in_scope: [cc_signin, cc_run, cc_reauth]
 requirements:
 - id: REQ-U001
   kind: user
@@ -34,7 +34,7 @@ requirements:
   source: main chat t113u 2026-11-11 (owner, verbatim)
   quotes:
   - "It\u2019s absolutely unacceptable for this to ever happen again. You must never under any circumstances ever use an account or log into an account if you have not already been explicitly fucking told as to what you should be using when there\u2019s more than one fucking account available. This must be programmatically and determinist enforced in such a way that makes it impossible for you to make this mistake ever again for anything ever"
-  implemented_by: [ACCT-001, ACCT-002]
+  implemented_by: [ACCT-001, ACCT-002, ACCT-003]
 - id: REQ-U004
   kind: user
   status: decided
@@ -43,7 +43,18 @@ requirements:
   source: main chat t114u 2026-11-11 (owner, verbatim; refines REQ-U003)
   quotes:
   - "The Grok account that we are currently on is the only one that should be getting used by default. Effectively when we are dealing with accounts, we first check what account we are already on and then that\u2019s the one that we assume unless we are explicitly told otherwise."
-  implemented_by: [ACCT-001]
+  superseded_by: REQ-U005
+  note: REQ-U005 (t119u) replaces the default of using the account already signed in; nothing implements this default any more.
+  implemented_by: []
+- id: REQ-U005
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-11'
+  source: main chat t119u 2026-11-11 (owner, verbatim; corrects REQ-U004)
+  quotes:
+  - "The connector connector is required to be actually using the very specific accounts for each platform based off of the specific accounts that are actually going to be used for that run. So if we have a script that has a fucking schedule where we have specific accounts being defined as being used and passed in and being provided somehow then yes we would do that. But like it would not be acceptable to just be blindly using the accounts that are already logged in without validating that we\u2019re actually logged into the correct account. That\u2019s how you end up with catastrophic problems otherwise like imagine accidentally checking out on Amazon for $7000 purchase and then it\u2019s on the wrong fucking account that\u2019s fucking disastrous like shit like that is never ever acceptable for us to have any height of lack of safeguards"
+  implemented_by: [ACCT-001, ACCT-002, ACCT-003]
 - id: REQ-G001
   kind: derived
   status: decided
@@ -68,45 +79,58 @@ requirements:
 - id: ACCT-001
   kind: derived
   status: decided
-  title: Use the account already in use; otherwise only the owner-named one; otherwise refuse
+  title: The exact account is specified for each run; otherwise refuse
   text: >
-    Before any sign-in, account selection or credential fill for a service, a tool uses the account already signed
-    in for that service. It uses a different account only when the owner explicitly named it in the account
-    authorization registry (vault-mcp, written only by the owner's own typed form). With no signed-in account and no
-    registry entry it uses an account only when exactly one could apply; otherwise it refuses with
-    ACCOUNT_NOT_AUTHORIZED and acts on nothing. On an account chooser page the count is unknown, so it refuses.
-  decision: {quote: "we first check what account we are already on and then that\u2019s the one that we assume unless we are explicitly told otherwise", at: '2026-11-11', source: main chat t114u, from: [REQ-U004, REQ-U003]}
+    Every sign-in, account selection, credential fill or account-scoped action acts for an account specified
+    explicitly for that run: the owner's account authorization registry entry (vault-mcp, written only by the owner's
+    own typed form), or the account the owner's script, scheduled job or call passes in (cc_run's and cc_signin's account, the vault entry a connector's reauth definition names). With no account
+    specified the tool refuses with ACCOUNT_NOT_AUTHORIZED and acts on nothing. Replaces (REQ-U005, t119u) the
+    earlier default of using the account already signed in, and the fallback of using the only account that could apply.
+  decision: {quote: "actually using the very specific accounts for each platform based off of the specific accounts that are actually going to be used for that run", at: '2026-11-11', source: main chat t119u, from: REQ-U005}
 - id: ACCT-002
   kind: derived
   status: decided
-  title: Nothing but the owner's explicit naming authorizes an account
+  title: Defaults and signed-in sessions never specify an account
   text: >
-    A configured default, the CC_ACCOUNT setting, a vault entry or its label, a vault used_with record, and account
-    files kept in a code repository are never authorization to use an account.
-  decision: {quote: "if you have not already been explicitly fucking told as to what you should be using when there\u2019s more than one fucking account available", at: '2026-11-11', source: main chat t113u, from: REQ-U003}
+    A tool's own default, the accounts file's default, the CC_ACCOUNT setting, a vault entry or its label, a vault
+    used_with record, account files kept in a code repository, and an already-signed-in session are never the
+    specification of an account.
+  decision: {quote: "it would not be acceptable to just be blindly using the accounts that are already logged in", at: '2026-11-11', source: main chat t119u, from: [REQ-U005, REQ-U003]}
+- id: ACCT-003
+  kind: derived
+  status: decided
+  title: Verify the signed-in account before acting
+  text: >
+    Before an account-scoped action the tool reads which account is actually signed in and compares it with the
+    specified account. Another account is refused with ACCOUNT_MISMATCH; an account that cannot be read or verified
+    is refused with ACCOUNT_NOT_AUTHORIZED. An already-signed-in session is never used unverified. Refusal messages
+    carry no account emails.
+  decision: {quote: "without validating that we’re actually logged into the correct account", at: '2026-11-11', source: main chat t119u, from: REQ-U005}
 - id: ACCT-C01
   kind: derived
   status: decided
-  title: A claude.ai sign-in uses the owner-named account, or the only one that could sign in
+  title: A claude.ai sign-in is for the named account and is confirmed as that account
   text: >
-    pickAccount for a sign-in (cc browser signin, cc_signin) never takes the accounts file's default or CC_ACCOUNT:
-    the account must be named in the call, or be the only account with a sign-in entry. Before signing in,
-    the owner's registry entry for cc-signin:<account id> must name that account's email; with no entry the account
-    must be the only one that can sign in. Otherwise ACCOUNT_NOT_AUTHORIZED, before any browser or vault use.
-  files: [src/core/accounts.ts, src/core/accountChoice.ts, src/cli.ts, src/server/app.ts]
+    pickAccount "explicit" (cc browser *, cc_signin) takes only the account named in the call (--account, account);
+    never the accounts file's default, CC_ACCOUNT or "the only account". The account must carry its email; an owner
+    registry entry for cc-signin:<account id>, when there is one, must name that email. After signing in (or finding
+    a session) claude.ai's own account endpoint must report exactly that email: another email removes the sign-in
+    and refuses (ACCOUNT_MISMATCH); no readable email refuses (ACCOUNT_NOT_AUTHORIZED).
+  files: [src/core/accounts.ts, src/core/accountChoice.ts, src/cli.ts, src/server/app.ts, src/browser/signin.ts]
   tools: [cc_signin]
-  decision: {quote: "if you have not already been explicitly fucking told as to what you should be using when there\u2019s more than one fucking account available", at: '2026-11-11', source: main chat t113u, from: REQ-U003}
+  decision: {quote: "actually using the very specific accounts for each platform based off of the specific accounts that are actually going to be used for that run", at: '2026-11-11', source: main chat t119u, from: REQ-U005}
 - id: ACCT-C02
   kind: derived
   status: decided
-  title: grok.com email login uses the owner-named or the only possible account
+  title: grok.com email login only for the run's specified account
   text: >
-    The grok adapter uses a signed-in grok.com session as it is. Only when grok.com shows signed out does it log in,
-    and then only when the owner named the vault entry's username for grok.com in the registry, or when no other
-    vault login with a different username has a URI on grok.com or x.ai; otherwise ACCOUNT_NOT_AUTHORIZED and
-    nothing is typed. Login summaries drop passwords.
+    The grok adapter types a vault login into grok.com only for the account specified for the run: the vault entry's
+    username must be exactly that account's email, and an owner registry entry for grok.com must agree; otherwise
+    ACCOUNT_NOT_AUTHORIZED / ACCOUNT_MISMATCH and nothing is typed. The earlier path that used a signed-in grok.com
+    session as it is, and the "no other login could apply" count, are removed; a signed-in session is verified at
+    session open (ACCT-C05), and grok has no identity reader yet, so grok runs are refused.
   files: [src/adapters/grok.ts, src/core/accountChoice.ts, src/core/vaultClient.ts]
-  decision: {quote: "we first check what account we are already on and then that\u2019s the one that we assume unless we are explicitly told otherwise", at: '2026-11-11', source: main chat t114u, from: [REQ-U004, REQ-U003]}
+  decision: {quote: "it would not be acceptable to just be blindly using the accounts that are already logged in without validating", at: '2026-11-11', source: main chat t119u, from: REQ-U005}
 - id: ACCT-C03
   kind: derived
   status: decided
@@ -127,3 +151,32 @@ requirements:
     (missing or wrong signature, another key, two entries) or unavailable. It writes nothing.
   files: [src/core/accountRegistry.ts]
   decision: {quote: This must be programmatically and determinist enforced in such a way that makes it impossible for you to make this mistake ever again for anything ever, at: '2026-11-11', source: main chat t113u, from: REQ-U003}
+- id: ACCT-C05
+  kind: derived
+  status: decided
+  title: cc_run requires its account and verifies each platform session's signed-in account
+  text: >
+    run() (cc_run, cc run) refuses every item with ACCOUNT_NOT_AUTHORIZED when the request names no account. When a
+    platform's browser session opens, its signed-in account is read with data/selectors/identity.json
+    (src/browser/identity.ts) and must be exactly the run account's email before any adapter acts; otherwise the
+    session is closed and every item on that platform is refused (ACCOUNT_MISMATCH / ACCOUNT_NOT_AUTHORIZED).
+    claude uses the endpoint cc browser signin already reads; chatgpt's reader is not yet seen live; grok has none,
+    so grok runs are refused until one is added.
+  files: [src/core/runner.ts, src/browser/identity.ts, src/adapters/types.ts, src/core/accountChoice.ts]
+  tools: [cc_run]
+  decision: {quote: "That\u2019s how you end up with catastrophic problems otherwise", at: '2026-11-11', source: main chat t119u, from: REQ-U005}
+- id: ACCT-C06
+  kind: derived
+  status: decided
+  title: Google pages are acted on only while showing the specified account
+  text: >
+    In Google sign-in and consent flows (cc reauth, cc browser signin), after cc enters its own credentials and
+    before any other click or consent (Continue, Allow, Advanced, Go to app, Select all, scope boxes), the accounts
+    the page shows as signed in ([data-email] values and the account chip aria-label, data/selectors/google-consent.json
+    accountSwitcherChipAria) must be exactly the specified account: for cc reauth the vault entry the connector's
+    own googleOAuth definition names. Another account refuses with ACCOUNT_MISMATCH, none shown with
+    ACCOUNT_NOT_AUTHORIZED, and nothing is clicked. These page markers are not yet checked against live Google
+    (fail-closed: a screen without them is refused).
+  files: [src/browser/googleConsent.ts, src/core/accountChoice.ts]
+  tools: [cc_reauth, cc_signin]
+  decision: {quote: "it would not be acceptable to just be blindly using the accounts that are already logged in without validating that we\u2019re actually logged into the correct account", at: '2026-11-11', source: main chat t119u, from: REQ-U005}

@@ -96,19 +96,15 @@ export function loadAccounts(file = DEFAULT_ACCOUNTS_PATH()): Accounts {
 
 /**
  * The named account, else CC_ACCOUNT, else the file's default. An unknown id is an error, never a silent fallback to another account.
- * For a sign-in (purpose "signin", ACCT-C01) the default and CC_ACCOUNT never choose: the account must be named, or be the only
- * account with a sign-in entry; otherwise ACCOUNT_NOT_AUTHORIZED.
+ * Purpose "explicit" (ACCT-001, ACCT-C01: cc browser *, cc_signin): only the account named in the call; the default, CC_ACCOUNT and
+ * "the only account" never choose one, so no name is ACCOUNT_NOT_AUTHORIZED. cc_run requires its account before calling this (runner.ts).
  */
-export function pickAccount(a: Accounts, id?: string, env = process.env, purpose: "use" | "signin" = "use"): AccountDef {
-  if (purpose === "signin") {
-    if (id !== undefined) {
-      const named = a.accounts.find((x) => x.id === id);
-      if (!named) throw new Error(`unknown account "${id}" (known: ${a.accounts.map((x) => x.id).join(", ")})`);
-      return named;
-    }
-    const able = a.accounts.filter((x) => x.signIn?.google);
-    if (able.length === 1) return able[0]!;
-    throw new AccountNotAuthorizedError(`${able.length} accounts could sign in; name one with --account (the default and CC_ACCOUNT never choose the account for a sign-in)`);
+export function pickAccount(a: Accounts, id?: string, env = process.env, purpose: "use" | "explicit" = "use"): AccountDef {
+  if (purpose === "explicit") {
+    if (id === undefined) throw new AccountNotAuthorizedError("no account was named; name one with --account / account (the accounts file's default and CC_ACCOUNT never choose one)");
+    const named = a.accounts.find((x) => x.id === id);
+    if (!named) throw new Error(`unknown account "${id}" (known: ${a.accounts.map((x) => x.id).join(", ")})`);
+    return named;
   }
   const want = id ?? env.CC_ACCOUNT ?? a.default;
   const acc = a.accounts.find((x) => x.id === want);

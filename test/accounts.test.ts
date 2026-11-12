@@ -70,17 +70,24 @@ describe("runner with accounts", () => {
   };
   it("opens the account's own master and skips the platforms the account is not used on", async () => {
     const h = harness();
-    const res = await run(reg, { op: "verify", connectors: ["demo"], platforms: [...PLATFORMS], account: "second" }, { accounts: ACC, adapters: h.adapters, sessionFactory: h.sessionFactory });
+    const res = await run(reg, { op: "verify", connectors: ["demo"], platforms: [...PLATFORMS], account: "second" }, { accounts: ACC, adapters: h.adapters, sessionFactory: h.sessionFactory, readIdentity: async () => "second@example.test" });
     expect(res.ok).toBe(true);
     expect(res.items.map((i) => [i.platform, i.status, i.account])).toEqual([["claude", "ok", "second"], ["chatgpt", "skipped", "second"], ["grok", "skipped", "second"]]);
     expect(h.masters).toEqual({ claude: "browser-master-second" });
   });
-  it("the default account keeps the default master and untagged results (unchanged behaviour)", async () => {
+  it("the default account keeps the default master and untagged results when named (ACCT-C05)", async () => {
     const h = harness();
-    const res = await run(reg, { op: "verify", connectors: ["demo"], platforms: [...PLATFORMS] }, { accounts: ACC, adapters: h.adapters, sessionFactory: h.sessionFactory });
+    const res = await run(reg, { op: "verify", connectors: ["demo"], platforms: [...PLATFORMS], account: "first" }, { accounts: ACC, adapters: h.adapters, sessionFactory: h.sessionFactory, readIdentity: async () => "first@example.test" });
     expect(res.items.every((i) => i.status === "ok" && i.account === undefined)).toBe(true);
     expect(Object.keys(h.masters).sort()).toEqual([...PLATFORMS].sort());
     expect(Object.values(h.masters).every((m) => m === undefined)).toBe(true);
+  });
+  it("no account named: the default is never assumed and no browser opens (ACCT-001)", async () => {
+    const h = harness();
+    const res = await run(reg, { op: "verify", connectors: ["demo"], platforms: [...PLATFORMS] }, { accounts: ACC, adapters: h.adapters, sessionFactory: h.sessionFactory });
+    expect(res.ok).toBe(false);
+    expect(res.items.every((i) => /^ACCOUNT_NOT_AUTHORIZED: /.test(i.detail ?? ""))).toBe(true);
+    expect(h.masters).toEqual({});
   });
   it("an unknown account fails the call without opening a browser", async () => {
     const h = harness();

@@ -39,20 +39,17 @@ async function isSignedIn(page: Page): Promise<boolean> {
   return (await page.getByRole("button", { name: /^sign in$/i }).count()) === 0 && (await page.getByRole("link", { name: /^sign in$/i }).count()) === 0;
 }
 
-/** The hosts of grok.com's own email sign-in; a vault login with a URI on one of them could sign in to grok.com. */
-export const GROK_LOGIN_HOSTS = ["grok.com", "x.ai"];
-
 /**
- * Log in with the vault credential (resolved in this process only). Reached only when grok.com shows signed out
- * (a signed-in session is used as it is). The credential is used only when the owner named it for grok.com, or when
- * no other vault login could sign in there (ACCT-C02); otherwise ACCOUNT_NOT_AUTHORIZED and nothing is typed.
+ * Log in with the vault credential (resolved in this process only). Typed only when the vault entry is exactly the
+ * account specified for this run, and an owner registry entry for grok.com agrees (ACCT-C02); otherwise nothing is typed.
+ * A signed-in grok.com session is never trusted as it is: the runner verifies it when the session opens (ACCT-C05).
  */
 async function login(ctx: AdapterContext): Promise<void> {
   const s = await ctx.session();
   const page = s.page;
   const cred = await getCredential(sel.loginVaultLabel);
   if (!cred?.username || !cred?.password) throw new Error(`vault entry "${sel.loginVaultLabel}" is missing or has no username/password`);
-  await assertLoginAccount({ service: "grok.com", hosts: GROK_LOGIN_HOSTS, label: sel.loginVaultLabel, username: cred.username });
+  await assertLoginAccount({ service: "grok.com", label: sel.loginVaultLabel, username: cred.username, expected: ctx.account?.email });
   const redact = (x: string) => ctx.redact(x).split(cred.username!).join("<REDACTED>").split(cred.password!).join("<REDACTED>");
   await guarded(s, "grok-login", redact, async () => {
     await page.goto(sel.signInUrl, { waitUntil: "domcontentloaded", timeout: 45000 });

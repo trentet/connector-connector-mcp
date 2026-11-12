@@ -7,6 +7,7 @@ import { launchChrome, loadAuthSpecs, sessionHealthy, shutdownChrome } from "./c
 import { sleep } from "./dom.js";
 import { advanceOneStep, isGoogleHost, loadConsentSpec, type ConsentSpec, type GoogleCredential } from "./googleConsent.js";
 import { acquireLane } from "./lanes.js";
+import { AccountMismatchError, assertSameAccount } from "../core/accountChoice.js";
 import { profileInUse, withMasterLock } from "./profile.js";
 
 /**
@@ -57,9 +58,10 @@ export async function driveSignIn(o: DriveSignInOptions): Promise<SignInResult> 
       const email = await signedInEmail(page, spec);
       if (email && o.email && email.toLowerCase() !== o.email.toLowerCase()) {
         await o.context.clearCookies({ domain: loginHost }).catch(() => undefined);
-        throw new Error(`claude.ai signed in as a different account than ${o.email}; its sign-in was removed from this profile`);
+        throw new AccountMismatchError("claude.ai signed in as a different account than the one named; its sign-in was removed from this profile");
       }
-      return { status, email, confirmed: !!email, steps };
+      assertSameAccount("claude.ai", o.email, email); // ACCT-C01: no readable email (or none specified) is refused, never "unconfirmed"
+      return { status, email, confirmed: true, steps };
     };
     if (await o.hasSession()) return await confirm("already-signed-in");
     await page.goto(spec.url, { waitUntil: "domcontentloaded" }).catch(() => undefined);

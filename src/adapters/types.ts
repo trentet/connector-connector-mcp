@@ -1,3 +1,4 @@
+import type { AccountDef } from "../core/accounts.js";
 import type { BrowserSession } from "../browser/chrome.js";
 import type { ConnectorDef, Platform } from "../core/types.js";
 
@@ -12,6 +13,8 @@ export interface ResolvedConnector {
 
 export interface AdapterContext {
   platform: Platform;
+  /** The account specified for this run (ACCT-001); account-scoped steps act only for it. */
+  account?: AccountDef;
   redact: (s: string) => string;
   /** Lazily opens (once per run) the shared browser session. */
   session: () => Promise<BrowserSession>;

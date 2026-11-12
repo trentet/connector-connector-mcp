@@ -1,13 +1,13 @@
-// @reqs ACCT-001 ACCT-002 ACCT-C01 ACCT-C02
+// @reqs ACCT-001 ACCT-002 ACCT-003 ACCT-C01 ACCT-C02 ACCT-C05
 /**
- * Which account cc may sign in with. The owner names an account for a service in the account authorization
- * registry (src/core/accountRegistry.ts, read-only here). Without that naming cc uses an account only when it is
- * the only one that could apply, and refuses with ACCOUNT_NOT_AUTHORIZED otherwise. A default, CC_ACCOUNT, a vault
- * label and registry/accounts.json never count as the owner naming an account.
+ * The account rule (owner t119u, 2026-11-11). Every sign-in, credential fill or account-scoped action runs for an
+ * account specified for that run: passed in explicitly by the caller (cc_run / cc_signin account, the connector's
+ * own reauth definition) or named by the owner in the account authorization registry (src/core/accountRegistry.ts,
+ * read-only here). The accounts file's default, CC_ACCOUNT, a vault label and an already-signed-in session never
+ * specify an account. Before acting, the account actually signed in is read and must be exactly that account.
  */
-import { lookupAccount, normAccount, PREFIX, type Lookup } from "./accountRegistry.js";
-import { listLoginSummaries, type LoginSummary } from "./vaultClient.js";
-import type { AccountDef, Accounts } from "./accounts.js";
+import { lookupAccount, normAccount, type Lookup } from "./accountRegistry.js";
+import type { AccountDef } from "./accounts.js";
 
 export class AccountNotAuthorizedError extends Error {
   readonly code = "ACCOUNT_NOT_AUTHORIZED";
@@ -17,60 +17,57 @@ export class AccountNotAuthorizedError extends Error {
   }
 }
 
+export class AccountMismatchError extends Error {
+  readonly code = "ACCOUNT_MISMATCH";
+  constructor(message: string) {
+    super(`ACCOUNT_MISMATCH: ${message}`);
+    this.name = "AccountMismatchError";
+  }
+}
+
 export interface ChoiceDeps {
   lookup?: (service: string) => Promise<Lookup>;
-  logins?: () => Promise<LoginSummary[]>;
 }
-
-const hostOf = (u: string): string | undefined => {
-  try {
-    return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(u) ? u : "https://" + u).hostname.toLowerCase().replace(/^www\./, "");
-  } catch {
-    return undefined;
-  }
-};
-const onHosts = (h: string, hosts: string[]) => hosts.some((x) => h === x || h.endsWith("." + x));
 
 /**
- * ACCT-C02: before cc types a vault login into a site's own sign-in form. With an owner-named account the entry's
- * username must be it; with none, no other vault login with a different username may have a URI on the site's hosts.
+ * ACCT-003: the account signed in (`seen`: one value or every account the page shows) must be exactly the specified
+ * account. Nothing specified, nothing readable, or any other account shown is refused. Messages carry no emails.
  */
-export async function assertLoginAccount(o: { service: string; hosts: string[]; label: string; username: string }, deps: ChoiceDeps = {}): Promise<void> {
-  const lookup = await (deps.lookup ?? ((s: string) => lookupAccount(s)))(o.service);
-  const user = normAccount(o.username);
-  if (lookup.status === "tampered") throw new AccountNotAuthorizedError(`the account authorization for ${lookup.service} is invalid (${lookup.reason}); not signing in`);
-  if (lookup.status === "authorized") {
-    if (user !== lookup.account) throw new AccountNotAuthorizedError(`vault entry "${o.label}" is not the account the owner named for ${lookup.service}; not signing in`);
-    return;
-  }
-  const others = new Set<string>();
-  for (const i of await (deps.logins ?? listLoginSummaries)()) {
-    if (i.name === o.label || i.name.trim().toLowerCase().startsWith(PREFIX)) continue;
-    const u = normAccount(i.username);
-    if (!u || u === user) continue;
-    if (i.uris.some((uri) => { const h = hostOf(uri); return !!h && onHosts(h, o.hosts); })) others.add(u);
-  }
-  if (others.size > 0) {
-    throw new AccountNotAuthorizedError(`${others.size + 1} vault accounts could sign in to ${o.service} and the owner has not named one; not signing in`);
+export function assertSameAccount(where: string, expected: string | undefined, seen: string | readonly string[] | undefined): void {
+  const want = normAccount(expected);
+  if (!want) throw new AccountNotAuthorizedError(`no account is specified for ${where}; refusing`);
+  const got = (Array.isArray(seen) ? [...seen] : typeof seen === "string" ? [seen] : []).map((s) => normAccount(s)).filter(Boolean);
+  if (got.length === 0) throw new AccountNotAuthorizedError(`the account signed in on ${where} could not be read; an unverified session is never used`);
+  if (got.some((g) => g !== want)) throw new AccountMismatchError(`${where} shows a signed-in account other than the one specified for this run; refusing`);
+}
+
+/** A registry entry, when the owner made one, must name the same account as the run; a tampered entry refuses. */
+async function registryAgrees(service: string, expected: string, deps: ChoiceDeps): Promise<void> {
+  const lookup = await (deps.lookup ?? ((s: string) => lookupAccount(s)))(service);
+  if (lookup.status === "tampered") throw new AccountNotAuthorizedError(`the account authorization for ${lookup.service} is invalid (${lookup.reason}); refusing`);
+  if (lookup.status === "authorized" && lookup.account !== normAccount(expected)) {
+    throw new AccountMismatchError(`the account specified for this run is not the one the owner named for ${lookup.service}; refusing`);
   }
 }
 
-/** The registry service under which the owner names the Google account for one cc account's claude.ai sign-in. */
+/**
+ * ACCT-C02: before cc types a vault login into a site's own sign-in form. The run's specified account (`expected`)
+ * is required, the vault entry's username must be exactly it, and an owner registry entry for the service must agree.
+ */
+export async function assertLoginAccount(o: { service: string; label: string; username: string; expected?: string }, deps: ChoiceDeps = {}): Promise<void> {
+  if (!normAccount(o.expected)) throw new AccountNotAuthorizedError(`no account is specified for signing in to ${o.service}; refusing`);
+  if (normAccount(o.username) !== normAccount(o.expected)) throw new AccountMismatchError(`vault entry "${o.label}" is not the account specified for this run; not signing in`);
+  await registryAgrees(o.service, o.expected!, deps);
+}
+
+/** The registry service under which the owner may name the Google account for one cc account's claude.ai sign-in. */
 export const signInService = (accountId: string) => `cc-signin:${accountId.toLowerCase()}`;
 
 /**
- * ACCT-C01: before cc signs a cc account in to claude.ai with Google. With an owner-named account for
- * cc-signin:<id> the cc account's email must be it; with none, this must be the only cc account that can sign in.
+ * ACCT-C01: before cc signs a named cc account in to claude.ai. The account must carry its email (the exact account
+ * to sign in), and an owner registry entry for cc-signin:<id>, when there is one, must name that email.
  */
-export async function assertSignInAccount(all: Accounts, acc: AccountDef, deps: ChoiceDeps = {}): Promise<void> {
-  const service = signInService(acc.id);
-  const lookup = await (deps.lookup ?? ((s: string) => lookupAccount(s)))(service);
-  if (lookup.status === "tampered") throw new AccountNotAuthorizedError(`the account authorization for ${service} is invalid (${lookup.reason}); not signing in`);
-  if (lookup.status === "authorized") {
-    if (!acc.email || normAccount(acc.email) !== lookup.account) throw new AccountNotAuthorizedError(`account "${acc.id}" is not the account the owner named for ${service}; not signing in`);
-    return;
-  }
-  const able = all.accounts.filter((x) => x.signIn?.google);
-  if (able.length === 1 && able[0]!.id === acc.id) return;
-  throw new AccountNotAuthorizedError(`${able.length} cc accounts can sign in and the owner has not named the account for ${service}; not signing in`);
+export async function assertSignInAccount(acc: AccountDef, deps: ChoiceDeps = {}): Promise<void> {
+  if (!normAccount(acc.email)) throw new AccountNotAuthorizedError(`account "${acc.id}" has no email, so the account to sign in is not specified; refusing`);
+  await registryAgrees(signInService(acc.id), acc.email!, deps);
 }

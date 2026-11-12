@@ -1,0 +1,23 @@
+{
+  "_note": "Which account a platform session is signed in as (src/browser/identity.ts, ACCT-C05). page is opened first; fetch is a same-origin account endpoint read with the session's cookies; emailField is a dot path into its JSON. A platform without page/fetch/emailField has no reader: every run on it is refused until a reader is added and checked live. liveVerified says whether the reader has been seen working against the real site.",
+  "platforms": {
+    "claude": {
+      "page": "https://claude.ai/",
+      "fetch": "https://claude.ai/api/account",
+      "emailField": "email_address",
+      "liveVerified": true,
+      "note": "Same endpoint and field cc browser signin already uses to confirm the signed-in email (data/selectors/claude.json signIn.accountUrl / accountEmailField)."
+    },
+    "chatgpt": {
+      "page": "https://chatgpt.com/",
+      "fetch": "https://chatgpt.com/api/auth/session",
+      "emailField": "user.email",
+      "liveVerified": false,
+      "note": "ChatGPT's session endpoint; not yet seen live by cc. If it yields no email every chatgpt run is refused (fail-closed), never allowed."
+    },
+    "grok": {
+      "liveVerified": false,
+      "note": "No identity reader known for grok.com: every grok run is refused (ACCOUNT_NOT_AUTHORIZED) until one is probed live and added here."
+    }
+  }
+}

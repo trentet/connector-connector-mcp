@@ -14,20 +14,6 @@ async function bwFetch(path: string, method = "GET"): Promise<unknown> {
 
 export interface VaultCredential { username?: string; password?: string }
 
-export interface LoginSummary { name: string; username?: string; uris: string[] }
-
-/** Name, username and URIs of every vault login, for counting which accounts could apply to a site (ACCT-C02). Passwords are dropped here. */
-export async function listLoginSummaries(): Promise<LoginSummary[]> {
-  type Raw = { name?: string; login?: { username?: string | null; uris?: { uri?: string | null }[] | null } | null };
-  const list = (await bwFetch("/list/object/items")) as { data?: Raw[] } | Raw[];
-  const items = Array.isArray(list) ? list : (list?.data ?? []);
-  return items.map((i) => ({
-    name: String(i.name ?? ""),
-    username: i.login?.username ?? undefined,
-    uris: (i.login?.uris ?? []).map((u) => String(u?.uri ?? "")).filter(Boolean),
-  }));
-}
-
 export async function getCredential(label: string): Promise<VaultCredential | undefined> {
   const list = (await bwFetch("/list/object/items")) as { data?: { id: string; name: string }[] } | { id: string; name: string }[];
   const items = Array.isArray(list) ? list : (list?.data ?? []);

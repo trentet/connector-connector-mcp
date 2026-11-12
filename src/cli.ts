@@ -163,12 +163,12 @@ export async function main(argv: string[]): Promise<number> {
     try {
       const { masterDir } = await import("./browser/chrome.js");
       const all = loadAccounts();
-      const acc = pickAccount(all, flag("--account"), process.env, sub === "signin" ? "signin" : "use");
+      const acc = pickAccount(all, flag("--account"), process.env, "explicit");
       const master = accountMaster(acc, masterDir());
       if (sub === "signin") {
         const { signInAccount } = await import("./browser/signin.js");
         const { assertSignInAccount } = await import("./core/accountChoice.js");
-        await assertSignInAccount(all, acc); // ACCT-C01
+        await assertSignInAccount(acc); // ACCT-C01
         const wait = Number(flag("--wait-for-vault") ?? 0);
         if (!Number.isFinite(wait) || wait < 0) { console.error("--wait-for-vault needs a number of minutes"); return 2; }
         const r = await signInAccount(acc, master, { waitForVaultMs: wait * 60_000, log: (l) => console.log(`  ${l}`) });

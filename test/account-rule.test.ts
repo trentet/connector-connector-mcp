@@ -1,15 +1,21 @@
-// @reqs ACCT-001 ACCT-002 ACCT-C01 ACCT-C02 ACCT-C03 ACCT-C04
+// @reqs ACCT-001 ACCT-002 ACCT-003 ACCT-C01 ACCT-C02 ACCT-C03 ACCT-C04 ACCT-C05 ACCT-C06
 import fs from "node:fs";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { chromium, type Browser } from "patchright";
 import { afterAll, describe, expect, it } from "vitest";
 import { pickAccount, type Accounts } from "../src/core/accounts.js";
-import { AccountNotAuthorizedError, assertLoginAccount, assertSignInAccount, signInService } from "../src/core/accountChoice.js";
+import { AccountMismatchError, AccountNotAuthorizedError, assertLoginAccount, assertSameAccount, assertSignInAccount, signInService } from "../src/core/accountChoice.js";
 import { lookupAccount, verifyEntry, type Lookup, type RegistryItem } from "../src/core/accountRegistry.js";
-import { clickAccountChooserEntry, loadConsentSpec } from "../src/browser/googleConsent.js";
-import { GROK_LOGIN_HOSTS } from "../src/adapters/grok.js";
+import { advanceOneStep, assertGoogleAccount, clickAccountChooserEntry, googleIdentity, loadConsentSpec } from "../src/browser/googleConsent.js";
+import { loadIdentityProbes, readPlatformIdentity } from "../src/browser/identity.js";
+import { run } from "../src/core/runner.js";
+import type { Registry } from "../src/core/types.js";
+import type { BrowserSession } from "../src/browser/chrome.js";
+import type { PlatformAdapter } from "../src/adapters/types.js";
 import { defaultSigninFn } from "../src/server/app.js";
 
 const A = "first@example.test";
@@ -27,67 +33,128 @@ const accounts = (n: number): Accounts => ({
 
 const reg = (byService: Record<string, Lookup>) => async (s: string): Promise<Lookup> => byService[s] ?? { status: "none", service: s };
 const authorized = (service: string, account: string): Lookup => ({ status: "authorized", service, account });
-const refused = async (p: Promise<unknown>) => {
-  const e = await p.then(() => undefined, (x) => x);
-  expect(e).toBeInstanceOf(AccountNotAuthorizedError);
-  expect(String((e as Error).message)).toMatch(/^ACCOUNT_NOT_AUTHORIZED/);
+const failsWith = async (p: Promise<unknown> | (() => unknown), cls: typeof AccountNotAuthorizedError | typeof AccountMismatchError, code: RegExp) => {
+  const e = typeof p === "function" ? (() => { try { p(); return undefined; } catch (x) { return x; } })() : await p.then(() => undefined, (x) => x);
+  expect(e).toBeInstanceOf(cls);
+  expect(String((e as Error).message)).toMatch(code);
 };
+const refused = (p: Promise<unknown> | (() => unknown)) => failsWith(p, AccountNotAuthorizedError, /^ACCOUNT_NOT_AUTHORIZED: /);
+const mismatched = (p: Promise<unknown> | (() => unknown)) => failsWith(p, AccountMismatchError, /^ACCOUNT_MISMATCH: /);
 
-describe("ACCT-C01 a sign-in never takes the default or CC_ACCOUNT (pickAccount, cc browser signin, cc_signin)", () => {
-  it("two accounts that can sign in and no --account: refused even with a default and CC_ACCOUNT set", () => {
-    expect(() => pickAccount(accounts(2), undefined, { CC_ACCOUNT: "second-acct" }, "signin")).toThrow(/^ACCOUNT_NOT_AUTHORIZED/);
+describe("ACCT-003 the signed-in account must be exactly the specified one", () => {
+  it("match allowed (case and spaces ignored); mismatch refused; unknown refused; nothing specified refused", async () => {
+    assertSameAccount("x", A, ` ${A.toUpperCase()} `);
+    assertSameAccount("x", A, [A, A]);
+    await mismatched(() => assertSameAccount("x", A, B));
+    await mismatched(() => assertSameAccount("x", A, [A, B]));
+    await refused(() => assertSameAccount("x", A, undefined));
+    await refused(() => assertSameAccount("x", A, []));
+    await refused(() => assertSameAccount("x", A, ""));
+    await refused(() => assertSameAccount("x", undefined, A));
   });
-  it("the only account that can sign in is used; a named account is that account; unknown ids still fail", () => {
-    expect(pickAccount(accounts(1), undefined, { CC_ACCOUNT: "nosignin" }, "signin").id).toBe("main");
-    expect(pickAccount(accounts(2), "second-acct", {}, "signin").id).toBe("second-acct");
-    expect(() => pickAccount(accounts(2), "nope", {}, "signin")).toThrow(/unknown account/);
+  it("refusals never echo an account email", () => {
+    for (const f of [() => assertSameAccount("x", A, B), () => assertSameAccount("x", A, undefined)]) {
+      try { f(); } catch (e) { expect(String((e as Error).message)).not.toMatch(/@/); }
+    }
   });
-  it("ordinary runs keep their account choice (ACCT-002 is about sign-in, not which profile a run uses)", () => {
-    expect(pickAccount(accounts(2), undefined, {}).id).toBe("main");
-    expect(pickAccount(accounts(2), undefined, { CC_ACCOUNT: "second-acct" }).id).toBe("second-acct");
+});
+
+describe("ACCT-001 ACCT-C01 cc_signin / cc browser: the account is the one named in the call, nothing else", () => {
+  it("no --account: refused even with a default, CC_ACCOUNT and only one account that can sign in", async () => {
+    await refused(() => pickAccount(accounts(2), undefined, { CC_ACCOUNT: "second-acct" }, "explicit"));
+    await refused(() => pickAccount(accounts(1), undefined, { CC_ACCOUNT: "main" }, "explicit"));
   });
-  it("with two accounts that can sign in, only the account the owner named for cc-signin:<id> signs in", async () => {
+  it("a named account is that account; unknown ids still fail", () => {
+    expect(pickAccount(accounts(2), "second-acct", {}, "explicit").id).toBe("second-acct");
+    expect(() => pickAccount(accounts(2), "nope", {}, "explicit")).toThrow(/unknown account/);
+  });
+  it("the named account must carry its email; an owner registry entry must agree; tampered refuses", async () => {
     const all = accounts(2);
     const second = all.accounts[1]!;
-    await refused(assertSignInAccount(all, second, { lookup: reg({}) }));
-    await assertSignInAccount(all, second, { lookup: reg({ [signInService("second-acct")]: authorized(signInService("second-acct"), B) }) });
-    await refused(assertSignInAccount(all, second, { lookup: reg({ [signInService("second-acct")]: authorized(signInService("second-acct"), A) }) }));
-    await refused(assertSignInAccount(all, second, { lookup: reg({ [signInService("second-acct")]: { status: "tampered", service: "x", reason: "bad" } }) }));
+    await refused(assertSignInAccount(all.accounts.find((a) => a.id === "nosignin")!, { lookup: reg({}) }));
+    await assertSignInAccount(second, { lookup: reg({}) });
+    await assertSignInAccount(second, { lookup: reg({ [signInService("second-acct")]: authorized(signInService("second-acct"), B) }) });
+    await mismatched(assertSignInAccount(second, { lookup: reg({ [signInService("second-acct")]: authorized(signInService("second-acct"), A) }) }));
+    await refused(assertSignInAccount(second, { lookup: reg({ [signInService("second-acct")]: { status: "tampered", service: "x", reason: "bad" } }) }));
   });
-  it("with one account that can sign in and no registry entry (or the registry unreachable), it signs in", async () => {
-    const all = accounts(1);
-    await assertSignInAccount(all, all.accounts[0]!, { lookup: reg({}) });
-    await assertSignInAccount(all, all.accounts[0]!, { lookup: async (s) => ({ status: "unavailable", service: s, reason: "down" }) });
-  });
-  it("cc_signin's default handler refuses two possible accounts before any browser or vault is touched", async () => {
+  it("cc_signin's default handler with no account refuses before any browser or vault is touched (one account or two)", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-acct-"));
-    const file = path.join(dir, "accounts.json");
-    fs.writeFileSync(file, JSON.stringify(accounts(2)));
-    await refused(defaultSigninFn(file, undefined, 0));
+    for (const n of [1, 2]) {
+      const file = path.join(dir, `accounts-${n}.json`);
+      fs.writeFileSync(file, JSON.stringify(accounts(n)));
+      await refused(defaultSigninFn(file, undefined, 0));
+    }
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });
 
-describe("ACCT-C02 grok.com email login uses the owner-named or the only possible account", () => {
+describe("ACCT-C02 grok.com email login only for the run's specified account", () => {
   const label = "Grok (grok.com email login)";
-  const base = { service: "grok.com", hosts: GROK_LOGIN_HOSTS, label, username: A };
-  const logins = (rows: { name: string; username?: string; uris: string[] }[]) => async () => rows;
-  it("another vault login for grok.com or x.ai with a different username: refused", async () => {
-    await refused(assertLoginAccount(base, { lookup: reg({}), logins: logins([{ name: label, username: A, uris: [] }, { name: "other", username: B, uris: ["https://accounts.x.ai/sign-in"] }]) }));
-    await refused(assertLoginAccount(base, { lookup: reg({}), logins: logins([{ name: "other", username: B, uris: ["grok.com"] }]) }));
+  const base = { service: "grok.com", label, username: A, expected: A };
+  it("no account specified for the run: refused", async () => {
+    await refused(assertLoginAccount({ ...base, expected: undefined }, { lookup: reg({}) }));
   });
-  it("no other account could apply: the login goes ahead", async () => {
-    await assertLoginAccount(base, { lookup: reg({}), logins: logins([
-      { name: label, username: A, uris: ["https://grok.com"] },
-      { name: "same person", username: "FIRST@example.test", uris: ["https://x.ai"] },
-      { name: "elsewhere", username: B, uris: ["https://example.org", "notgrok.com"] },
-      { name: "account-authorization/grok.com", username: B, uris: ["https://grok.com"] },
-    ]) });
+  it("the vault entry is another account than the run's: refused", async () => {
+    await mismatched(assertLoginAccount({ ...base, expected: B }, { lookup: reg({}) }));
   });
-  it("an owner-named account must be the vault entry's username; a tampered entry refuses", async () => {
-    await assertLoginAccount(base, { lookup: reg({ "grok.com": authorized("grok.com", A) }), logins: logins([{ name: "other", username: B, uris: ["grok.com"] }]) });
-    await refused(assertLoginAccount(base, { lookup: reg({ "grok.com": authorized("grok.com", B) }), logins: logins([]) }));
-    await refused(assertLoginAccount(base, { lookup: reg({ "grok.com": { status: "tampered", service: "grok.com", reason: "bad" } }), logins: logins([]) }));
+  it("the vault entry is the run's account: allowed; an owner entry naming someone else or tampered refuses", async () => {
+    await assertLoginAccount(base, { lookup: reg({}) });
+    await assertLoginAccount({ ...base, username: "FIRST@example.test" }, { lookup: reg({ "grok.com": authorized("grok.com", A) }) });
+    await mismatched(assertLoginAccount(base, { lookup: reg({ "grok.com": authorized("grok.com", B) }) }));
+    await refused(assertLoginAccount(base, { lookup: reg({ "grok.com": { status: "tampered", service: "grok.com", reason: "bad" } }) }));
+  });
+});
+
+describe("ACCT-C05 cc_run: the run's account is required and each session's signed-in account is verified", () => {
+  const demo: Registry = { version: 1, connectors: [{ id: "demo", name: "Demo", url: { type: "literal", value: "https://demo.example.test/mcp" }, auth: { mode: "none" }, platforms: ["claude"] }] };
+  const harness = (seen: string | undefined) => {
+    const h = { opened: 0, closed: 0, acted: 0, read: 0 };
+    const fake = { close: async () => { h.closed++; }, touched: new Set<string>() } as unknown as BrowserSession;
+    const adapter: PlatformAdapter = { platform: "claude", list: async () => ({ names: [] }), add: async () => ({ status: "ok" }), remove: async () => ({ status: "ok" }), update: async () => ({ status: "ok" }), verify: async (ctx) => { await ctx.session(); h.acted++; return { status: "ok" }; }, probe: async () => ({ status: "ok" }) };
+    const opts = { accounts: accounts(2), adapters: { claude: adapter }, sessionFactory: async () => { h.opened++; return fake; }, readIdentity: async () => { h.read++; return seen; } };
+    return { h, opts };
+  };
+  const req = (account?: string) => ({ op: "verify" as const, connectors: ["demo"], platforms: ["claude" as const], ...(account ? { account } : {}) });
+  it("no account specified: every item refused, no browser opened", async () => {
+    const { h, opts } = harness(A);
+    const r = await run(demo, req(), opts);
+    expect(r.ok).toBe(false);
+    expect(r.items[0]!.detail).toMatch(/^ACCOUNT_NOT_AUTHORIZED: /);
+    expect(h).toMatchObject({ opened: 0, acted: 0 });
+  });
+  it("signed in as the run's account: allowed", async () => {
+    const { h, opts } = harness(A);
+    const r = await run(demo, req("main"), opts);
+    expect(r.ok).toBe(true);
+    expect(h).toMatchObject({ opened: 1, read: 1, acted: 1 });
+  });
+  it("signed in as another account: refused, session closed, the adapter never acts", async () => {
+    const { h, opts } = harness(B);
+    const r = await run(demo, req("main"), opts);
+    expect(r.ok).toBe(false);
+    expect(r.items[0]!.detail).toMatch(/ACCOUNT_MISMATCH: /);
+    expect(h.acted).toBe(0);
+    expect(h.closed).toBeGreaterThanOrEqual(1);
+  });
+  it("signed-in account unknown (no reader, unreadable, or the reader failed): refused", async () => {
+    for (const seen of [undefined, ""]) {
+      const { h, opts } = harness(seen);
+      const r = await run(demo, req("main"), opts);
+      expect(r.items[0]!.detail).toMatch(/ACCOUNT_NOT_AUTHORIZED: /);
+      expect(h.acted).toBe(0);
+    }
+    const { h, opts } = harness(A);
+    const r = await run(demo, req("main"), { ...opts, readIdentity: async () => { throw new Error("page crashed"); } });
+    expect(r.items[0]!.detail).toMatch(/ACCOUNT_NOT_AUTHORIZED: /);
+    expect(h.acted).toBe(0);
+  });
+  it("grok has no identity reader, so its signed-in account is unknown (refused) and nothing is navigated", async () => {
+    expect(loadIdentityProbes().grok?.fetch).toBeUndefined();
+    let navigated = 0;
+    const s = { page: { goto: async () => { navigated++; }, evaluate: async () => ({}) } } as unknown as BrowserSession;
+    expect(await readPlatformIdentity("grok", s)).toBeUndefined();
+    expect(navigated).toBe(0);
+    expect(loadIdentityProbes().claude).toMatchObject({ fetch: "https://claude.ai/api/account", emailField: "email_address" });
   });
 });
 
@@ -126,7 +193,7 @@ function findChrome(): string | undefined {
 const browser: Browser | undefined = await chromium.launch({ headless: true, executablePath: findChrome() }).catch(() => undefined);
 afterAll(async () => { await browser?.close(); });
 
-describe.skipIf(!browser)("ACCT-C03 the Google account chooser: only our own tile, never the first one (real Chromium)", () => {
+describe.skipIf(!browser)("ACCT-C03 the Google account chooser: only our own tile, never the first one (real Chromium)", { timeout: 30_000 }, () => {
   const html = `<body><ul>
     <li id="t1" onclick="document.body.dataset.clicked='t1'">Trent One ${A}</li>
     <li id="t2" onclick="document.body.dataset.clicked='t2'">Trent Two ${B}</li>
@@ -151,4 +218,69 @@ describe.skipIf(!browser)("ACCT-C03 the Google account chooser: only our own til
     expect(out.clicked).toBe("t2");
     expect(out.r).toMatch(/our own account/);
   }, 20000);
+});
+
+describe.skipIf(!browser)("ACCT-C05 the claude identity reader against a fake claude.ai (real Chromium)", { timeout: 30_000 }, () => {
+  it("reads the email from the account endpoint; no email is unknown", async () => {
+    let email: string | undefined = A;
+    const srv = http.createServer((req, res) => {
+      if (req.url === "/api/account") { res.setHeader("content-type", "application/json"); return res.end(JSON.stringify(email ? { email_address: email } : {})); }
+      res.setHeader("content-type", "text/html"); res.end("<p>chats</p>");
+    });
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+    const base = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
+    const page = await browser!.newPage();
+    try {
+      const probes = { claude: { page: `${base}/`, fetch: `${base}/api/account`, emailField: "email_address", liveVerified: false, note: "test" } };
+      const s = { page } as unknown as BrowserSession;
+      expect(await readPlatformIdentity("claude", s, probes)).toBe(A);
+      email = undefined;
+      expect(await readPlatformIdentity("claude", s, probes)).toBeUndefined();
+    } finally { await page.close(); srv.close(); }
+  });
+});
+
+describe.skipIf(!browser)("ACCT-C06 cc_reauth / cc_signin: Google pages are acted on only while showing the specified account (real Chromium)", { timeout: 30_000 }, () => {
+  const spec = loadConsentSpec();
+  const onPage = async <T>(html: string, f: (p: import("patchright").Page) => Promise<T>) => {
+    const page = await browser!.newPage();
+    try { await page.setContent(html); return await f(page); } finally { await page.close(); }
+  };
+  const consent = (chip: string) => `<body>${chip}<button onclick="document.body.dataset.clicked='allow'">Allow</button><button onclick="document.body.dataset.clicked='continue'">Continue</button></body>`;
+  const clicked = (p: import("patchright").Page) => p.evaluate(() => document.body.dataset.clicked ?? "");
+  it("reads [data-email] and the account chip's aria-label", async () => {
+    expect(await onPage(`<div data-email="${A}"></div><a aria-label="Google Account: Someone (${B})"></a><p>${B} in text is not identity</p>`, (p) => googleIdentity(p, spec))).toEqual([A, B]);
+    expect(await onPage(`<p>${A}</p>`, (p) => googleIdentity(p, spec))).toEqual([]);
+  });
+  it("own account shown: allowed and the step proceeds", async () => {
+    await onPage(consent(`<div data-email="${A}"></div>`), async (p) => {
+      await assertGoogleAccount(p, spec, A);
+      expect(await advanceOneStep(p, { username: A }, spec, "consent")).toBe("clicked Continue");
+      expect(await clicked(p)).toBe("continue");
+    });
+  });
+  it("another account signed in: ACCOUNT_MISMATCH and nothing is clicked (consent and sign-in modes)", async () => {
+    for (const mode of ["consent", "signin"] as const) {
+      await onPage(consent(`<div data-email="${B}"></div>`), async (p) => {
+        await mismatched(advanceOneStep(p, { username: A }, spec, mode));
+        expect(await clicked(p)).toBe("");
+      });
+    }
+  });
+  it("our account and another both shown: ACCOUNT_MISMATCH, nothing clicked", async () => {
+    await onPage(consent(`<div data-email="${A}"></div><a aria-label="Google Account: X (${B})"></a>`), async (p) => {
+      await mismatched(advanceOneStep(p, { username: A }, spec, "consent"));
+      expect(await clicked(p)).toBe("");
+    });
+  });
+  it("no account shown (unverifiable) or no account specified: ACCOUNT_NOT_AUTHORIZED, nothing clicked", async () => {
+    await onPage(consent(""), async (p) => {
+      await refused(advanceOneStep(p, { username: A }, spec, "consent"));
+      expect(await clicked(p)).toBe("");
+    });
+    await onPage(consent(`<div data-email="${A}"></div>`), async (p) => {
+      await refused(advanceOneStep(p, {}, spec, "consent"));
+      expect(await clicked(p)).toBe("");
+    });
+  });
 });

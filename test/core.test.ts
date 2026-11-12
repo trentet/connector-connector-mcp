@@ -7,6 +7,7 @@ import { run } from "../src/core/runner.js";
 import { resolve, type ResolveDeps } from "../src/core/secrets.js";
 import { PLATFORMS } from "../src/core/types.js";
 import { expectedCounts, registryFixture } from "./fixtures.js";
+import { signedInAsMain } from "./fixtures.js";
 
 const SECRET = "s3cr3t-TOKEN-value-123456";
 const files: Record<string, string> = {
@@ -65,7 +66,7 @@ describe("runner", () => {
   const { deps, secrets } = registryFixture(reg);
   const rewritten = reg;
   it("dry-run resolves every seeded connector on every platform with ZERO secret leakage", async () => {
-    const res = await run(rewritten, { op: "add", connectors: ["*"], platforms: PLATFORMS, dryRun: true }, { deps });
+    const res = await run(rewritten, { account: "main", op: "add", connectors: ["*"], platforms: PLATFORMS, dryRun: true }, { readIdentity: signedInAsMain, deps });
     const text = JSON.stringify(res);
     expect(res.ok).toBe(true);
     const want = expectedCounts(reg, PLATFORMS);
@@ -80,16 +81,16 @@ describe("runner", () => {
     if (lit && lit.url.type === "literal") { const u = new URL(lit.url.value); expect(text).toContain(u.origin + u.pathname); } // host and path stay visible
   });
   it("unknown connector and disabled platform are reported, not thrown", async () => {
-    const res = await run(rewritten, { op: "verify", connectors: ["nope"], platforms: ["claude"] }, { deps });
+    const res = await run(rewritten, { account: "main", op: "verify", connectors: ["nope"], platforms: ["claude"] }, { readIdentity: signedInAsMain, deps });
     expect(res.ok).toBe(false);
     expect(res.items[0].detail).toMatch(/unknown connector/);
   });
   it("without adapters, a real run reports not-implemented (never a false success)", async () => {
-    const res = await run(rewritten, { op: "add", connectors: ["vault-mcp"], platforms: ["claude"] }, { deps });
+    const res = await run(rewritten, { account: "main", op: "add", connectors: ["vault-mcp"], platforms: ["claude"] }, { readIdentity: signedInAsMain, deps });
     expect(res.items[0].status).toBe("not-implemented");
   });
   it("a failing resolve is an error item whose message has no secret", async () => {
-    const res = await run(rewritten, { op: "add", connectors: ["helm-shell"], platforms: ["claude"], dryRun: true }, { deps: { ...deps, readFile: () => undefined } });
+    const res = await run(rewritten, { account: "main", op: "add", connectors: ["helm-shell"], platforms: ["claude"], dryRun: true }, { readIdentity: signedInAsMain, deps: { ...deps, readFile: () => undefined } });
     expect(res.items[0].status).toBe("error");
   });
 });
@@ -101,13 +102,13 @@ describe("test tier", () => {
   const tests = rewritten.connectors.filter((c: { tier?: string }) => c.tier === "test").map((c: { id: string }) => c.id);
   it("there is at least one test-tier connector and it is excluded from '*' by default", async () => {
     expect(tests.length).toBeGreaterThan(0);
-    const res = await run(rewritten, { op: "add", connectors: ["*"], platforms: ["claude"], dryRun: true }, { deps });
+    const res = await run(rewritten, { account: "main", op: "add", connectors: ["*"], platforms: ["claude"], dryRun: true }, { readIdentity: signedInAsMain, deps });
     for (const t of tests) expect(res.items.some((i) => i.connector === t)).toBe(false);
   });
   it("includeTest adds them to '*'; naming one explicitly always works", async () => {
-    const all = await run(rewritten, { op: "add", connectors: ["*"], platforms: ["claude"], dryRun: true, includeTest: true }, { deps });
+    const all = await run(rewritten, { account: "main", op: "add", connectors: ["*"], platforms: ["claude"], dryRun: true, includeTest: true }, { readIdentity: signedInAsMain, deps });
     for (const t of tests) expect(all.items.some((i) => i.connector === t)).toBe(true);
-    const one = await run(rewritten, { op: "add", connectors: [tests[0]], platforms: ["claude"], dryRun: true }, { deps });
+    const one = await run(rewritten, { account: "main", op: "add", connectors: [tests[0]], platforms: ["claude"], dryRun: true }, { readIdentity: signedInAsMain, deps });
     expect(one.items[0].status).toBe("dry-run");
   });
 });

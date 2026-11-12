@@ -1,5 +1,10 @@
 import type { ResolveDeps } from "../src/core/secrets.js";
 import type { Registry, Source } from "../src/core/types.js";
+import { loadAccounts } from "../src/core/accounts.js";
+
+/** ACCT-C05: runs name their account, and a fake session "is signed in as" that account's email. */
+export const MAIN_EMAIL = loadAccounts().accounts.find((a) => a.id === "main")?.email;
+export const signedInAsMain = async (): Promise<string | undefined> => MAIN_EMAIL;
 
 /** Every Source object reachable from the registry (url, urlByPlatform, auth.headerValue, template variables). */
 function sourcesOf(node: unknown, out: Source[] = []): Source[] {

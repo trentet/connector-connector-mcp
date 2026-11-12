@@ -87,13 +87,13 @@ export function unknownArgs(body: unknown): string[] | undefined {
   return undefined;
 }
 
-/** cc_signin's default: the account is picked for a sign-in and must be owner-named or the only one that can sign in (ACCT-C01). */
+/** cc_signin's default: only the account named in the call, with its email; an owner registry entry must agree (ACCT-C01). */
 export async function defaultSigninFn(accountsPath: string | undefined, id: string | undefined, waitMs: number) {
   const { pickAccount, accountMaster } = await import("../core/accounts.js");
   const { assertSignInAccount } = await import("../core/accountChoice.js");
   const all = loadAccounts(accountsPath);
-  const acc = pickAccount(all, id, process.env, "signin");
-  await assertSignInAccount(all, acc);
+  const acc = pickAccount(all, id, process.env, "explicit");
+  await assertSignInAccount(acc);
   const { masterDir } = await import("../browser/chrome.js");
   const { signInAccount } = await import("../browser/signin.js");
   const r = await signInAccount(acc, accountMaster(acc, masterDir()), { waitForVaultMs: waitMs });
