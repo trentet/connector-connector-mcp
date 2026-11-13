@@ -59,4 +59,14 @@
       "__Secure-next-auth.session-token"
     ]
   }
+,
+  "update": {
+    "_status": "verified live on 2026-11-05; native Refresh tools acknowledged HTTP 200",
+    "managementUrl": "https://chatgpt.com/settings/plugins-settings",
+    "refreshApiPath": "/backend-api/aip/connectors/mcp/refresh_actions",
+    "directButton": "^refresh$|^refresh (tools|actions|metadata)$",
+    "menuButton": "^(manage|more actions)$",
+    "menuItem": "^refresh$|^refresh (tools|actions|metadata)$",
+    "confirmation": "(successfully )?(refreshed|updated) (tools|actions|metadata|plugin)|plugin (successfully )?(refreshed|updated)"
+  }
 }

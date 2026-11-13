@@ -6,20 +6,31 @@ import { sleep } from "../browser/dom.js";
 import { deleteCredential, getCredential, signInStore, waitForCredential } from "../core/vaultClient.js";
 import { detectSignInOptions, loadSignInOptions, resolveSignInMethod } from "../core/signInMethod.js";
 import * as acctRule from "../core/accountChoice.js";
+import { waitForEphemeralOtp } from "../core/ephemeralOtp.js";
 import type { AdapterContext, AdapterOutcome, PlatformAdapter } from "./types.js";
+import { refreshPluginUI } from "./chatgptRefresh.js";
+import { readChatGPTInstalledToolCatalog, inputContractCatalog } from "./chatgptCatalog.js";
+import { readLiveServerToolCatalog } from "../core/liveToolCatalog.js";
+import { reconcileToolSchemas } from "../core/schemaFreshness.js";
+import { readPlatformAccount } from "../browser/identity.js";
+import type { BrowserSession } from "../browser/chrome.js";
 
 const sel = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "chatgpt.json"), "utf8"));
 const rx = (p: string) => new RegExp(p, "i");
 
 async function signedIn(page: Page): Promise<boolean> {
+  // A redirect to an authentication route is definitive signed-out evidence.
+  const current = new URL(page.url());
+  if (current.hostname !== "chatgpt.com" || /^\/(?:auth\/login|login|auth\/)/i.test(current.pathname)) return false;
   const body = (await page.evaluate(() => document.body.innerText.slice(0, 1200)).catch(() => "")).toLowerCase();
   return !(sel.signedOutMarkers as string[]).some((m) => body.includes(m));
 }
 
 /**
- * Login: "Continue with Google" (Google is already signed in in the profile; password only if asked), then OpenAI's SMS
- * code. The code is never typed by a human into this process: the operator submits it to a one-time vault entry
- * (vault_request_secret) which is read here, entered, and deleted.
+ * ChatGPT login via Google and OpenAI's verification code. In direct mode
+ * (CC_CHATGPT_OTP_FILE) the caller provides a fresh six-digit code for the
+ * browser field and the short-lived input is deleted immediately after read.
+ * Historical Vault delivery remains available only when direct mode is unset.
  */
 async function login(ctx: AdapterContext): Promise<void> {
   const s = await ctx.session();
@@ -54,12 +65,23 @@ async function login(ctx: AdapterContext): Promise<void> {
     }
     cur = s.context.pages().find((p) => /auth\.openai\.com|chatgpt\.com/.test(p.url())) ?? cur;
     if (/mfa-challenge/.test(cur.url()) || (await cur.locator(sel.login.mfaCodeInput).count())) {
-      const c = await waitForCredential(sel.smsCodeVaultLabel, sel.smsWaitMinutes * 60 * 1000);
-      if (!c) throw new Error(`OpenAI is waiting for an SMS code; timed out after ${sel.smsWaitMinutes} min waiting for vault entry "${sel.smsCodeVaultLabel}" (operator: vault_request_secret with that label)`);
-      const code = (c.password || c.username || "").replace(/\D/g, "");
+      const directPath = process.env.CC_CHATGPT_OTP_FILE;
+      let code: string;
+      if (directPath) {
+        // Browser has displayed the verification field: the operator may now
+        // supply a fresh code directly for this attempt, without HELM Vault.
+        console.error("CHATGPT_OTP_FIELD_READY: waiting for direct six-digit browser input, no Vault");
+        const entered = await waitForEphemeralOtp(directPath, sel.smsWaitMinutes * 60 * 1000);
+        if (!entered) throw new Error("ChatGPT verification code not provided before challenge timeout");
+        code = entered;
+      } else {
+        const cred = await waitForCredential(sel.smsCodeVaultLabel, sel.smsWaitMinutes * 60 * 1000);
+        if (!cred) throw new Error("ChatGPT verification code not received via existing login integration");
+        code = (cred.password || cred.username || "").replace(/\D/g, "");
+      }
       await cur.locator(sel.login.mfaCodeInput).fill(code);
       await cur.getByRole("button", { name: rx(sel.login.mfaContinue) }).click();
-      await deleteCredential(sel.smsCodeVaultLabel).catch(() => {});
+      if (!directPath) await deleteCredential(sel.smsCodeVaultLabel).catch(() => {});
       await sleep(7000);
     }
   });
@@ -106,6 +128,39 @@ async function openPluginPage(ctx: AdapterContext, name: string): Promise<Page> 
   return page;
 }
 
+/**
+ * Installed plugin management is under Settings > Plugins, NOT the public
+ * Plugins directory. Read-only discovery on 2026-11-05 verified this route.
+ * Refuse duplicate/near-match targets and verify the exact detail heading
+ * BEFORE any refresh action can be attempted.
+ */
+async function openPluginSettingsDetail(ctx: AdapterContext, name: string): Promise<Page> {
+  const page = (await ctx.session()).page;
+  await page.goto(sel.update.managementUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+  await sleep(3000);
+  if (new URL(page.url()).pathname !== "/settings/plugins-settings" || !(await signedIn(page))) {
+    throw new Error("Not on an authenticated ChatGPT Plugins settings page");
+  }
+  const hrefs: string[] = await page.locator('main a[href*="/settings/plugins-settings/plugin_"]').evaluateAll(
+    (anchors, target) => anchors
+      .filter((a) => ((a as HTMLElement).innerText ?? "").split("\n").map((line) => line.trim()).filter(Boolean)[0] === target)
+      .map((a) => (a as HTMLAnchorElement).href), name,
+  );
+  if (hrefs.length !== 1) throw new Error("The requested installed plugin cannot be uniquely identified");
+  const detail = new URL(hrefs[0]);
+  if (detail.hostname !== "chatgpt.com" || !/^\/settings\/plugins-settings\/plugin_[^/]+$/.test(detail.pathname)) {
+    throw new Error("Unexpected ChatGPT plugin settings detail URL");
+  }
+  await page.goto(detail.href, { waitUntil: "domcontentloaded", timeout: 45000 });
+  // Wait for asynchronous settings hydration before testing connector identity or status.
+  await page.getByRole("heading", { name, exact: true }).waitFor({ timeout: 12000 });
+  if ((await page.getByRole("heading", { name, exact: true }).count()) !== 1) {
+    throw new Error("Plugin settings detail heading differs from the requested target");
+  }
+  await page.waitForFunction(() => /^connected on$/im.test((document.querySelector("main") as HTMLElement | null)?.innerText ?? ""), undefined, { timeout: 12000, polling: 400 }).catch(() => { throw new Error("Plugin detail did not reach Connected on state"); });
+
+  return page;
+}
 type ConnectionState = "connected" | "not-connected" | "unreadable";
 /**
  * Connection state on a plugin's own page: a "Connected" label when ChatGPT completed its handshake with the server,
@@ -189,8 +244,53 @@ export function chatgptAdapter(): PlatformAdapter {
       for (let i = 0; i < 5; i++) { if (!(await pageHasName(ctx, c.name))) return { status: "ok", detail: `"${c.name}" deleted` }; await sleep(3000); }
       return { status: "error", detail: `confirmed delete but "${c.name}" is still in the Installed list` };
     },
-    async update() { return { status: "not-implemented", detail: "chatgpt update not yet mapped" }; },
-    async add(ctx, c, ifExisting): Promise<AdapterOutcome> {
+    // REQ-D011 REQ-D012 REQ-D014: compare true installed action metadata,
+    // refresh in place only when stale, then verify both catalogs again.
+    async update(ctx, c): Promise<AdapterOutcome> {
+      const session = await ctx.session(); // verified against the named account by the runner
+      const page = await guarded(session, "chatgpt-settings-target", ctx.redact,
+        () => openPluginSettingsDetail(ctx, c.name));
+      const path = new URL(page.url()).pathname;
+      const matched = /^\/settings\/plugins-settings\/plugin_([a-zA-Z0-9_-]+)$/.exec(path);
+      if (!matched) return { status: "error", detail: "Cannot verify installed connector identity" };
+      const originalId = matched[1];
+      const expectedAccount = ctx.account?.email;
+      if (!expectedAccount) return { status: "error", detail: "Named account email unavailable" };
+
+      const freshness = await reconcileToolSchemas({
+        expectedAccount,
+        readAccount: async () => {
+          // A separate throwaway tab preserves the exact plugin details page.
+          const probe = await session.context.newPage();
+          try {
+            const observed = await readPlatformAccount("chatgpt",
+              { ...session, page: probe } as BrowserSession);
+            return observed.email ?? null;
+          } finally { await probe.close().catch(() => undefined); }
+        },
+        readServerCatalog: async () => inputContractCatalog(
+          await readLiveServerToolCatalog(c.def, "chatgpt")),
+        readPlatformCatalog: async () => inputContractCatalog(
+          await readChatGPTInstalledToolCatalog(page, c.name, originalId)),
+        refreshNative: async (installationId) => {
+          if (installationId !== originalId) throw new Error("Installed connector identity changed");
+          const ui = await guarded(session, "chatgpt-refresh", ctx.redact,
+            () => refreshPluginUI(page, c.name, sel.update));
+          if (ui.reviewRequired) throw new Error("Refresh needs review; no confirmation submitted");
+          return {
+            acknowledged: ui.clicked, installationId, mode: "native-in-place" as const,
+          };
+        },
+      });
+      if (freshness.status !== "CURRENT") {
+        return { status: "error", detail: "Tool schema freshness: " + freshness.status +
+          " (" + (freshness.reason ?? "unverified") + "). Existing installation preserved." };
+      }
+      if (freshness.refreshed) {
+        return { status: "ok", detail: "Native Refresh completed in place; live source and ChatGPT input contracts agree on independent readback. Existing installation preserved." };
+      }
+      return { status: "ok", detail: "Tool input contracts already current; no refresh or connector changes made." };
+    },    async add(ctx, c, ifExisting): Promise<AdapterOutcome> {
       const page = await openPlugins(ctx);
       const s = await ctx.session();
       const a = sel.add;

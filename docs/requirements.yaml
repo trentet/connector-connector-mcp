@@ -1,9 +1,9 @@
-# Requirements ledger for connector-connector-mcp (cc): the account authorization rule (2026-11-11) and the gate that enforces it.
-# Scope (owner t117u, 2026-11-11): only the new account-rule work and the files it adds or changes. Existing
+# Requirements ledger for connector-connector-mcp (cc): account authorization (2026-11-11) and connector schema freshness (2026-11-12).
+# Scope: the account-rule work (owner t117u) plus the new universal schema-freshness directive (issue #88); existing
 # behaviour is not backfilled here; gate.code and gate.tools_in_scope list exactly what this ledger covers.
 gate:
   id_pattern: '\b(?:REQ-[UDG]\d{3}|ACCT-(?:\d{3}|[PCV]\d{2}))\b'
-  code: ['^src/core/signInMethod\.ts$', '^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
+  code: ['^src/core/toolSchema\.ts$', '^src/core/liveToolCatalog\.ts$', '^src/core/schemaFreshness\.ts$', '^src/adapters/chatgptRefresh\.ts$', '^src/adapters/chatgptCatalog\.ts$', '^src/adapters/chatgpt\.ts$', '^src/adapters/claude\.ts$', '^src/core/signInMethod\.ts$', '^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
   tests: ['^test/.+\.ts$']
   tool_files: ['^src/server/app\.ts$']
   tools_in_scope: [cc_signin, cc_run, cc_reauth]
@@ -291,3 +291,71 @@ requirements:
   files: [src/core/signInMethod.ts, src/core/vaultClient.ts, src/core/accountChoice.ts, src/adapters/grok.ts, src/adapters/chatgpt.ts, src/browser/signin.ts, src/core/reauth.ts, data/selectors/signin-options.json]
   tools: [cc_run, cc_signin, cc_reauth]
   decision: {quote: "OK so you need to make sure that it\u2019s actually going to allow everything to exist as it is but in the future if someone wants to pull the account from the vault, it has to check to see if that value is populated regarding what mode it is or what kind of like login and type it is. If it\u2019s not then it\u2019s required to then determine what\u2019s even available. If for example, there is only one sign in type option available then it can just go ahead and answer it by itself and populate that. But if there\u2019s multiple logins available, then it needs to be keeping track of what those options are and then it needs to be storing that in association with that particular website and then the login credential vault would have to have some kind of correspondence regarding which login method it\u2019s using for that particular set of credentials.", at: '2026-11-11', source: main chat t124u, from: REQ-U008}
+
+- id: REQ-U009
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-12'
+  source: user message, ChatGPT Matco tracking / HELM connector repair thread, 2026-11-12 (verbatim); GitHub issue #88
+  quotes:
+  - "It's unacceptable for us to have outdated connectors on any platform so that requires mediate solution"
+  implemented_by: [REQ-D011, REQ-D012, REQ-D013, REQ-D014]
+
+- id: REQ-D011
+  kind: derived
+  status: decided
+  title: Compare canonical live server and platform MCP tool contracts, not connection flags
+  text: >
+    Fingerprint and compare the live server tools/list and each platform's installed tools by name,
+    description, input schema properties/required and output schema when present. Duplicate names,
+    incomplete pages and missing contracts are UNKNOWN, never CURRENT. Only an exact catalog match
+    (after normalizing equivalent serialization) proves CURRENT.
+  files: [src/core/toolSchema.ts, src/core/liveToolCatalog.ts, src/core/schemaFreshness.ts]
+  decision: {quote: "unacceptable for us to have outdated connectors on any platform", at: '2026-11-12', source: user message in this chat / issue 88, from: REQ-U009}
+
+- id: REQ-D012
+  kind: derived
+  status: decided
+  title: Refresh in place, preserve identity, and verify a fresh platform tool readback
+  text: >
+    On proven drift, perform the existing connector's own native refresh on the exact named platform
+    and account. No automatic remove-then-add, cross-account reuse, or inferred success. An unsupported
+    or refused refresh is BLOCKED or STALE with recorded evidence. A successful click/request alone
+    does not prove freshness: re-fetch the platform catalog and match its fingerprint.
+  files: [src/core/schemaFreshness.ts, src/adapters/chatgpt.ts, src/adapters/chatgptRefresh.ts, src/adapters/chatgptCatalog.ts, src/adapters/claude.ts, src/adapters/grok.ts]
+  decision: {quote: "unacceptable for us to have outdated connectors on any platform", at: '2026-11-12', source: user message in this chat / issue 88, from: REQ-U009}
+
+- id: REQ-D013
+  kind: derived
+  status: decided
+  title: Event-triggered and scheduled freshness reconciliation
+  text: >
+    After any connector schema/deployment change and on a periodic full sweep, audit every registered
+    production connector in every allowed platform/account; retry bounded transient errors, persist
+    unresolved or unknown status, notify, and resume when permissions or session blockers clear.
+    Test-tier connectors run only during active tests.
+  files: [src/core/schemaFreshness.ts]
+  decision: {quote: "unacceptable for us to have outdated connectors on any platform", at: '2026-11-12', source: user message in this chat / issue 88, from: REQ-U009}
+
+- id: REQ-D014
+  kind: derived
+  status: decided
+  title: Per-account fail-closed freshness status and traceable release proof
+  text: >
+    Validate the exact signed-in account before any platform read or refresh; protect credentials
+    and do not record secret-bearing URLs. ACCOUNT_MISMATCH, missing platform identity reader, failed
+    source reads, partial lists or unverified platform catalogs never result in CURRENT. Cite source
+    and platform fingerprints plus readback and passing tests for any final per-account claim.
+  files: [src/core/schemaFreshness.ts, src/browser/identity.ts, src/core/runner.ts]
+  decision: {quote: "unacceptable for us to have outdated connectors on any platform", at: '2026-11-12', source: user message in this chat / issue 88, from: REQ-U009}
+
+untraced:
+- id: REQ-D011
+  why: Source vs platform name/input contract comparison and pagination tests pass; provider descriptions/output schemas and Claude/Grok platform catalogs remain unverified (evidence 2026-11-12).
+- id: REQ-D012
+  why: ChatGPT native in-place refresh/readback is live-tested on 11 production plugins; Claude/Grok safe refresh adapters remain unimplemented and this branch is not released.
+- id: REQ-D013
+  why: Event-triggered and scheduled sweep tests and implementation are owed, not yet coded.
+- id: REQ-D014
+  why: Fail-closed account tests pass and ChatGPT main is verified; Grok account mismatch and other Claude accounts have no platform-catalog parity evidence.
