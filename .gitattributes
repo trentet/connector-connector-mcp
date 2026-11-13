@@ -1,2 +1,3 @@
 
 scripts/hooks/* text eol=lf
+scripts/check-hidden-launch.mjs text eol=lf

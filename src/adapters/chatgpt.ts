@@ -9,6 +9,11 @@ import * as acctRule from "../core/accountChoice.js";
 import { waitForEphemeralOtp } from "../core/ephemeralOtp.js";
 import type { AdapterContext, AdapterOutcome, PlatformAdapter } from "./types.js";
 import { refreshPluginUI } from "./chatgptRefresh.js";
+import { readChatGPTInstalledToolCatalog, inputContractCatalog } from "./chatgptCatalog.js";
+import { readLiveServerToolCatalog } from "../core/liveToolCatalog.js";
+import { reconcileToolSchemas } from "../core/schemaFreshness.js";
+import { readPlatformAccount } from "../browser/identity.js";
+import type { BrowserSession } from "../browser/chrome.js";
 
 const sel = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "chatgpt.json"), "utf8"));
 const rx = (p: string) => new RegExp(p, "i");
@@ -138,7 +143,7 @@ async function openPluginSettingsDetail(ctx: AdapterContext, name: string): Prom
   }
   const hrefs: string[] = await page.locator('main a[href*="/settings/plugins-settings/plugin_"]').evaluateAll(
     (anchors, target) => anchors
-      .filter((a) => (a.textContent ?? "").trim().startsWith(target))
+      .filter((a) => ((a as HTMLElement).innerText ?? "").split("\n").map((line) => line.trim()).filter(Boolean)[0] === target)
       .map((a) => (a as HTMLAnchorElement).href), name,
   );
   if (hrefs.length !== 1) throw new Error("The requested installed plugin cannot be uniquely identified");
@@ -147,13 +152,13 @@ async function openPluginSettingsDetail(ctx: AdapterContext, name: string): Prom
     throw new Error("Unexpected ChatGPT plugin settings detail URL");
   }
   await page.goto(detail.href, { waitUntil: "domcontentloaded", timeout: 45000 });
-  await sleep(2200);
+  // Wait for asynchronous settings hydration before testing connector identity or status.
+  await page.getByRole("heading", { name, exact: true }).waitFor({ timeout: 12000 });
   if ((await page.getByRole("heading", { name, exact: true }).count()) !== 1) {
     throw new Error("Plugin settings detail heading differs from the requested target");
   }
-  if (!/^connected on$/im.test(await page.locator("main").innerText())) {
-    throw new Error("Plugin detail does not show the expected Connected on state");
-  }
+  await page.waitForFunction(() => /^connected on$/im.test((document.querySelector("main") as HTMLElement | null)?.innerText ?? ""), undefined, { timeout: 12000, polling: 400 }).catch(() => { throw new Error("Plugin detail did not reach Connected on state"); });
+
   return page;
 }
 type ConnectionState = "connected" | "not-connected" | "unreadable";
@@ -239,23 +244,52 @@ export function chatgptAdapter(): PlatformAdapter {
       for (let i = 0; i < 5; i++) { if (!(await pageHasName(ctx, c.name))) return { status: "ok", detail: `"${c.name}" deleted` }; await sleep(3000); }
       return { status: "error", detail: `confirmed delete but "${c.name}" is still in the Installed list` };
     },
+    // REQ-D011 REQ-D012 REQ-D014: compare true installed action metadata,
+    // refresh in place only when stale, then verify both catalogs again.
     async update(ctx, c): Promise<AdapterOutcome> {
-      const s = await ctx.session();
-      const page = await guarded(s, "chatgpt-settings-target", ctx.redact, () => openPluginSettingsDetail(ctx, c.name));
-      const result = await guarded(s, "chatgpt-refresh", ctx.redact, () => refreshPluginUI(page, c.name, sel.update));
-      if (result.reviewRequired) return {
-        status: "error", detail: "Refresh opened a review dialog; no confirmation submitted. Operator review required.",
-      };
-      const connected = /^connected on$/im.test(await page.locator("main").innerText());
-      if (!connected) return {
-        status: "error", detail: "Refresh attempted but plugin no longer shows Connected on its settings detail.",
-      };
-      if (!result.uiConfirmed) return {
-        status: "error", detail: "Refresh tools was clicked and plugin remains connected; ChatGPT supplied no success readback. Actual tool schema freshness is unverified.",
-      };
-      return {
-        status: "ok", detail: "Native Refresh tools was confirmed by ChatGPT UI. Plugin remains connected; re-discover tool input schema in a new conversation.",
-      };
+      const session = await ctx.session(); // verified against the named account by the runner
+      const page = await guarded(session, "chatgpt-settings-target", ctx.redact,
+        () => openPluginSettingsDetail(ctx, c.name));
+      const path = new URL(page.url()).pathname;
+      const matched = /^\/settings\/plugins-settings\/plugin_([a-zA-Z0-9_-]+)$/.exec(path);
+      if (!matched) return { status: "error", detail: "Cannot verify installed connector identity" };
+      const originalId = matched[1];
+      const expectedAccount = ctx.account?.email;
+      if (!expectedAccount) return { status: "error", detail: "Named account email unavailable" };
+
+      const freshness = await reconcileToolSchemas({
+        expectedAccount,
+        readAccount: async () => {
+          // A separate throwaway tab preserves the exact plugin details page.
+          const probe = await session.context.newPage();
+          try {
+            const observed = await readPlatformAccount("chatgpt",
+              { ...session, page: probe } as BrowserSession);
+            return observed.email ?? null;
+          } finally { await probe.close().catch(() => undefined); }
+        },
+        readServerCatalog: async () => inputContractCatalog(
+          await readLiveServerToolCatalog(c.def, "chatgpt")),
+        readPlatformCatalog: async () => inputContractCatalog(
+          await readChatGPTInstalledToolCatalog(page, c.name, originalId)),
+        refreshNative: async (installationId) => {
+          if (installationId !== originalId) throw new Error("Installed connector identity changed");
+          const ui = await guarded(session, "chatgpt-refresh", ctx.redact,
+            () => refreshPluginUI(page, c.name, sel.update));
+          if (ui.reviewRequired) throw new Error("Refresh needs review; no confirmation submitted");
+          return {
+            acknowledged: ui.clicked, installationId, mode: "native-in-place" as const,
+          };
+        },
+      });
+      if (freshness.status !== "CURRENT") {
+        return { status: "error", detail: "Tool schema freshness: " + freshness.status +
+          " (" + (freshness.reason ?? "unverified") + "). Existing installation preserved." };
+      }
+      if (freshness.refreshed) {
+        return { status: "ok", detail: "Native Refresh completed in place; live source and ChatGPT input contracts agree on independent readback. Existing installation preserved." };
+      }
+      return { status: "ok", detail: "Tool input contracts already current; no refresh or connector changes made." };
     },    async add(ctx, c, ifExisting): Promise<AdapterOutcome> {
       const page = await openPlugins(ctx);
       const s = await ctx.session();

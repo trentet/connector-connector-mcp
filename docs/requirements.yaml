@@ -3,7 +3,7 @@
 # behaviour is not backfilled here; gate.code and gate.tools_in_scope list exactly what this ledger covers.
 gate:
   id_pattern: '\b(?:REQ-[UDG]\d{3}|ACCT-(?:\d{3}|[PCV]\d{2}))\b'
-  code: ['^src/core/toolSchema\.ts$', '^src/core/schemaFreshness\.ts$', '^src/adapters/chatgptRefresh\.ts$', '^src/adapters/chatgpt\.ts$', '^src/adapters/claude\.ts$', '^src/core/signInMethod\.ts$', '^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
+  code: ['^src/core/toolSchema\.ts$', '^src/core/liveToolCatalog\.ts$', '^src/core/schemaFreshness\.ts$', '^src/adapters/chatgptRefresh\.ts$', '^src/adapters/chatgptCatalog\.ts$', '^src/adapters/chatgpt\.ts$', '^src/adapters/claude\.ts$', '^src/core/signInMethod\.ts$', '^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
   tests: ['^test/.+\.ts$']
   tool_files: ['^src/server/app\.ts$']
   tools_in_scope: [cc_signin, cc_run, cc_reauth]
@@ -311,7 +311,7 @@ requirements:
     description, input schema properties/required and output schema when present. Duplicate names,
     incomplete pages and missing contracts are UNKNOWN, never CURRENT. Only an exact catalog match
     (after normalizing equivalent serialization) proves CURRENT.
-  files: [src/core/toolSchema.ts, src/core/schemaFreshness.ts]
+  files: [src/core/toolSchema.ts, src/core/liveToolCatalog.ts, src/core/schemaFreshness.ts]
   decision: {quote: "unacceptable for us to have outdated connectors on any platform", at: '2026-11-12', source: user message in this chat / issue 88, from: REQ-U009}
 
 - id: REQ-D012
@@ -323,7 +323,7 @@ requirements:
     and account. No automatic remove-then-add, cross-account reuse, or inferred success. An unsupported
     or refused refresh is BLOCKED or STALE with recorded evidence. A successful click/request alone
     does not prove freshness: re-fetch the platform catalog and match its fingerprint.
-  files: [src/core/schemaFreshness.ts, src/adapters/chatgpt.ts, src/adapters/chatgptRefresh.ts, src/adapters/claude.ts, src/adapters/grok.ts]
+  files: [src/core/schemaFreshness.ts, src/adapters/chatgpt.ts, src/adapters/chatgptRefresh.ts, src/adapters/chatgptCatalog.ts, src/adapters/claude.ts, src/adapters/grok.ts]
   decision: {quote: "unacceptable for us to have outdated connectors on any platform", at: '2026-11-12', source: user message in this chat / issue 88, from: REQ-U009}
 
 - id: REQ-D013
@@ -352,10 +352,10 @@ requirements:
 
 untraced:
 - id: REQ-D011
-  why: Source-vs-platform fingerprint tests are owed in test/schema-freshness.test.ts; no coverage is claimed yet.
+  why: Source vs platform name/input contract comparison and pagination tests pass; provider descriptions/output schemas and Claude/Grok platform catalogs remain unverified (evidence 2026-11-12).
 - id: REQ-D012
-  why: Platform-native refresh and readback tests are owed; draft #85 covers ChatGPT only, not released.
+  why: ChatGPT native in-place refresh/readback is live-tested on 11 production plugins; Claude/Grok safe refresh adapters remain unimplemented and this branch is not released.
 - id: REQ-D013
   why: Event-triggered and scheduled sweep tests and implementation are owed, not yet coded.
 - id: REQ-D014
-  why: Cross-account fail-closed and source provenance tests for schema auditing are owed.
+  why: Fail-closed account tests pass and ChatGPT main is verified; Grok account mismatch and other Claude accounts have no platform-catalog parity evidence.
