@@ -1,4 +1,4 @@
-// @reqs ACCT-001 ACCT-002 ACCT-003 ACCT-C01 ACCT-C02 ACCT-C05 ACCT-C10 ACCT-C11 ACCT-C12
+// @reqs ACCT-001 ACCT-002 ACCT-003 ACCT-C01 ACCT-C02 ACCT-C05 ACCT-C10 ACCT-C11 ACCT-C12 ACCT-C13
 /**
  * The account rule (owner t119u, 2026-11-11). Every sign-in, credential fill or account-scoped action runs for an
  * account specified for that run: passed in explicitly by the caller (cc_run / cc_signin account, the connector's
@@ -6,7 +6,7 @@
  * read-only here). The accounts file's default, CC_ACCOUNT, a vault label and an already-signed-in session never
  * specify an account. Before acting, the account actually signed in is read and must be exactly that account.
  */
-import { lookupAccount, normAccount, type Lookup } from "./accountRegistry.js";
+import { lookupAccount, normAccount, normService, SIGN_IN_METHODS, type Lookup } from "./accountRegistry.js";
 import type { AccountDef } from "./accounts.js";
 
 export class AccountNotAuthorizedError extends Error {
@@ -25,8 +25,12 @@ export class AccountMismatchError extends Error {
   }
 }
 
+export interface VaultLoginRef { label: string; method?: string }
+
 export interface ChoiceDeps {
   lookup?: (service: string) => Promise<Lookup>;
+  /** ACCT-C13: vault logins for this account on this service (label and method only; never a secret). */
+  listVaultLogins?: (account: string, service: string) => Promise<VaultLoginRef[]>;
 }
 
 /**
@@ -88,12 +92,59 @@ export const PLATFORM_SERVICE: Record<string, string> = { claude: "claude.ai", c
  * recorded in the verified registry entry; an accounts.json loginProvider is a cross-check against it (differs:
  * ACCOUNT_MISMATCH), never a source. With no recorded method the email alone is verified.
  */
+
+/** ACCT-C13: a vault item is for `service` when a login URI host is that service, or the service host appears in its label. */
+export function entryMatchesService(name: string, uriHosts: readonly string[], service: string): boolean {
+  const svc = normService(service);
+  if (!svc) return false;
+  for (const h of uriHosts) {
+    const host = String(h ?? "").trim().toLowerCase().replace(/^www\./, "");
+    if (host === svc || host.endsWith("." + svc)) return true;
+  }
+  return String(name ?? "").toLowerCase().includes(svc);
+}
+
+async function defaultVaultLogins(account: string, service: string): Promise<VaultLoginRef[]> {
+  // Unit tests never touch the live vault unless they inject listVaultLogins.
+  if (process.env.VITEST) return [];
+  const { listVaultLogins } = await import("./vaultClient.js");
+  return listVaultLogins(account, service);
+}
+
+/**
+ * ACCT-C13: the expected sign-in method from matching vault logins, with the registry method only as a tie-break.
+ * One method (one entry, or several that agree): that method, even if the registry has none or differs (the vault is
+ * the system of record). Several that disagree: the registry method if it names one of them, otherwise refused.
+ * No vault method: the registry method, if any.
+ */
+export function resolveVaultLoginMethod(entries: readonly VaultLoginRef[], registryMethod?: string): string | undefined {
+  const known = new Set(SIGN_IN_METHODS as readonly string[]);
+  const methods: string[] = [];
+  for (const e of entries) {
+    const m = e.method?.trim().toLowerCase();
+    if (!m) continue;
+    if (!known.has(m)) throw new AccountNotAuthorizedError(`a vault login for this account records an unknown sign-in method; refusing`);
+    if (!methods.includes(m)) methods.push(m);
+  }
+  if (methods.length === 1) return methods[0];
+  if (methods.length > 1) {
+    const rec = registryMethod?.trim().toLowerCase();
+    if (rec && methods.includes(rec)) return rec;
+    throw new AccountNotAuthorizedError(`several vault logins for this account disagree on sign-in method (${methods.join(", ")}); the approval record must pick one`);
+  }
+  const rec = registryMethod?.trim().toLowerCase();
+  return rec || undefined;
+}
+
 export async function registryIdentity(platform: string, base: ExpectedIdentity, deps: ChoiceDeps = {}): Promise<ExpectedIdentity> {
   if (!normAccount(base.email)) return { email: base.email }; // refused by the identity check itself
-  const recorded = await registryAgrees(PLATFORM_SERVICE[platform] ?? platform, base.email!, deps);
+  const service = PLATFORM_SERVICE[platform] ?? platform;
+  const recorded = await registryAgrees(service, base.email!, deps);
+  const entries = await (deps.listVaultLogins ?? defaultVaultLogins)(base.email!, service);
+  const provider = resolveVaultLoginMethod(entries, recorded);
   const own = base.provider?.trim().toLowerCase();
-  if (recorded && own && recorded !== own) throw new AccountMismatchError(`the login method in accounts.json for ${platform} is not the one the owner recorded for it; refusing`);
-  return recorded ? { email: base.email, provider: recorded } : { email: base.email };
+  if (provider && own && provider !== own) throw new AccountMismatchError(`the login method in accounts.json for ${platform} is not the one the vault records for it; refusing`);
+  return provider ? { email: base.email, provider } : { email: base.email };
 }
 
 /**

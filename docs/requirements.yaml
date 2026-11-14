@@ -270,6 +270,7 @@ requirements:
   files: [src/core/accountRegistry.ts, src/core/accountChoice.ts, src/core/vaultClient.ts, src/core/runner.ts, src/browser/identity.ts, src/browser/seed.ts, src/browser/signin.ts, src/adapters/grok.ts, src/adapters/chatgpt.ts, src/core/reauth.ts, src/cli.ts]
   tools: [cc_run, cc_signin, cc_reauth]
   decision: {quote: "This is why the vault must be clear on what login platform is being used", at: '2026-11-11', source: main chat t123u, from: REQ-U007}
+  note: "ACCT-C13 (REQ-U010) refines the source of the expected method: the vault login is the system of record; the registry names the account and only picks the method when several vault logins disagree."
 - id: ACCT-C12
   kind: derived
   status: decided
@@ -314,3 +315,29 @@ requirements:
   files: [src/adapters/grok.ts, test/grok-update.test.ts]
   tools: [cc_run]
   decision: {quote: You're wrong about connector connector not being able to do this, at: '2026-11-14', source: main chat t146u, from: REQ-U009}
+- id: REQ-U010
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-14'
+  source: owner standing rule, applied main chat t146u/t147u 2026-11-14 (verbatim intent)
+  quotes:
+  - Vault is the system of record for authentication and is always used as priority. The account-approval record only says which account to pull from the vault. If exactly one vault login entry matches, do whatever the vault entry says, including the sign-in method. The approval only has to specify the method when the same account has multiple vault entries with different methods (e.g. email vs Google).
+  implemented_by: [ACCT-C13]
+- id: ACCT-C13
+  kind: derived
+  status: decided
+  title: The expected login method comes from the matching vault login; the approval record only disambiguates
+  text: >
+    The vault login is the system of record for authentication, including the sign-in method. The account-authorization
+    registry names which account to pull and is not itself the source of the method. When exactly one vault login
+    matches the run's account on that service (same username, and the entry is for that service by login URI host or
+    by the service host appearing in the entry's label), its sign_in_method is the expected method, including when the
+    registry has no entry or no method. Several matching entries that agree on a method use that method. Several that
+    disagree are refused (ACCOUNT_NOT_AUTHORIZED) unless the registry records one of those methods, which then picks
+    it. A signed-in session whose method does not match is refused (ACCOUNT_MISMATCH); a method that cannot be read
+    on a session that must use a recorded method is refused (ACCOUNT_NOT_AUTHORIZED). An accounts.json loginProvider
+    remains a cross-check only. Secrets are never returned.
+  files: [src/core/accountChoice.ts, src/core/vaultClient.ts, src/core/runner.ts, test/account-rule.test.ts]
+  tools: [cc_run]
+  decision: {quote: "Vault is the system of record for authentication and is always used as priority. The account-approval record only says which account to pull from the vault. If exactly one vault login entry matches, do whatever the vault entry says, including the sign-in method.", at: '2026-11-14', source: owner standing rule applied t146u/t147u, from: REQ-U010}

@@ -1,10 +1,12 @@
-// @reqs ACCT-C11 ACCT-C12
+// @reqs ACCT-C11 ACCT-C12 ACCT-C13
 /**
  * Direct client for the Bitwarden CLI local REST API (`bw serve`) -- NOT the vault connector's MCP tools.
  * Resolved INSIDE this process so a secret never enters an MCP tool result / calling session context.
  * Same pattern other HELM connectors use for in-process credential resolution. Only reachable on the host that runs `bw serve`.
  */
 import { METHOD_FIELD, METHOD_SOURCE_FIELD, OPTIONS_PREFIX, normSite, parseSite, siteNotes, type SignInStore } from "./signInMethod.js";
+import { entryMatchesService, type VaultLoginRef } from "./accountChoice.js";
+import { normAccount } from "./accountRegistry.js";
 
 const BASE_URL = () => process.env.BW_SERVE_URL || "http://127.0.0.1:8087";
 
@@ -27,6 +29,33 @@ export async function getCredential(label: string): Promise<VaultCredential | un
   const item = (await bwFetch(`/object/item/${matches[0].id}`)) as { login?: { username?: string | null; password?: string | null }; fields?: { name?: string | null; value?: string | null }[] | null };
   const method = (item.fields ?? []).find((f) => f?.name === "sign_in_method")?.value;
   return { username: item.login?.username ?? undefined, password: item.login?.password ?? undefined, ...(method ? { signInMethod: method } : {}) };
+}
+
+
+/** ACCT-C13: vault logins for `account` on `service` (label and sign-in method only; never a password or secret). */
+export async function listVaultLogins(account: string, service: string): Promise<VaultLoginRef[]> {
+  const want = normAccount(account);
+  if (!want) return [];
+  const list = (await bwFetch("/list/object/items")) as { data?: { name?: string; login?: { username?: string | null; uris?: { uri?: string | null }[] | null }; fields?: { name?: string | null; value?: string | null }[] | null }[] } | { name?: string; login?: { username?: string | null; uris?: { uri?: string | null }[] | null }; fields?: { name?: string | null; value?: string | null }[] | null }[];
+  const items = Array.isArray(list) ? list : (list?.data ?? []);
+  const out: VaultLoginRef[] = [];
+  for (const it of items) {
+    const login = it.login ?? {};
+    if (normAccount(login.username) !== want) continue;
+    const hosts: string[] = [];
+    for (const u of login.uris ?? []) {
+      const raw = String(u?.uri ?? "").trim();
+      if (!raw) continue;
+      try {
+        const host = new URL(raw.includes("://") ? raw : "https://" + raw).hostname;
+        if (host) hosts.push(host);
+      } catch { /* an unparseable URI does not match by host */ }
+    }
+    if (!entryMatchesService(String(it.name ?? ""), hosts, service)) continue;
+    const method = (it.fields ?? []).find((f) => f?.name === "sign_in_method")?.value;
+    out.push({ label: String(it.name ?? ""), ...(method ? { method: String(method).trim().toLowerCase() } : {}) });
+  }
+  return out;
 }
 
 /**

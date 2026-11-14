@@ -1,4 +1,4 @@
-// @reqs ACCT-001 ACCT-002 ACCT-003 ACCT-C01 ACCT-C02 ACCT-C03 ACCT-C04 ACCT-C05 ACCT-C06 ACCT-C07 ACCT-C10 ACCT-C11 ACCT-C12
+// @reqs ACCT-001 ACCT-002 ACCT-003 ACCT-C01 ACCT-C02 ACCT-C03 ACCT-C04 ACCT-C05 ACCT-C06 ACCT-C07 ACCT-C10 ACCT-C11 ACCT-C12 ACCT-C13
 import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -8,7 +8,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { chromium, type Browser } from "patchright";
 import { afterAll, describe, expect, it } from "vitest";
 import { LOGIN_PROVIDERS, pickAccount, validateAccounts, type Accounts } from "../src/core/accounts.js";
-import { AccountMismatchError, AccountNotAuthorizedError, registryIdentity, assertLoginAccount, assertSameAccount, assertSameIdentity, assertSignInAccount, signInService } from "../src/core/accountChoice.js";
+import { AccountMismatchError, AccountNotAuthorizedError, registryIdentity, assertLoginAccount, assertSameAccount, assertSameIdentity, assertSignInAccount, entryMatchesService, resolveVaultLoginMethod, signInService } from "../src/core/accountChoice.js";
 import { lookupAccount, verifyEntry, type Lookup, type RegistryItem } from "../src/core/accountRegistry.js";
 import { advanceOneStep, assertGoogleAccount, clickAccountChooserEntry, googleIdentity, loadConsentSpec } from "../src/browser/googleConsent.js";
 import { loadIdentityProbes, openVerifiedSession, readPlatformAccount, readPlatformIdentity } from "../src/browser/identity.js";
@@ -447,5 +447,74 @@ describe.skipIf(!browser)("ACCT-C06 cc_reauth / cc_signin: Google pages are acte
       await refused(advanceOneStep(p, {}, spec, "consent"));
       expect(await clicked(p)).toBe("");
     });
+  });
+});
+
+describe("ACCT-C13 the expected login method comes from the matching vault login", () => {
+  const vault = (entries: { label: string; method?: string }[]) => async () => entries;
+  const none = reg({});
+
+  it("a vault item is for a service by URI host or by the service host in its label", () => {
+    expect(entryMatchesService("Grok (grok.com email login)", [], "grok.com")).toBe(true);
+    expect(entryMatchesService("Grok (grok.com email login)", [], "www.grok.com")).toBe(true);
+    expect(entryMatchesService("Google Account (ulostthegamers@gmail.com)", [], "grok.com")).toBe(false);
+    expect(entryMatchesService("Grok login", ["grok.com"], "grok.com")).toBe(true);
+    expect(entryMatchesService("Grok login", ["www.grok.com"], "grok.com")).toBe(true);
+    expect(entryMatchesService("Grok login", ["accounts.x.ai"], "grok.com")).toBe(false);
+    expect(entryMatchesService("other", [], "grok.com")).toBe(false);
+  });
+
+  it("one matching vault login supplies the method even when the registry has none", () => {
+    expect(resolveVaultLoginMethod([{ label: "Grok (grok.com email login)", method: "email" }])).toBe("email");
+    expect(resolveVaultLoginMethod([{ label: "Grok (grok.com email login)", method: "email" }, { label: "Grok spare" }])).toBe("email");
+    expect(resolveVaultLoginMethod([])).toBeUndefined();
+    expect(resolveVaultLoginMethod([], "google")).toBe("google");
+  });
+
+  it("several vault logins that agree use that method; the vault wins over a differing registry method", () => {
+    expect(resolveVaultLoginMethod([{ label: "a", method: "email" }, { label: "b", method: "EMAIL" }])).toBe("email");
+    expect(resolveVaultLoginMethod([{ label: "a", method: "email" }], "google")).toBe("email");
+  });
+
+  it("several that disagree are refused unless the registry picks one of them", () => {
+    expect(() => resolveVaultLoginMethod([{ label: "a", method: "email" }, { label: "b", method: "google" }])).toThrow(AccountNotAuthorizedError);
+    expect(() => resolveVaultLoginMethod([{ label: "a", method: "email" }, { label: "b", method: "google" }])).toThrow(/disagree on sign-in method \(email, google\)/);
+    expect(resolveVaultLoginMethod([{ label: "a", method: "email" }, { label: "b", method: "google" }], "email")).toBe("email");
+  });
+
+  it("several that disagree, with a registry method that is not one of them, are refused", async () => {
+    await refused(() => resolveVaultLoginMethod([{ label: "a", method: "email" }, { label: "b", method: "google" }], "x"));
+    await refused(() => resolveVaultLoginMethod([{ label: "a", method: "not-a-method" }]));
+  });
+
+  it("registryIdentity uses the single vault login method when the registry is empty or incomplete", async () => {
+    const logins = vault([{ label: "Grok (grok.com email login)", method: "email" }]);
+    expect(await registryIdentity("grok", { email: A }, { lookup: none, listVaultLogins: logins })).toEqual({ email: A, provider: "email" });
+    expect(await registryIdentity("grok", { email: A }, { lookup: reg({ "grok.com": { status: "incomplete", service: "grok.com", account: A, reason: "no method" } }), listVaultLogins: logins })).toEqual({ email: A, provider: "email" });
+  });
+
+  it("a Google session is refused when the vault login records email", async () => {
+    const id = await registryIdentity("grok", { email: A }, { lookup: none, listVaultLogins: vault([{ label: "Grok (grok.com email login)", method: "email" }]) });
+    expect(id).toEqual({ email: A, provider: "email" });
+    await mismatched(() => assertSameIdentity("grok", id, { email: A, provider: "google" }));
+    assertSameIdentity("grok", id, { email: A, provider: "email" });
+    await refused(() => assertSameIdentity("grok", id, { email: A }));
+  });
+
+  it("cc_run takes the vault login method when the registry has none, and refuses a Google session", async () => {
+    const regy: Registry = { version: 1, connectors: [{ id: "demo", name: "Demo", url: { type: "literal", value: "https://demo.example.test/mcp" }, auth: { mode: "none" }, platforms: ["grok"] }] };
+    const accts = { version: 1, default: "main", accounts: [{ id: "main", email: A, platforms: ["grok"] }] } as unknown as Accounts;
+    const go = async (seen: unknown) => {
+      let acted = 0;
+      const fake = { close: async () => {}, touched: new Set<string>() } as unknown as BrowserSession;
+      const adapter: PlatformAdapter = { platform: "grok", list: async () => ({ names: [] }), add: async () => ({ status: "ok" }), remove: async () => ({ status: "ok" }), update: async () => ({ status: "ok" }), verify: async (ctx) => { await ctx.session(); acted++; return { status: "ok" }; }, probe: async () => ({ status: "ok" }) };
+      const r = await run(regy, { op: "verify", connectors: ["demo"], platforms: ["grok"], account: "main" }, { accounts: accts, adapters: { grok: adapter }, sessionFactory: async () => fake, readIdentity: async () => seen as never, lookup: async () => ({ status: "none", service: "grok.com" }), listVaultLogins: async () => [{ label: "Grok (grok.com email login)", method: "email" }] });
+      return { detail: r.items[0]!.detail ?? "", acted };
+    };
+    expect((await go({ email: A, provider: "email" })).acted).toBe(1);
+    const google = await go({ email: A, provider: "google" });
+    expect(google.detail).toMatch(/ACCOUNT_MISMATCH: /); expect(google.acted).toBe(0);
+    const unread = await go({ email: A });
+    expect(unread.detail).toMatch(/ACCOUNT_NOT_AUTHORIZED: /); expect(unread.acted).toBe(0);
   });
 });
