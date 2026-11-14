@@ -25,6 +25,8 @@ export interface RunnerOptions {
   readIdentity?: (platform: Platform, session: BrowserSession) => Promise<SeenIdentity>;
   /** ACCT-C11: the owner's account authorization registry (default: the vault's). */
   lookup?: (service: string) => Promise<Lookup>;
+  /** ACCT-C13: vault logins for an account on a service (default: the vault; tests inject a fake). */
+  listVaultLogins?: (account: string, service: string) => Promise<import("./accountChoice.js").VaultLoginRef[]>;
 }
 
 interface Task { idx: number; platform: Platform; connector?: ConnectorDef }
@@ -74,7 +76,7 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
     try {
       const seen = await (opts.readIdentity ?? readPlatformAccount)(platform, s).catch(() => undefined);
       // ACCT-C10 ACCT-C11 ACCT-C12: and the login method, when the owner recorded one (loginProvider only cross-checks it).
-      assertSameIdentity(platform, await registryIdentity(platform, expectedIdentity(acc, platform), { lookup: opts.lookup }), seen);
+      assertSameIdentity(platform, await registryIdentity(platform, expectedIdentity(acc, platform), { lookup: opts.lookup, listVaultLogins: opts.listVaultLogins }), seen);
       return s;
     } catch (e) { await s.close().catch(() => undefined); throw e; }
   }

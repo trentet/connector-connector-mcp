@@ -1,3 +1,4 @@
+// @reqs ACCT-C02 REQ-U009 REQ-D001
 import fs from "node:fs";
 import path from "node:path";
 import type { Page } from "patchright";
@@ -99,6 +100,35 @@ async function waitForState(ctx: AdapterContext, name: string, present: boolean,
 
 const notMapped = (what: string): AdapterOutcome => ({ status: "not-implemented", detail: `grok ${what} not yet mapped (needs a live probe)` });
 
+/** REQ-U009 REQ-D001: grok.com has no refresh; an update is a remove then a re-add. If it is not connected, only add. If remove fails, do not add. */
+export async function updateByRemoveThenAdd(
+  name: string,
+  ops: {
+    list: () => Promise<string[]>;
+    remove: () => Promise<AdapterOutcome>;
+    add: () => Promise<AdapterOutcome>;
+  },
+): Promise<AdapterOutcome> {
+  const present = (await ops.list()).includes(name);
+  if (present) {
+    const removed = await ops.remove();
+    if (removed.status !== "ok" && removed.status !== "skipped") {
+      return { status: "error", detail: `update did not remove "${name}" (${removed.detail ?? removed.status}); not re-adding` };
+    }
+  }
+  const added = await ops.add();
+  if (added.status === "ok") {
+    return { status: "ok", detail: present ? `"${name}" updated (removed and re-added)` : (added.detail ?? `"${name}" added`) };
+  }
+  return {
+    status: "error",
+    detail: present
+      ? `removed "${name}" but re-add failed (${added.detail ?? added.status})`
+      : (added.detail ?? `add failed (${added.status})`),
+  };
+}
+
+
 /** Names in the "Connected" section: rows are elements whose own text is exactly the marker ("Added"); the row's first line is the name. */
 async function readConnected(ctx: AdapterContext): Promise<string[]> {
   const page = await openConnectors(ctx);
@@ -131,7 +161,7 @@ async function readConnected(ctx: AdapterContext): Promise<string[]> {
 }
 
 export function grokAdapter(): PlatformAdapter {
-  return {
+  const adapter: PlatformAdapter = {
     platform: "grok",
     async probe(ctx) { await openConnectors(ctx); return { status: "ok", detail: "signed in to grok.com" }; },
     async list(ctx) { return { names: await readConnected(ctx) }; },
@@ -170,13 +200,19 @@ export function grokAdapter(): PlatformAdapter {
       const gone = await waitForState(ctx, c.name, false);
       return gone ? { status: "ok", detail: `"${c.name}" removed` } : { status: "error", detail: `clicked Disconnect but "${c.name}" is still in the Connected list` };
     },
-    async update() { return notMapped("update"); },
+    async update(ctx, c): Promise<AdapterOutcome> {
+      return updateByRemoveThenAdd(c.name, {
+        list: () => readConnected(ctx),
+        remove: () => adapter.remove(ctx, c),
+        add: () => adapter.add(ctx, c, "fail"),
+      });
+    },
     async add(ctx, c, ifExisting): Promise<AdapterOutcome> {
       const existing = (await readConnected(ctx)).includes(c.name);
       if (existing) {
         if (ifExisting === "skip") return { status: "skipped", detail: `"${c.name}" already in Connected list` };
         if (ifExisting === "fail") return { status: "error", detail: `"${c.name}" already in Connected list` };
-        return notMapped("update (remove-then-add)");
+        return adapter.update(ctx, c);
       }
       const page = await openConnectors(ctx);
       const s = await ctx.session();
@@ -207,4 +243,5 @@ export function grokAdapter(): PlatformAdapter {
       return there ? { status: "ok", detail: `"${c.name}" added (appears in Connected list)` } : { status: "error", detail: `submitted, but "${c.name}" did not appear in grok.com's Connected list after waiting` };
     },
   };
+  return adapter;
 }
