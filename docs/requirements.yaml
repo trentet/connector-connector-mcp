@@ -303,7 +303,7 @@ requirements:
   quotes:
   - You're wrong about connector connector not being able to do this
   - If you need to fix something don't ask just do
-  implemented_by: [REQ-D001, REQ-D003]
+  implemented_by: [REQ-D001, REQ-D003, REQ-D004, REQ-D005]
 - id: REQ-D001
   kind: derived
   status: decided
@@ -390,5 +390,35 @@ requirements:
     refuses instead of starting a second one. Job records and run logs contain account ids, ops,
     steps and statuses only: never emails, URLs, tokens or passwords.
   files: [src/core/runJobs.ts, src/core/types.ts, src/server/app.ts, src/cli.ts, test/run-jobs.test.ts, test/server.test.ts]
+  tools: [cc_run]
+  decision: {quote: "If you need to fix something don't ask just do", at: '2026-11-14', source: main chat t147u, from: REQ-U009}
+- id: REQ-D004
+  kind: derived
+  status: decided
+  title: Grok email login waits for a visible Turnstile and a 10-minute redirect
+  text: >
+    When the grok.com email-and-password sign-in page shows a Cloudflare Turnstile, cc first
+    lets the challenge auto-solve in a visible (headful) Chrome, which is often enough in a
+    real browser. If the challenge is still present after a short auto-wait, cc clicks the
+    Turnstile checkbox once. It then waits up to 10 minutes for the redirect to grok.com (or
+    accounts.x.ai/account) so a human at that machine can finish the challenge in the same
+    window. Chrome for a real run is launched with windowsHide false and without --headless
+    unless CC_CHROME_EXTRA_ARGS requests headless (tests only). Secrets are never returned.
+  files: [src/adapters/grok.ts, src/adapters/grokLoginWait.ts, src/browser/chrome.ts, test/grok-login.test.ts]
+  tools: [cc_run]
+  decision: {quote: "If you need to fix something don't ask just do", at: '2026-11-14', source: main chat t147u, from: REQ-U009}
+- id: REQ-D005
+  kind: derived
+  status: decided
+  title: MCP and the CLI share a file lock per account, with stale-lock recovery
+  text: >
+    A non-dry-run start that opens a browser takes a file lock in cc's data dir (locks/run-<account>.lock)
+    so the MCP server and the CLI cannot stack runs for the same account in different processes.
+    The lock file records pid, time, account id and op only: never emails, URLs, tokens or passwords.
+    A lock whose pid is dead, or that is older than 45 minutes, is treated as stale, removed, and
+    the start is allowed. A live lock held by another process refuses the new start and does not
+    open a browser. Within one process, REQ-D003 still returns the existing job_id. dry_run does
+    not take this lock.
+  files: [src/core/runLock.ts, src/core/runJobs.ts, src/cli.ts, test/run-lock.test.ts, test/run-jobs.test.ts]
   tools: [cc_run]
   decision: {quote: "If you need to fix something don't ask just do", at: '2026-11-14', source: main chat t147u, from: REQ-U009}

@@ -103,6 +103,13 @@ async function cdpUp(port: number): Promise<boolean> {
  */
 const LEAN_FLAGS = ["--disable-background-networking", "--disable-sync", "--disable-component-update", "--disable-default-apps", "--no-pings", "--metrics-recording-only"];
 
+/** REQ-D004: a real run is headful (windowsHide false, no --headless) so Turnstile can auto-solve and a human can see the window. Tests may add --headless via CC_CHROME_EXTRA_ARGS. */
+export function chromeLaunchFlags(e: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): { args: string[]; windowsHide: boolean; headless: boolean } {
+  const extra = (e.CC_CHROME_EXTRA_ARGS ?? "").split(/\s+/).filter(Boolean);
+  const headless = extra.some((a) => a === "--headless" || a.startsWith("--headless="));
+  return { args: [...LEAN_FLAGS, ...extra], windowsHide: false, headless };
+}
+
 /**
  * Start a normal (not automation-launched) Chrome on a user-data-dir and CDP port. Playwright's persistent-context API is never used.
  * It runs at BELOW-NORMAL priority (children inherit it) so other workloads on the shared host win a CPU fight; CC_CHROME_PRIORITY=normal opts out.

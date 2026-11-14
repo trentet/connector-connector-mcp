@@ -1,12 +1,13 @@
-// @reqs REQ-D003
+// @reqs REQ-D003 REQ-D005
 /**
  * Long cc_run work (anything that opens a browser) lives in a job that is not tied to one MCP HTTP request.
- * A client timeout or disconnect does not cancel it. One run at a time per account: a second start returns the
- * in-flight job instead of opening another browser.
+ * A client timeout or disconnect does not cancel it. One run at a time per account: a second start in this
+ * process returns the in-flight job; a second start in another process is refused (file lock in cc's data dir).
  */
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { tryAcquireAccountLock, type HeldLock } from "./runLock.js";
 import type { Platform, RunRequest, RunResult } from "./types.js";
 
 export type JobStatus = "running" | "ok" | "error";
@@ -61,6 +62,25 @@ function accountKey(account: string | undefined): string | undefined {
   return a || undefined;
 }
 
+function refusedOtherProcess(req: RunRequest, holderPid?: number): { job: RunJob; started: false } {
+  const who = typeof holderPid === "number" ? ` (pid ${holderPid})` : "";
+  const detail = `a run is already in progress for this account in another process${who}; this start is refused so browsers are not stacked`;
+  const platform = (req.platforms[0] ?? "grok") as Platform;
+  const job: RunJob = {
+    id: "",
+    account: accountKey(req.account) ?? "",
+    op: req.op,
+    connectors: [...req.connectors],
+    platforms: [...(req.platforms as string[])],
+    startedAt: new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+    status: "error",
+    detail,
+    result: { ok: false, items: [{ connector: req.connectors.join(",") || "*", platform, op: req.op, status: "error", detail, account: req.account }] },
+  };
+  return { job, started: false };
+}
+
 export function enqueueRun(req: RunRequest, fn: () => Promise<RunResult>): { job: RunJob; started: boolean } {
   const key = accountKey(req.account);
   if (key) {
@@ -69,6 +89,12 @@ export function enqueueRun(req: RunRequest, fn: () => Promise<RunResult>): { job
       const ex = jobs.get(existingId);
       if (ex && ex.status === "running") return { job: getRunJob(existingId)!, started: false };
     }
+  }
+  let fileLock: HeldLock | undefined;
+  if (key) {
+    const claim = tryAcquireAccountLock(key, req.op);
+    if (!claim.ok) return refusedOtherProcess(req, claim.holder?.pid);
+    fileLock = claim.lock;
   }
   const id = "run_" + randomBytes(8).toString("hex");
   const job: Internal = {
@@ -104,6 +130,7 @@ export function enqueueRun(req: RunRequest, fn: () => Promise<RunResult>): { job
       return job.result;
     } finally {
       if (key && inflight.get(key) === id) inflight.delete(key);
+      try { fileLock?.release(); } catch { /* best effort */ }
     }
   })();
   return { job: getRunJob(id)!, started: true };
@@ -135,5 +162,5 @@ export function jobToResult(job: RunJob): RunResult {
     };
   }
   const base = job.result ?? { ok: job.status === "ok", items: [] };
-  return { ...base, job_id: job.id, jobStatus: job.status, detail: base.detail ?? job.detail };
+  return { ...base, job_id: job.id || undefined, jobStatus: job.status, detail: base.detail ?? job.detail };
 }
