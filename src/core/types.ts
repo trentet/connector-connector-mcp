@@ -119,4 +119,8 @@ export interface ItemResult {
 export interface RunResult {
   ok: boolean;
   items: ItemResult[];
+  /** Present when the work was started as a job (REQ-D003). */
+  job_id?: string;
+  jobStatus?: "running" | "ok" | "error";
+  detail?: string;
 }

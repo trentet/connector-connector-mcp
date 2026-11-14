@@ -4,6 +4,7 @@ import { ADAPTERS } from "./adapters/index.js";
 import { audit } from "./audit.js";
 import { coverage, formatReport as formatGoogleReport, scanGithub, scanLocal, type Finding } from "./googleCoverage.js";
 import { run } from "./core/runner.js";
+import { enqueueRun, waitForJob } from "./core/runJobs.js";
 import { reauth } from "./core/reauth.js";
 import { checkMaster, seedMaster } from "./browser/seed.js";
 import { accountMaster, loadAccounts, pickAccount, type AccountDef, type Accounts } from "./core/accounts.js";
@@ -198,7 +199,19 @@ export async function main(argv: string[]): Promise<number> {
   if ("error" in parsed) { console.error(parsed.error); return 2; }
   const { ids, platforms, dryRun, includeTest, json, ifExisting, registryPath, account } = parsed;
   const reg = loadRegistry(registryPath);
-  const res = await run(reg, { op, connectors: ids.length ? ids : op === "list" || op === "probe" ? ["*"] : [], platforms, dryRun, includeTest, ifExisting, account }, { adapters: ADAPTERS });
+  const req = { op, connectors: ids.length ? ids : op === "list" || op === "probe" ? ["*"] : [], platforms, dryRun, includeTest, ifExisting, account };
+  if (dryRun) {
+    const res = await run(reg, req, { adapters: ADAPTERS });
+    if (json) console.log(JSON.stringify(res, null, 2));
+    else for (const i of res.items) console.log(`${i.status.padEnd(15)} ${i.op} ${i.connector} @ ${i.platform}${i.account ? ` (account ${i.account})` : ""}${i.detail ? " - " + i.detail : ""}`);
+    return res.ok ? 0 : 1;
+  }
+  const { job, started } = enqueueRun(req, () => run(reg, req, { adapters: ADAPTERS }));
+  if (!started) {
+    console.error(`a run is already in progress for this account (job ${job.id}); wait for it or poll cc_run op=status job_id=${job.id}`);
+    return 2;
+  }
+  const res = await waitForJob(job.id);
   if (json) console.log(JSON.stringify(res, null, 2));
   else for (const i of res.items) console.log(`${i.status.padEnd(15)} ${i.op} ${i.connector} @ ${i.platform}${i.account ? ` (account ${i.account})` : ""}${i.detail ? " - " + i.detail : ""}`);
   return res.ok ? 0 : 1;

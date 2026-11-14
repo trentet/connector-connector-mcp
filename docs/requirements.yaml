@@ -303,7 +303,7 @@ requirements:
   quotes:
   - You're wrong about connector connector not being able to do this
   - If you need to fix something don't ask just do
-  implemented_by: [REQ-D001]
+  implemented_by: [REQ-D001, REQ-D003]
 - id: REQ-D001
   kind: derived
   status: decided
@@ -374,5 +374,21 @@ requirements:
     authorization-registry entry is required to type the vault login when none exists (ACCT-C02 still requires
     agreement when an entry is present). Secrets are never returned.
   files: [src/core/runner.ts, src/adapters/types.ts, src/adapters/grok.ts, test/account-rule.test.ts]
+  tools: [cc_run]
+  decision: {quote: "If you need to fix something don't ask just do", at: '2026-11-14', source: main chat t147u, from: REQ-U009}
+- id: REQ-D003
+  kind: derived
+  status: decided
+  title: A browser run is a job that survives client disconnect; one run per account
+  text: >
+    A cc_run that is not a dry_run is started as a job and is not cancelled when the MCP client
+    disconnects or times out. The tool returns a job_id if the work has not finished in a few
+    seconds; the caller polls with op=status and that job_id. While a job is in progress for an
+    account, a second start for that account returns the existing job_id and does not open another
+    browser. dry_run stays synchronous and does not take that lock. The CLI shares the same lock
+    and waits for a run it started; if a run is already in progress for that account the CLI
+    refuses instead of starting a second one. Job records and run logs contain account ids, ops,
+    steps and statuses only: never emails, URLs, tokens or passwords.
+  files: [src/core/runJobs.ts, src/core/types.ts, src/server/app.ts, src/cli.ts, test/run-jobs.test.ts, test/server.test.ts]
   tools: [cc_run]
   decision: {quote: "If you need to fix something don't ask just do", at: '2026-11-14', source: main chat t147u, from: REQ-U009}
