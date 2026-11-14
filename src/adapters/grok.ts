@@ -1,4 +1,4 @@
-// @reqs ACCT-C02 REQ-U009 REQ-D001
+// @reqs ACCT-C02 REQ-U009 REQ-D001 REQ-D002 ACCT-C14
 import fs from "node:fs";
 import path from "node:path";
 import type { Page } from "patchright";
@@ -70,6 +70,17 @@ async function login(ctx: AdapterContext): Promise<void> {
     await page.getByRole("button", { name: rx(sel.login.submit.name) }).first().click();
     await page.waitForURL(/accounts\.x\.ai\/account|grok\.com/, { timeout: 20000 });
   });
+}
+
+/** ACCT-C14: if grok.com is signed out, sign in with the vault email login. Already signed in: no-op. */
+export async function ensureSignedIn(ctx: AdapterContext): Promise<void> {
+  const s = await ctx.session();
+  await s.page.goto(sel.connectorsUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+  await sleep(2500);
+  await dismissCookies(s.page);
+  await dismissInterstitials(s.page);
+  if (await isSignedIn(s.page)) return;
+  await login(ctx);
 }
 
 async function openConnectors(ctx: AdapterContext): Promise<Page> {
@@ -164,6 +175,7 @@ export function grokAdapter(): PlatformAdapter {
   const adapter: PlatformAdapter = {
     platform: "grok",
     async probe(ctx) { await openConnectors(ctx); return { status: "ok", detail: "signed in to grok.com" }; },
+    ensureSignedIn,
     async list(ctx) { return { names: await readConnected(ctx) }; },
     async verify(ctx, c): Promise<AdapterOutcome> {
       const names = await readConnected(ctx);

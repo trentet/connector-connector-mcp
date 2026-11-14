@@ -193,6 +193,8 @@ requirements:
   files: [src/core/runner.ts, src/browser/identity.ts, src/adapters/types.ts, src/core/accountChoice.ts]
   tools: [cc_run]
   decision: {quote: "That\u2019s how you end up with catastrophic problems otherwise", at: '2026-11-11', source: main chat t119u, from: REQ-U005}
+  note: "ACCT-C14 refines the signed-out case: cc may sign in with the vault login, then must re-read and verify before acting."
+
 - id: ACCT-C06
   kind: derived
   status: decided
@@ -341,3 +343,36 @@ requirements:
   files: [src/core/accountChoice.ts, src/core/vaultClient.ts, src/core/runner.ts, test/account-rule.test.ts]
   tools: [cc_run]
   decision: {quote: "Vault is the system of record for authentication and is always used as priority. The account-approval record only says which account to pull from the vault. If exactly one vault login entry matches, do whatever the vault entry says, including the sign-in method.", at: '2026-11-14', source: owner standing rule applied t146u/t147u, from: REQ-U010}
+- id: REQ-D002
+  kind: derived
+  status: decided
+  title: A signed-out platform session is signed in with the vault login, then re-verified, before cc acts
+  text: >
+    ACCT-C05 still holds: no adapter acts until the platform session's signed-in account (and login method, when
+    one is expected) has been read and matches the run. When the session is signed out, so the account cannot be
+    read, cc may sign in with the matching vault login (the method comes from ACCT-C13) and must then re-read and
+    verify the session email and method before any adapter acts. A session already signed in as a different account
+    or with a different method is refused (ACCOUNT_MISMATCH) and is not overwritten. A session that still cannot
+    be read after sign-in, or that appears signed in but whose identity cannot be read, is refused
+    (ACCOUNT_NOT_AUTHORIZED). A platform with no sign-in flow keeps today's refusal. Secrets stay inside the
+    server and are never returned.
+  files: [src/core/runner.ts, src/adapters/types.ts, src/adapters/grok.ts, test/account-rule.test.ts]
+  tools: [cc_run]
+  decision: {quote: "You're wrong about connector connector not being able to do this", at: '2026-11-14', source: main chat t146u, from: REQ-U009}
+- id: ACCT-C14
+  kind: derived
+  status: decided
+  title: Signed-out sessions may be signed in with the vault login, then are re-verified before acting
+  text: >
+    When a platform browser session opens and the signed-in account cannot be read, and that platform provides an
+    ensureSignedIn flow, cc signs in with the vault login for the run's account (method from ACCT-C13; grok.com's
+    flow types into its email-and-password form and therefore requires method email) and then re-reads the session.
+    assertSameIdentity still runs before any adapter acts: the email must be the run account, and the method must
+    match when one is expected. The runner never calls ensureSignedIn when a signed-in email was already read, so a
+    Google (or otherwise wrong-method) session, or a different account, is refused and not overwritten. After a
+    successful sign-in, refreshed grok.com sign-in cookies may merge back to the account's master profile. No
+    authorization-registry entry is required to type the vault login when none exists (ACCT-C02 still requires
+    agreement when an entry is present). Secrets are never returned.
+  files: [src/core/runner.ts, src/adapters/types.ts, src/adapters/grok.ts, test/account-rule.test.ts]
+  tools: [cc_run]
+  decision: {quote: "If you need to fix something don't ask just do", at: '2026-11-14', source: main chat t147u, from: REQ-U009}

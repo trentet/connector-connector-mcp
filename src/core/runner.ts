@@ -1,3 +1,4 @@
+// @reqs ACCT-001 ACCT-C05 ACCT-C10 ACCT-C11 ACCT-C12 ACCT-C13 ACCT-C14 REQ-D002
 import type { BrowserContext } from "patchright";
 import type { BrowserSession } from "../browser/chrome.js";
 import { watchLogin, type LoginCredential, type LoginWatcher } from "../browser/oauthLogin.js";
@@ -74,8 +75,20 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
   // ACCT-003 ACCT-C05: no adapter acts in a session until its signed-in account is read and is exactly the run's account.
   async function verifiedSession(platform: Platform, s: BrowserSession): Promise<BrowserSession> {
     try {
-      const seen = await (opts.readIdentity ?? readPlatformAccount)(platform, s).catch(() => undefined);
-      // ACCT-C10 ACCT-C11 ACCT-C12: and the login method, when the owner recorded one (loginProvider only cross-checks it).
+      const read = opts.readIdentity ?? readPlatformAccount;
+      let seen = await read(platform, s).catch(() => undefined);
+      // ACCT-C14: a signed-out (unreadable) session may be signed in with the vault login, then re-read.
+      // A session already showing another account or method is not overwritten.
+      let email: string | undefined;
+      if (typeof seen === "string") email = seen;
+      else if (Array.isArray(seen)) email = seen.find((x) => !!x);
+      else if (seen && typeof seen === "object" && !Array.isArray(seen)) email = (seen as { email?: string }).email;
+      const signIn = adapter(platform).ensureSignedIn;
+      if (!(typeof email === "string" && email.includes("@")) && signIn) {
+        await signIn({ platform, account: acc, redact: (x) => red.redact(x), session: async () => s });
+        seen = await read(platform, s).catch(() => undefined);
+      }
+      // ACCT-C10 ACCT-C11 ACCT-C12 ACCT-C13: and the login method, when the vault (or registry tie-break) records one.
       assertSameIdentity(platform, await registryIdentity(platform, expectedIdentity(acc, platform), { lookup: opts.lookup, listVaultLogins: opts.listVaultLogins }), seen);
       return s;
     } catch (e) { await s.close().catch(() => undefined); throw e; }
