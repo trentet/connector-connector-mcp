@@ -5,6 +5,7 @@ import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Cookie, type Page } from "patchright";
 import { acquireLane, type Lane } from "./lanes.js";
 import { cloneProfile, profileInUse, removeProfile, withMasterLock } from "./profile.js";
+import { chromeSpawnSpec } from "./ownDesktop.js";
 
 /** Hosts whose stale tabs this tool may close. Anything else in the shared profile is left alone. */
 const OWNED_HOSTS = ["claude.ai", "chatgpt.com", "grok.com", "x.ai", "accounts.google.com", "auth.openai.com"];
@@ -118,7 +119,9 @@ export async function launchChrome(userDataDir: string, port: number, opts: { ca
   const exe = process.env.CC_CHROME_PATH ?? DEFAULT_CHROME;
   const extra = (process.env.CC_CHROME_EXTRA_ARGS ?? "").split(/\s+/).filter(Boolean);
   const cache = opts.cacheDir ? [`--disk-cache-dir=${opts.cacheDir}`, `--disk-cache-size=${(Number(process.env.CC_CACHE_MB) || 150) * 1024 * 1024}`] : [];
-  const child = spawn(exe, [`--remote-debugging-port=${port}`, `--user-data-dir=${userDataDir}`, "--no-first-run", "--no-default-browser-check", ...LEAN_FLAGS, ...cache, ...extra, "about:blank"], { stdio: "ignore", windowsHide: false });
+  // REQ-D004: Chrome itself, windowsHide false (headful). REQ-D006: with CC_CHROME_DESKTOP=own the same command line runs on its own Windows desktop through scripts/start-on-desktop.ps1 (no window, no focus).
+  const spec = chromeSpawnSpec(exe, [`--remote-debugging-port=${port}`, `--user-data-dir=${userDataDir}`, "--no-first-run", "--no-default-browser-check", ...LEAN_FLAGS, ...cache, ...extra, "about:blank"]);
+  const child = spawn(spec.file, spec.args, { stdio: "ignore", windowsHide: spec.windowsHide });
   if (child.pid && process.env.CC_CHROME_PRIORITY !== "normal") { try { os.setPriority(child.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch { /* not permitted: run at normal priority */ } }
   const exited = new Promise<void>((resolve) => { child.once("exit", () => resolve()); child.once("error", () => resolve()); });
   for (let i = 0; i < 60; i++) {

@@ -422,3 +422,32 @@ requirements:
   files: [src/core/runLock.ts, src/core/runJobs.ts, src/cli.ts, test/run-lock.test.ts, test/run-jobs.test.ts]
   tools: [cc_run]
   decision: {quote: "If you need to fix something don't ask just do", at: '2026-11-14', source: main chat t147u, from: REQ-U009}
+- id: REQ-U011
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-14'
+  source: operator message 245, 14 Nov 2026 12:52 PM CST, relayed by the HELM Dev owner thread (account 2) as part B of the order to worker A2-DV-IV1 (the operator's words, verbatim)
+  quotes:
+  - all automated interactions and work must be invisible wherever possible
+  - it's not acceptable for you to have Windows being opened and controlled that are taking up the visual portions of the screen
+  - it has to be set to be the background
+  implemented_by: [REQ-D006]
+- id: REQ-D006
+  kind: derived
+  status: decided
+  title: A run's Chrome can start on its own Windows desktop, so it shows no window and never takes the focus (opt-in)
+  text: >
+    When CC_CHROME_DESKTOP=own is set on Windows, launchChrome does not start chrome.exe itself. It starts a small
+    PowerShell helper (scripts/start-on-desktop.ps1) with windowsHide true; the helper creates a Windows desktop of the
+    interactive window station (CreateDesktopW), starts Chrome on it (STARTUPINFO lpDesktop WinSta0\<name>), waits for
+    Chrome to end and closes the desktop. A window on a desktop that is not the input desktop is never shown to the person
+    at the machine and can never take the keyboard focus. The CDP port, the profile copy, the lane, the lean flags and the
+    below-normal priority are unchanged, and shutdown still ends the whole process tree of the child. Without the variable
+    (the default), on other systems, and for any other value, nothing changes: Chrome is started exactly as REQ-D004 says
+    (windowsHide false, headful). Measured on the HELM host on 14 Nov 2026 (Chrome 157.0.8103.51): this start reached
+    claude.ai (HTTP 200 on a read-only get of an archived thread) twice with no window on the input desktop and no foreground
+    sample in the run's process tree, where the off-screen position start held the focus for 33 seconds.
+  files: [src/browser/ownDesktop.ts, src/browser/chrome.ts, scripts/start-on-desktop.ps1, test/own-desktop.test.ts]
+  tools: [cc_run]
+  decision: {quote: all automated interactions and work must be invisible wherever possible, at: '2026-11-14', source: operator message 245 via the HELM Dev owner thread, from: REQ-U011}
