@@ -208,7 +208,8 @@ export async function main(argv: string[]): Promise<number> {
   }
   const { job, started } = enqueueRun(req, () => run(reg, req, { adapters: ADAPTERS }));
   if (!started) {
-    console.error(`a run is already in progress for this account (job ${job.id}); wait for it or poll cc_run op=status job_id=${job.id}`);
+    const why = job.detail ?? job.result?.items[0]?.detail ?? (job.id ? `a run is already in progress for this account (job ${job.id}); wait for it or poll cc_run op=status job_id=${job.id}` : "a run is already in progress for this account");
+    console.error(why);
     return 2;
   }
   const res = await waitForJob(job.id);

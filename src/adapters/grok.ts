@@ -1,4 +1,4 @@
-// @reqs ACCT-C02 REQ-U009 REQ-D001 REQ-D002 ACCT-C14
+// @reqs ACCT-C02 REQ-U009 REQ-D001 REQ-D002 ACCT-C14 REQ-D004
 import fs from "node:fs";
 import path from "node:path";
 import type { Page } from "patchright";
@@ -8,6 +8,7 @@ import { assertFlowMethod, assertLoginAccount, assertMethodsAgree, ccMethodError
 import { detectSignInOptions, loadSignInOptions, resolveSignInMethod } from "../core/signInMethod.js";
 import { getCredential, signInStore } from "../core/vaultClient.js";
 import type { AdapterContext, AdapterOutcome, PlatformAdapter } from "./types.js";
+import { waitForGrokLoginRedirect } from "./grokLoginWait.js";
 
 const sel = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "grok.json"), "utf8"));
 const rx = (p: string) => new RegExp(p, "i");
@@ -68,7 +69,8 @@ async function login(ctx: AdapterContext): Promise<void> {
     await page.locator(sel.login.passwordInput).first().waitFor({ timeout: 15000 });
     await page.locator(sel.login.passwordInput).first().fill(cred.password!);
     await page.getByRole("button", { name: rx(sel.login.submit.name) }).first().click();
-    await page.waitForURL(/accounts\.x\.ai\/account|grok\.com/, { timeout: 20000 });
+    // REQ-D004: visible Chrome may auto-solve Turnstile; if not, click once and wait up to 10 minutes.
+    await waitForGrokLoginRedirect(page);
   });
 }
 
