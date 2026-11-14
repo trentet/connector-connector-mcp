@@ -1,3 +1,4 @@
+// @reqs ACCT-C14 REQ-D002
 import type { AccountDef } from "../core/accounts.js";
 import type { BrowserSession } from "../browser/chrome.js";
 import type { ConnectorDef, Platform } from "../core/types.js";
@@ -31,6 +32,13 @@ export interface PlatformAdapter {
   update(ctx: AdapterContext, c: ResolvedConnector): Promise<AdapterOutcome>;
   verify(ctx: AdapterContext, c: ResolvedConnector): Promise<AdapterOutcome>;
   probe(ctx: AdapterContext): Promise<AdapterOutcome>;
+  /**
+   * ACCT-C14: sign the session in with the vault login when the platform is signed out. The runner calls this
+   * only when the signed-in account could not be read, then re-reads and verifies email and method before any
+   * adapter acts. A session already signed in as another account or method is not overwritten (the runner never
+   * calls this in that case). Optional: platforms without a sign-in flow keep today's refusal.
+   */
+  ensureSignedIn?(ctx: AdapterContext): Promise<void>;
 }
 
 /** Placeholder until the real adapter lands in P3; keeps the runner/CLI/tests honest meanwhile. */

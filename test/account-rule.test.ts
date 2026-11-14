@@ -1,4 +1,4 @@
-// @reqs ACCT-001 ACCT-002 ACCT-003 ACCT-C01 ACCT-C02 ACCT-C03 ACCT-C04 ACCT-C05 ACCT-C06 ACCT-C07 ACCT-C10 ACCT-C11 ACCT-C12 ACCT-C13
+// @reqs ACCT-001 ACCT-002 ACCT-003 ACCT-C01 ACCT-C02 ACCT-C03 ACCT-C04 ACCT-C05 ACCT-C06 ACCT-C07 ACCT-C10 ACCT-C11 ACCT-C12 ACCT-C13 ACCT-C14 REQ-D002
 import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -516,5 +516,84 @@ describe("ACCT-C13 the expected login method comes from the matching vault login
     expect(google.detail).toMatch(/ACCOUNT_MISMATCH: /); expect(google.acted).toBe(0);
     const unread = await go({ email: A });
     expect(unread.detail).toMatch(/ACCOUNT_NOT_AUTHORIZED: /); expect(unread.acted).toBe(0);
+  });
+});
+
+describe("ACCT-C14 signed-out sessions may sign in with the vault login, then are re-verified", () => {
+  const demo: Registry = { version: 1, connectors: [{ id: "demo", name: "Demo", url: { type: "literal", value: "https://demo.example.test/mcp" }, auth: { mode: "none" }, platforms: ["grok"] }] };
+  const accts = { version: 1, default: "main", accounts: [{ id: "main", email: A, platforms: ["grok"], loginProvider: { grok: "email" } }] } as unknown as Accounts;
+  const vault = async () => [{ label: "Grok (grok.com email login)", method: "email" }];
+  const go = async (reads: unknown[], ensure?: () => Promise<void>) => {
+    const h = { opened: 0, closed: 0, acted: 0, read: 0, ensure: 0 };
+    const fake = { close: async () => { h.closed++; }, touched: new Set<string>() } as unknown as BrowserSession;
+    const adapter: PlatformAdapter = {
+      platform: "grok",
+      list: async () => ({ names: [] }),
+      add: async () => ({ status: "ok" }),
+      remove: async () => ({ status: "ok" }),
+      update: async () => ({ status: "ok" }),
+      verify: async (ctx) => { await ctx.session(); h.acted++; return { status: "ok" }; },
+      probe: async () => ({ status: "ok" }),
+      ...(ensure ? { ensureSignedIn: async () => { h.ensure++; await ensure(); } } : {}),
+    };
+    let i = 0;
+    const r = await run(demo, { op: "verify", connectors: ["demo"], platforms: ["grok"], account: "main" }, {
+      accounts: accts,
+      adapters: { grok: adapter },
+      sessionFactory: async () => { h.opened++; return fake; },
+      readIdentity: async () => { h.read++; return reads[Math.min(i++, reads.length - 1)] as never; },
+      listVaultLogins: vault,
+    });
+    return { detail: r.items[0]!.detail ?? "", ok: r.ok, h };
+  };
+  it("signed out, then vault email login yields the expected email and method: allowed, and the adapter acts", async () => {
+    const r = await go([undefined, { email: A, provider: "email" }], async () => {});
+    expect(r.ok).toBe(true);
+    expect(r.h).toMatchObject({ opened: 1, read: 2, ensure: 1, acted: 1 });
+  });
+  it("signed out, then login yields a Google session: refused, the session is closed, nothing acts", async () => {
+    const r = await go([undefined, { email: A, provider: "google" }], async () => {});
+    expect(r.detail).toMatch(/ACCOUNT_MISMATCH: /);
+    expect(r.h.ensure).toBe(1);
+    expect(r.h.acted).toBe(0);
+    expect(r.h.closed).toBeGreaterThanOrEqual(1);
+  });
+  it("signed out, then login yields a different account: refused, nothing acts", async () => {
+    const r = await go([undefined, { email: B, provider: "email" }], async () => {});
+    expect(r.detail).toMatch(/ACCOUNT_MISMATCH: /);
+    expect(r.h.ensure).toBe(1);
+    expect(r.h.acted).toBe(0);
+  });
+  it("already signed in as another account: ensureSignedIn is not called, mismatch, nothing acts", async () => {
+    const r = await go([{ email: B, provider: "email" }], async () => {});
+    expect(r.detail).toMatch(/ACCOUNT_MISMATCH: /);
+    expect(r.h).toMatchObject({ ensure: 0, acted: 0, read: 1 });
+  });
+  it("already signed in with a method other than the vault's: ensureSignedIn is not called, mismatch, nothing acts", async () => {
+    const r = await go([{ email: A, provider: "google" }], async () => {});
+    expect(r.detail).toMatch(/ACCOUNT_MISMATCH: /);
+    expect(r.h).toMatchObject({ ensure: 0, acted: 0, read: 1 });
+  });
+  it("already signed in as the expected email and email method: ensureSignedIn is not called, and the adapter acts", async () => {
+    const r = await go([{ email: A, provider: "email" }], async () => {});
+    expect(r.ok).toBe(true);
+    expect(r.h).toMatchObject({ ensure: 0, acted: 1, read: 1 });
+  });
+  it("identity still unreadable after ensureSignedIn (signed in but unreadable, or sign-in failed to establish a session): refused", async () => {
+    const r = await go([undefined, undefined], async () => {});
+    expect(r.detail).toMatch(/ACCOUNT_NOT_AUTHORIZED: /);
+    expect(r.h).toMatchObject({ ensure: 1, acted: 0, read: 2 });
+  });
+  it("a platform with no ensureSignedIn keeps today's refusal when the session cannot be read", async () => {
+    const r = await go([undefined]);
+    expect(r.detail).toMatch(/ACCOUNT_NOT_AUTHORIZED: /);
+    expect(r.h).toMatchObject({ ensure: 0, acted: 0, read: 1 });
+  });
+  it("ensureSignedIn throwing is an error, the session is closed, and nothing acts", async () => {
+    const r = await go([undefined], async () => { throw new Error("login failed"); });
+    expect(r.ok).toBe(false);
+    expect(r.detail).toMatch(/login failed/);
+    expect(r.h).toMatchObject({ ensure: 1, acted: 0 });
+    expect(r.h.closed).toBeGreaterThanOrEqual(1);
   });
 });
