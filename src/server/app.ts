@@ -8,6 +8,7 @@ import { z } from "zod";
 import { loadAccounts, type AccountDef } from "../core/accounts.js";
 import { loadRegistry } from "../core/registry.js";
 import { run as coreRun } from "../core/runner.js";
+import { enqueueRun, getRunJob, jobToResult, settleJob } from "../core/runJobs.js";
 import { reauth as coreReauth, type ReauthRequest, type ReauthResult } from "../core/reauth.js";
 import { PLATFORMS, type Registry, type RunRequest, type RunResult } from "../core/types.js";
 
@@ -51,13 +52,14 @@ function requireToken(expected: string) {
  * argument lands in the calling session's context. `.strict()` makes unknown fields an error, not silently ignored.
  */
 const runInput = z.object({
-  op: z.enum(["add", "remove", "update", "verify", "list", "probe"]),
-  connectors: z.array(z.string().regex(/^(\*|[a-z0-9][a-z0-9-]*)$/)).max(50).default([]).describe('Registry ids, or ["*"] for all. Not used by list/probe.'),
+  op: z.enum(["add", "remove", "update", "verify", "list", "probe", "status"]),
+  connectors: z.array(z.string().regex(/^(\*|[a-z0-9][a-z0-9-]*)$/)).max(50).default([]).describe('Registry ids, or ["*"] for all. Not used by list/probe/status.'),
   platforms: z.array(z.enum(PLATFORMS as [string, ...string[]])).min(1).default([...PLATFORMS]),
   include_test: z.boolean().default(false).describe('With connectors ["*"], also include tier "test" connectors. Test connectors are on-demand: name them explicitly to add/remove one.'),
   dry_run: z.boolean().default(false).describe("Resolve and validate everything without touching any platform."),
   if_existing: z.enum(["skip", "update", "fail"]).optional(),
   account: z.string().regex(/^[a-z0-9][a-z0-9-]*$/).optional().describe("Account id from cc_list_accounts (each has its own signed-in browser). Required: without it the run is refused (ACCOUNT_NOT_AUTHORIZED); the server's default account is never used, and each platform session must show this account signed in."),
+  job_id: z.string().regex(/^run_[a-f0-9]{16}$/).optional().describe("Job id returned by a previous cc_run. Required when op is status."),
 }).strict();
 
 const signinInput = z.object({
@@ -116,14 +118,32 @@ export function buildMcpServer(opts: AppOptions): McpServer {
     "cc_run",
     {
       description:
-        "Add, remove, update, list, verify or probe MCP connectors on claude.ai, ChatGPT and Grok. Takes registry ids only (see cc_list_registry); " +
-        "secrets are resolved inside the server and never returned. Idempotent. Use dry_run first if unsure.",
+        "Add, remove, update, list, verify or probe MCP connectors on claude.ai, ChatGPT and Grok, or poll a job with op=status. Takes registry ids only (see cc_list_registry); " +
+        "secrets are resolved inside the server and never returned. Idempotent. Use dry_run first if unsure. " +
+        "A run that opens a browser is started as a job and is not cancelled if the client disconnects or times out. " +
+        "If the work has not finished in a few seconds the tool returns a job_id; poll with op=status and that job_id. " +
+        "A second start for the same account while a job is in progress returns the existing job_id and does not open another browser.",
       inputSchema: runInput.shape,
     },
     async (args) => {
       const a = runInput.parse(args);
+      if (a.op === "status") {
+        if (!a.job_id) return { content: [{ type: "text", text: "job_id is required when op is status" }], isError: true };
+        const job = getRunJob(a.job_id);
+        if (!job) return { content: [{ type: "text", text: "unknown job_id" }], isError: true };
+        const res = jobToResult(job);
+        return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }], isError: !res.ok };
+      }
       const reg = loadRegistry(opts.registryPath);
-      const res = await runFn(reg, { op: a.op, connectors: a.connectors, platforms: a.platforms as RunRequest["platforms"], dryRun: a.dry_run, includeTest: a.include_test, ifExisting: a.if_existing, account: a.account });
+      const req = { op: a.op, connectors: a.connectors, platforms: a.platforms as RunRequest["platforms"], dryRun: a.dry_run, includeTest: a.include_test, ifExisting: a.if_existing, account: a.account };
+      if (a.dry_run) {
+        const res = await runFn(reg, req);
+        return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }], isError: !res.ok };
+      }
+      const { job } = enqueueRun(req, () => runFn(reg, req));
+      const waitMs = Number(process.env.CC_RUN_WAIT_MS);
+      const settled = await settleJob(job.id, Number.isFinite(waitMs) ? waitMs : 2500);
+      const res = jobToResult(settled);
       return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     },
   );

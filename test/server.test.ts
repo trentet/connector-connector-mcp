@@ -63,7 +63,7 @@ describe("http front door", () => {
     const names = r.result.tools.map((t: { name: string }) => t.name).sort();
     expect(names).toEqual(["cc_list_accounts", "cc_list_registry", "cc_reauth", "cc_run", "cc_signin"]);
     const props = Object.keys(r.result.tools.find((t: { name: string }) => t.name === "cc_run").inputSchema.properties);
-    expect(props.sort()).toEqual(["account", "connectors", "dry_run", "if_existing", "include_test", "op", "platforms"]);
+    expect(props.sort()).toEqual(["account", "connectors", "dry_run", "if_existing", "include_test", "job_id", "op", "platforms"]);
     expect(props.join(" ")).not.toMatch(/url|token|secret|password|header/i);
     const rprops = Object.keys(r.result.tools.find((t: { name: string }) => t.name === "cc_reauth").inputSchema.properties);
     expect(rprops.sort()).toEqual(["connectors", "dry_run", "include_test", "only_if_older_than_days"]);
