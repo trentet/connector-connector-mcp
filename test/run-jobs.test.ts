@@ -1,4 +1,4 @@
-// @reqs REQ-D003
+// @reqs REQ-D003 REQ-D010
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/server/app.js";
@@ -218,5 +218,38 @@ describe("cc_run jobs over HTTP (REQ-D003)", () => {
     const result = await waitForJob(listRunJobs()[0].id);
     expect(result.ok).toBe(true);
     expect(finished).toBe(1);
+  });
+});
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { reportStep } from "../src/core/jobProcs.js";
+
+describe("REQ-D010 AC7: a login's step line reaches the job's run log", () => {
+  beforeEach(() => resetRunJobs());
+  afterEach(() => { resetRunJobs(); delete process.env.CC_RUN_LOG_DIR; });
+
+  it("TC-D010-25 inside a job, reportStep writes a step line to logs/runs/<job>.log", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-d010-"));
+    process.env.CC_RUN_LOG_DIR = dir;
+    try {
+      const { job } = enqueueRun(req({ op: "verify", account: "tc-d010-25" }), async () => {
+        reportStep("grok-login mode=headful human-check=auto-solved clicks=0");
+        return okResult();
+      });
+      await waitForJob(job.id);
+      const log = fs.readFileSync(path.join(dir, `${job.id}.log`), "utf8");
+      expect(log).toMatch(new RegExp(`${job.id} account=tc-d010-25 op=verify step grok-login mode=headful human-check=auto-solved clicks=0`));
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("TC-D010-26 outside a job, reportStep writes nothing and never throws", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-d010-"));
+    process.env.CC_RUN_LOG_DIR = dir;
+    try {
+      expect(() => reportStep("grok-login mode=headful human-check=none")).not.toThrow();
+      expect(fs.readdirSync(dir)).toEqual([]);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 });

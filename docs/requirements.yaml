@@ -605,5 +605,3 @@ requirements:
   files: [src/adapters/grokLoginWait.ts, src/adapters/grok.ts, src/core/jobProcs.ts, src/core/runJobs.ts, test/grok-login.test.ts, test/grok-human-check.test.ts, test/run-jobs.test.ts]
   tools: [cc_run]
   decision: {quote: You literally just implemented the exact opposite solution, at: '2026-11-15', source: main chat t166u, from: REQ-U013}
-untraced:
-- {id: REQ-D010, why: "Spec-first order (REQ-U001, owner t166u): this commit holds the requirement only; its test cases are listed above (test_cases) and its test code comes in the next commit, which removes this entry."}
