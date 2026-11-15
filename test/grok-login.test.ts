@@ -1,104 +1,127 @@
-// @reqs REQ-D004
+// @reqs REQ-D004 REQ-D007
 import { describe, expect, it } from "vitest";
 import {
-  clickTurnstileOnce,
   GROK_LOGIN_TOTAL_WAIT_MS,
-  iframeTurnstilePresent,
-  waitForGrokLoginRedirect,
+  grokLoginReached,
+  humanCheckState,
+  submitAndConfirmGrokLogin,
+  TURNSTILE_TOKEN_INPUT,
   type LoginPage,
 } from "../src/adapters/grokLoginWait.js";
+import { onGrokHost } from "../src/adapters/grok.js";
 import { chromeLaunchFlags } from "../src/browser/chrome.js";
+import * as loginWait from "../src/adapters/grokLoginWait.js";
 
-function fakePage(init: {
-  url?: string;
+const SIGN_IN = "https://accounts.x.ai/sign-in?redirect=grok-com&email=true";
+
+/**
+ * A fake sign-in page driven by a script of "ticks": at each poll the clock advances and the script may change the
+ * human check's token or decide what a Login press does. Nothing on it can be clicked except through `submit`,
+ * so a test that passes proves cc never clicks the human check.
+ */
+function fakeLogin(opts: {
+  /** token value of input[name=cf-turnstile-response] at time t (undefined = no such input). */
+  token?: (t: number) => string | undefined;
   frames?: string[];
-  iframe?: boolean;
-  redirectAfter?: { ms: number; url: string };
-  now?: { t: number };
-}): LoginPage & { clicks: string[]; waitTimeouts: number[] } {
-  const state = {
-    url: init.url ?? "https://accounts.x.ai/sign-in?redirect=grok-com&email=true",
-    frames: [...(init.frames ?? [])],
-    iframe: !!init.iframe,
-    clicks: [] as string[],
-    waitTimeouts: [] as number[],
-  };
-  const clock = init.now ?? { t: 0 };
-  const loc = (name: string) => ({
-    first: () => ({
-      count: async () => (state.iframe && /iframe/.test(name) ? 1 : 0),
-      click: async () => { state.clicks.push(name); },
+  /** what a Login press at time t does: navigate to a URL, or nothing. */
+  onSubmit?: (t: number, n: number, token: string | undefined) => string | undefined;
+}) {
+  const clock = { t: 0 };
+  let url = SIGN_IN;
+  const presses: Array<{ t: number; token: string | undefined }> = [];
+  const page: LoginPage = {
+    url: () => url,
+    locator: (sel: string) => ({
+      first: () => ({
+        count: async () => (sel === TURNSTILE_TOKEN_INPUT && opts.token && opts.token(clock.t) !== undefined ? 1 : 0),
+        inputValue: async () => (sel === TURNSTILE_TOKEN_INPUT ? opts.token?.(clock.t) ?? "" : ""),
+      }),
     }),
-  });
-  return {
-    clicks: state.clicks,
-    waitTimeouts: state.waitTimeouts,
-    url: () => state.url,
-    locator: loc,
-    frames: () => state.frames.map((u) => ({ url: () => u, locator: loc })),
-    async waitForURL(pattern, opts) {
-      state.waitTimeouts.push(opts.timeout);
-      const delay = init.redirectAfter?.ms;
-      if (delay !== undefined && opts.timeout >= delay && pattern.test(init.redirectAfter!.url)) {
-        clock.t += delay;
-        state.url = init.redirectAfter!.url;
-        state.frames = [];
-        state.iframe = false;
-        return;
-      }
-      clock.t += opts.timeout;
-      throw new Error(`Timeout ${opts.timeout}ms exceeded`);
-    },
+    frames: () => (opts.frames ?? []).map((u) => ({ url: () => u })),
   };
+  const submit = async () => {
+    const tok = opts.token?.(clock.t);
+    presses.push({ t: clock.t, token: tok });
+    const to = opts.onSubmit?.(clock.t, presses.length, tok);
+    if (to) url = to;
+  };
+  const run = (o: Parameters<typeof submitAndConfirmGrokLogin>[2] = {}) =>
+    submitAndConfirmGrokLogin(page, submit, { now: () => clock.t, sleep: async (ms) => { clock.t += ms; }, ...o });
+  return { page, presses, run, clock };
 }
 
-describe("grok login Turnstile wait (REQ-D004)", () => {
-  it("if the redirect happens during the auto-wait, the Turnstile is never clicked", async () => {
-    const page = fakePage({
-      iframe: true,
-      frames: ["https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/turnstile/x"],
-      redirectAfter: { ms: 5, url: "https://grok.com/" },
+describe("grok login presses Login after the human check passes, then confirms grok.com (REQ-D007)", () => {
+  it("the 2026-11-15 failure: check pending, then passed on its own -> Login is pressed only after it passed, and grok.com is reached", async () => {
+    // pending for 30 s, then a pass token; a press with a valid token signs in.
+    const f = fakeLogin({ token: (t) => (t < 30_000 ? "" : "tok-1"), onSubmit: (_t, _n, tok) => (tok ? "https://grok.com/" : undefined) });
+    const out = await f.run();
+    expect(f.presses).toHaveLength(1);
+    expect(f.presses[0].t).toBeGreaterThanOrEqual(30_000);
+    expect(f.presses[0].token).toBe("tok-1");
+    expect(out.submits).toBe(1);
+    expect(grokLoginReached(f.page.url())).toBe(true);
+  });
+
+  it("a press that does not leave the page is repeated when the check hands out a new pass token (bounded)", async () => {
+    // first token is rejected by the form (stays on the page), widget re-solves with a new token, second press works.
+    const f = fakeLogin({
+      token: (t) => (t < 5_000 ? "tok-a" : t < 8_000 ? "" : "tok-b"),
+      onSubmit: (_t, _n, tok) => (tok === "tok-b" ? "https://grok.com/" : undefined),
     });
-    await waitForGrokLoginRedirect(page, { autoWaitMs: 20, totalWaitMs: 100 });
-    expect(page.clicks).toEqual([]);
-    expect(page.url()).toBe("https://grok.com/");
-    expect(page.waitTimeouts[0]).toBe(20);
+    const out = await f.run();
+    expect(f.presses.map((p) => p.token)).toEqual(["tok-a", "tok-b"]);
+    expect(out.submits).toBe(2);
   });
 
-  it("if Turnstile is still up after the auto-wait, it is clicked once, then the remaining time is used", async () => {
-    const page = fakePage({
-      iframe: true,
-      frames: ["https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/turnstile/x"],
-      redirectAfter: { ms: 50, url: "https://accounts.x.ai/account" },
-    });
-    await waitForGrokLoginRedirect(page, { autoWaitMs: 20, totalWaitMs: 100 });
-    expect(page.clicks).toHaveLength(1);
-    expect(page.url()).toBe("https://accounts.x.ai/account");
-    expect(page.waitTimeouts[0]).toBe(20);
-    expect(page.waitTimeouts[1]).toBeGreaterThan(0);
-    expect(page.waitTimeouts[1]).toBeLessThanOrEqual(100);
-    expect(page.waitTimeouts[0] + page.waitTimeouts[1]).toBeLessThanOrEqual(120);
+  it("never presses Login while the check is pending, and reports a check that never passes in the visible window, precisely", async () => {
+    const f = fakeLogin({ token: () => "", frames: ["https://challenges.cloudflare.com/cdn-cgi/challenge-platform/turnstile/if"] });
+    await expect(f.run({ totalWaitMs: 60_000 })).rejects.toThrow(/did not reach grok\.com within 60s: Login pressed 0 time\(s\); human check pending \(it did not pass in the visible window; cc never clicks it\); page https:\/\/accounts\.x\.ai\/sign-in/);
+    expect(f.presses).toHaveLength(0);
   });
 
-  it("Turnstile is not clicked when it is not present; the long wait still runs after a short auto-wait miss", async () => {
-    const page = fakePage({
-      redirectAfter: { ms: 40, url: "https://grok.com/connectors" },
-    });
-    await waitForGrokLoginRedirect(page, { autoWaitMs: 10, totalWaitMs: 80 });
-    expect(page.clicks).toEqual([]);
-    expect(await iframeTurnstilePresent(page)).toBe(false);
-    expect(page.url()).toBe("https://grok.com/connectors");
+  it("with no human check, Login is pressed at once and repeated at most maxSubmits times, then fails with the count", async () => {
+    const f = fakeLogin({});
+    await expect(f.run({ totalWaitMs: 200_000, resubmitMs: 20_000, maxSubmits: 3 })).rejects.toThrow(/Login pressed 3 time\(s\); human check none/);
+    expect(f.presses).toHaveLength(3);
+    expect(f.presses[0].t).toBe(0);
   });
 
-  it("clickTurnstileOnce only attempts a single click", async () => {
-    const page = fakePage({ iframe: true, frames: ["https://challenges.cloudflare.com/turnstile"] });
-    expect(await clickTurnstileOnce(page)).toBe(true);
-    expect(page.clicks).toHaveLength(1);
-    expect(await clickTurnstileOnce(page)).toBe(true);
-    expect(page.clicks).toHaveLength(2); // each call is one click; login calls it once
+  it("the error never carries the query string of the page (no tokens or emails in errors)", async () => {
+    const f = fakeLogin({ token: () => "" });
+    const err = await f.run({ totalWaitMs: 3_000 }).catch((e: Error) => e.message);
+    expect(err).toMatch(/page https:\/\/accounts\.x\.ai\/sign-in$/);
+    expect(err).not.toMatch(/redirect=|email=/);
   });
 
-  it("the default remaining wait after a missed auto-solve is 10 minutes", () => {
+  it("humanCheckState reads Turnstile's own form field and never clicks anything", async () => {
+    expect((await humanCheckState(fakeLogin({ token: () => "" }).page)).state).toBe("pending");
+    expect(await humanCheckState(fakeLogin({ token: () => "abc" }).page)).toEqual({ state: "passed", token: "abc" });
+    expect((await humanCheckState(fakeLogin({}).page)).state).toBe("none");
+    expect((await humanCheckState(fakeLogin({ frames: ["https://challenges.cloudflare.com/x"] }).page)).state).toBe("pending");
+  });
+
+  it("cc has no code that clicks the human check (RULE-212, R-188.4)", () => {
+    expect(Object.keys(loginWait)).not.toContain("clickTurnstileOnce");
+    expect(Object.keys(loginWait)).not.toContain("waitForGrokLoginRedirect");
+  });
+
+  it("grok.com is reached only by host and path, never by a substring of the URL", () => {
+    expect(grokLoginReached("https://grok.com/")).toBe(true);
+    expect(grokLoginReached("https://grok.com/connectors")).toBe(true);
+    expect(grokLoginReached("https://accounts.x.ai/account")).toBe(true);
+    expect(grokLoginReached(SIGN_IN)).toBe(false);
+    expect(grokLoginReached("https://accounts.x.ai/sign-in?next=https://grok.com/")).toBe(false);
+    expect(grokLoginReached("https://grok.com.evil.example/")).toBe(false);
+    expect(grokLoginReached("http://grok.com/")).toBe(false);
+  });
+
+  it("a signed-out redirect to accounts.x.ai is never taken for a signed-in grok.com (the retry's ACCOUNT_NOT_AUTHORIZED of 2026-11-15)", () => {
+    expect(onGrokHost("https://grok.com/connectors")).toBe(true);
+    expect(onGrokHost(SIGN_IN)).toBe(false);
+    expect(onGrokHost("about:blank")).toBe(false);
+  });
+
+  it("the wait for a human in the visible window stays 10 minutes", () => {
     expect(GROK_LOGIN_TOTAL_WAIT_MS).toBe(10 * 60 * 1000);
   });
 });

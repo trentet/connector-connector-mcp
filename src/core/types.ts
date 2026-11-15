@@ -122,5 +122,10 @@ export interface RunResult {
   /** Present when the work was started as a job (REQ-D003). */
   job_id?: string;
   jobStatus?: "running" | "ok" | "error";
+  /** REQ-D008: work, cleanup, done or cleanup-timeout. */
+  phase?: string;
+  /** REQ-D009: the cc process running the job, and every process the job launched (PID, OS start time, port, profile, lane, end state). */
+  serverPid?: number;
+  processes?: import("./jobProcs.js").JobProcess[];
   detail?: string;
 }

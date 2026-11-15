@@ -1,4 +1,4 @@
-// @reqs ACCT-C02 REQ-U009 REQ-D001 REQ-D002 ACCT-C14 REQ-D004
+// @reqs ACCT-C02 REQ-U009 REQ-D001 REQ-D002 ACCT-C14 REQ-D004 REQ-D007
 import fs from "node:fs";
 import path from "node:path";
 import type { Page } from "patchright";
@@ -8,7 +8,7 @@ import { assertFlowMethod, assertLoginAccount, assertMethodsAgree, ccMethodError
 import { detectSignInOptions, loadSignInOptions, resolveSignInMethod } from "../core/signInMethod.js";
 import { getCredential, signInStore } from "../core/vaultClient.js";
 import type { AdapterContext, AdapterOutcome, PlatformAdapter } from "./types.js";
-import { waitForGrokLoginRedirect } from "./grokLoginWait.js";
+import { submitAndConfirmGrokLogin } from "./grokLoginWait.js";
 
 const sel = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "grok.json"), "utf8"));
 const rx = (p: string) => new RegExp(p, "i");
@@ -37,7 +37,14 @@ export async function dismissInterstitials(page: Page): Promise<number> {
   return closed;
 }
 
+/** REQ-D007: true only on grok.com itself, judged by host. */
+export function onGrokHost(url: string): boolean {
+  try { const h = new URL(url).hostname.toLowerCase(); return h === "grok.com" || h.endsWith(".grok.com"); } catch { return false; }
+}
+
 async function isSignedIn(page: Page): Promise<boolean> {
+  // REQ-D007: a signed-out grok.com can redirect to accounts.x.ai's sign-in page, which has no "Sign in" button; only grok.com itself can show a signed-in session.
+  if (!onGrokHost(page.url())) return false;
   // Signed out: the connectors page shows "Sign in" / "Sign up" and no "Toggle Sidebar" account chrome.
   return (await page.getByRole("button", { name: /^sign in$/i }).count()) === 0 && (await page.getByRole("link", { name: /^sign in$/i }).count()) === 0;
 }
@@ -68,9 +75,9 @@ async function login(ctx: AdapterContext): Promise<void> {
     await page.getByRole("button", { name: rx(sel.login.next.name) }).first().click();
     await page.locator(sel.login.passwordInput).first().waitFor({ timeout: 15000 });
     await page.locator(sel.login.passwordInput).first().fill(cred.password!);
-    await page.getByRole("button", { name: rx(sel.login.submit.name) }).first().click();
-    // REQ-D004: visible Chrome may auto-solve Turnstile; if not, click once and wait up to 10 minutes.
-    await waitForGrokLoginRedirect(page);
+    // REQ-D007: press Login only once the human check has passed (cc never clicks the check, RULE-212 / R-188.4), then confirm
+    // grok.com was reached. The runner then reads the signed-in account and its login method before anything acts (ACCT-C05, ACCT-C10).
+    await submitAndConfirmGrokLogin(page, () => page.getByRole("button", { name: rx(sel.login.submit.name) }).first().click({ timeout: 10000 }));
   });
 }
 

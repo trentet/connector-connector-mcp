@@ -6,6 +6,7 @@ import { chromium, type Browser, type BrowserContext, type Cookie, type Page } f
 import { acquireLane, type Lane } from "./lanes.js";
 import { cloneProfile, profileInUse, removeProfile, withMasterLock } from "./profile.js";
 import { chromeSpawnSpec } from "./ownDesktop.js";
+import { trackChild } from "../core/jobProcs.js";
 
 /** Hosts whose stale tabs this tool may close. Anything else in the shared profile is left alone. */
 const OWNED_HOSTS = ["claude.ai", "chatgpt.com", "grok.com", "x.ai", "accounts.google.com", "auth.openai.com"];
@@ -82,7 +83,7 @@ export async function mergeCookiesIntoMaster(master: string, cookies: Cookie[]):
   try {
     return await withMasterLock(master, async () => {
       if (profileInUse(master)) return false;
-      const l = await launchChrome(master, lane.port);
+      const l = await launchChrome(master, lane.port, { kind: "chrome-merge", lane: lane.index });
       let b: Browser | undefined;
       try {
         b = await chromium.connectOverCDP(`http://127.0.0.1:${lane.port}`);
@@ -115,7 +116,7 @@ export function chromeLaunchFlags(e: NodeJS.ProcessEnv | Record<string, string |
  * Start a normal (not automation-launched) Chrome on a user-data-dir and CDP port. Playwright's persistent-context API is never used.
  * It runs at BELOW-NORMAL priority (children inherit it) so other workloads on the shared host win a CPU fight; CC_CHROME_PRIORITY=normal opts out.
  */
-export async function launchChrome(userDataDir: string, port: number, opts: { cacheDir?: string } = {}): Promise<{ child: ChildProcess; exited: Promise<void> }> {
+export async function launchChrome(userDataDir: string, port: number, opts: { cacheDir?: string; kind?: string; lane?: number } = {}): Promise<{ child: ChildProcess; exited: Promise<void> }> {
   const exe = process.env.CC_CHROME_PATH ?? DEFAULT_CHROME;
   const extra = (process.env.CC_CHROME_EXTRA_ARGS ?? "").split(/\s+/).filter(Boolean);
   const cache = opts.cacheDir ? [`--disk-cache-dir=${opts.cacheDir}`, `--disk-cache-size=${(Number(process.env.CC_CACHE_MB) || 150) * 1024 * 1024}`] : [];
@@ -123,6 +124,8 @@ export async function launchChrome(userDataDir: string, port: number, opts: { ca
   const spec = chromeSpawnSpec(exe, [`--remote-debugging-port=${port}`, `--user-data-dir=${userDataDir}`, "--no-first-run", "--no-default-browser-check", ...LEAN_FLAGS, ...cache, ...extra, "about:blank"]);
   const child = spawn(spec.file, spec.args, { stdio: "ignore", windowsHide: spec.windowsHide });
   if (child.pid && process.env.CC_CHROME_PRIORITY !== "normal") { try { os.setPriority(child.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch { /* not permitted: run at normal priority */ } }
+  // REQ-D009: the job that launched this process records its PID, OS start time, port, profile, cache and lane.
+  trackChild(child, { kind: opts.kind ?? (spec.file === exe ? "chrome" : "desktop-helper"), port, userDataDir, cacheDir: opts.cacheDir, lane: opts.lane });
   const exited = new Promise<void>((resolve) => { child.once("exit", () => resolve()); child.once("error", () => resolve()); });
   for (let i = 0; i < 60; i++) {
     if (await cdpUp(port)) return { child, exited };
@@ -141,9 +144,15 @@ function killTree(child: ChildProcess): void {
   } catch { /* already gone */ }
 }
 
-/** Ask Chrome to quit over CDP, wait for the process to exit, and force it if it does not. */
+/** REQ-D008: a teardown step that hangs (a wedged CDP connection) must not hold a run open; it gives up after `ms`. */
+export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let t: NodeJS.Timeout | undefined;
+  return Promise.race([p, new Promise<T>((_, rej) => { t = setTimeout(() => rej(new Error(`timed out after ${ms} ms`)), ms); t.unref?.(); })]).finally(() => { if (t) clearTimeout(t); });
+}
+
+/** Ask Chrome to quit over CDP (bounded), wait for the process to exit, and force it (by its PID) if it does not. */
 export async function shutdownChrome(browser: Browser | undefined, child: ChildProcess, exited: Promise<void>): Promise<void> {
-  try { if (browser) await (await browser.newBrowserCDPSession()).send("Browser.close"); } catch { /* fall through to waiting/killing */ }
+  try { if (browser) await withTimeout((async () => (await browser.newBrowserCDPSession()).send("Browser.close"))(), 10000); } catch { /* fall through to waiting/killing */ }
   const done = await Promise.race([exited.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 15000))]);
   if (!done) { killTree(child); await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]); }
 }
@@ -171,7 +180,7 @@ export async function openSession(opts: { artifactsDir?: string; /** The account
     runDir = fs.mkdtempSync(path.join(os.tmpdir(), `cc-run-${lane.index}-`));
     await cloneProfile(master, runDir);
     // A warm HTTP cache per lane (the lane lock makes it exclusive) cuts a run's CPU and network by roughly a quarter on the HELM host (measured on ChatGPT: 45 to 34 CPU-seconds).
-    launched = await launchChrome(runDir, lane.port, { cacheDir: path.join(process.env.CC_CACHE_DIR ?? path.join(path.dirname(master), "browser-cache"), `lane-${lane.index}`) });
+    launched = await launchChrome(runDir, lane.port, { cacheDir: path.join(process.env.CC_CACHE_DIR ?? path.join(path.dirname(master), "browser-cache"), `lane-${lane.index}`), lane: lane.index });
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${lane.port}`);
     const context = browser.contexts()[0];
     if (!context) throw new Error("CDP browser has no default context");
@@ -192,7 +201,7 @@ export async function openSession(opts: { artifactsDir?: string; /** The account
         let rotated: Cookie[] = [];
         try {
           const specs = loadAuthSpecs();
-          const cookies = await context.cookies();
+          const cookies = await withTimeout(context.cookies(), 10000);
           // Only a healthy run (every platform it touched still has its sign-in cookie) may contribute; a signed-out browser never does.
           if (sessionHealthy(cookies, touched, specs)) rotated = changedSince(startCookies, refreshCookies(cookies, touched, specs));
         } catch { /* a dead browser contributes nothing */ }
