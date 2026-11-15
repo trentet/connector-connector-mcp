@@ -3,7 +3,7 @@
 # behaviour is not backfilled here; gate.code and gate.tools_in_scope list exactly what this ledger covers.
 gate:
   id_pattern: '\b(?:REQ-[UDG]\d{3}|ACCT-(?:\d{3}|[PCV]\d{2}))\b'
-  code: ['^src/core/signInMethod\.ts$', '^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
+  code: ['^src/core/signInMethod\.ts$', '^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/adapters/grokLoginWait\.ts$', '^src/core/runJobs\.ts$', '^src/core/jobProcs\.ts$', '^src/browser/chrome\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
   tests: ['^test/.+\.ts$']
   tool_files: ['^src/server/app\.ts$']
   tools_in_scope: [cc_signin, cc_run, cc_reauth]
@@ -399,8 +399,8 @@ requirements:
   text: >
     When the grok.com email-and-password sign-in page shows a Cloudflare Turnstile, cc first
     lets the challenge auto-solve in a visible (headful) Chrome, which is often enough in a
-    real browser. If the challenge is still present after a short auto-wait, cc clicks the
-    Turnstile checkbox once. It then waits up to 10 minutes for the redirect to grok.com (or
+    real browser. cc never clicks the challenge (amended 2026-11-15 by REQ-D007: the one click this entry
+    used to allow is removed, RULE-212 and R-188.4). It waits up to 10 minutes for the redirect to grok.com (or
     accounts.x.ai/account) so a human at that machine can finish the challenge in the same
     window. Chrome for a real run is launched with windowsHide false and without --headless
     unless CC_CHROME_EXTRA_ARGS requests headless (tests only). Secrets are never returned.
@@ -451,3 +451,70 @@ requirements:
   files: [src/browser/ownDesktop.ts, src/browser/chrome.ts, scripts/start-on-desktop.ps1, test/own-desktop.test.ts]
   tools: [cc_run]
   decision: {quote: all automated interactions and work must be invisible wherever possible, at: '2026-11-14', source: operator message 245 via the HELM Dev owner thread, from: REQ-U011}
+- id: REQ-U012
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-15'
+  source: main chat t162u, t163u and t164u, 15 Nov 2026 (owner, verbatim fragments; his profanity is left out). The parent thread's professional form of t163u is "fix the root cause, not just the symptom".
+  quotes:
+  - "It\u2019s absolutely unacceptable to be having work deployed, but not be checking in on it on a regular basis automatically without human intervention"
+  - "you correct the specific thing I asked you to correct but you don\u2019t correct the actual root cause"
+  - it must be programmatically enforced
+  - reliably identifying processes by PID in order to be able to identify what
+  - "guessing on a machine that\u2019s being shared by like literally dozens of other scripts"
+  implemented_by: [REQ-D007, REQ-D008, REQ-D009]
+- id: REQ-D007
+  kind: derived
+  status: decided
+  title: Grok email login presses Login after the human check passes, confirms grok.com, and never clicks the check
+  text: >
+    Root cause of the 15 Nov 2026 failure (run_86587827120479fd, screenshot 2026-11-15T16-19-47-231Z-grok-login-FAILED.png):
+    Login was pressed while the Cloudflare check was still pending, so the form did not submit; the check then passed on
+    its own and nothing pressed Login again, so the run waited ten minutes on a filled-in form. cc now reads the check's
+    state from Turnstile's own form field (input name cf-turnstile-response: empty while pending, a token once passed),
+    presses Login only when it has passed (or when the page has no check), and presses again, at most 4 times, when a
+    new pass token appears or 20 s pass after a press that did not leave the page. It never clicks the check itself
+    (RULE-212, R-188.4); the click REQ-D004 allowed is removed. The login is complete only when the browser is on grok.com
+    (or accounts.x.ai/account), judged by host and path, never by a substring of the URL; then the runner reads the
+    signed-in email and login method and acts only when they are the run's account with an email login (ACCT-C05,
+    ACCT-C10). A signed-out grok.com that redirects to accounts.x.ai is never taken for signed in (the cause of the retry's
+    "ACCOUNT_NOT_AUTHORIZED: the account signed in on grok could not be read"). If the check is still pending at the
+    10-minute deadline in the visible window, the error says so with the number of Login presses and the page's origin
+    and path only.
+  files: [src/adapters/grokLoginWait.ts, src/adapters/grok.ts, test/grok-login.test.ts]
+  tools: [cc_run]
+  decision: {quote: "you correct the specific thing I asked you to correct but you don\u2019t correct the actual root cause", at: '2026-11-15', source: main chat t163u, from: REQ-U012}
+- id: REQ-D008
+  kind: derived
+  status: decided
+  title: A job's status follows the work; a failure is reported at once with its exact error, and cleanup is bounded
+  text: >
+    Root cause of run_86587827120479fd staying "running" for about 17 minutes after its login had failed: the job's status
+    was set only after every browser session had closed, and the close had unbounded steps. Now each finished item is
+    added to the job at once, and when the work is done the job is ok or error with the exact error before the browsers
+    are shut down (phase cleanup); op=status shows status, phase and items right away. Shutdown steps that can hang (CDP
+    Browser.close, reading cookies) give up after 10 s. If the cleanup still overruns CC_JOB_CLEANUP_MS (default 90 s),
+    the job settles its own recorded PIDs (REQ-D009), releases its account lock and in-flight slot (phase cleanup-timeout),
+    so a stuck shutdown can never block the next run. Run logs go to cc's data dir (logs/runs/<job>.log) with ids, ops,
+    statuses and PIDs only; tests use their own temp data dir.
+  files: [src/core/runJobs.ts, src/core/runner.ts, src/browser/chrome.ts, src/core/types.ts, test/job-processes.test.ts, test/run-jobs.test.ts]
+  tools: [cc_run]
+  decision: {quote: "It\u2019s absolutely unacceptable to be having work deployed, but not be checking in on it on a regular basis automatically without human intervention", at: '2026-11-15', source: main chat t162u, from: REQ-U012}
+- id: REQ-D009
+  kind: derived
+  status: decided
+  title: Every process a job launches is recorded by PID and start time, returned by op=status, and settled by PID at the end
+  text: >
+    On 15 Nov 2026 nothing tied a process on the shared host to a cc job: the cc server had no children, and a Chrome on
+    cc's lane-0 port with a cc-run-* profile turned out to belong to the page-backups tool, which opens browsers through
+    cc's own openSession from the deployed copy (so it shares cc's lane locks, ports and profile naming by design). Each
+    process a job launches (a run's Chrome or the REQ-D006 desktop helper, and the cookie-merge Chrome) is recorded in
+    the job state with the job id, PID, OS start time, spawn time, kind, CDP port, user-data-dir, cache dir and lane;
+    op=status returns them with the cc server's own PID. At job end each recorded process is confirmed exited, or exactly
+    that PID and its tree are killed and its exit confirmed. A PID that now has another start time is someone else's
+    and is left alone; one whose start time was never read is not killed. Nothing is ever matched or killed by name,
+    port or folder. Processes started outside a job (page-backups, the CLI's seed and sign-in) are not attributed to one.
+  files: [src/core/jobProcs.ts, src/core/runJobs.ts, src/browser/chrome.ts, src/core/types.ts, test/job-processes.test.ts]
+  tools: [cc_run]
+  decision: {quote: reliably identifying processes by PID in order to be able to identify what, at: '2026-11-15', source: main chat t164u, from: REQ-U012}

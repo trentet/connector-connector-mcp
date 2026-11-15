@@ -1,4 +1,4 @@
-// @reqs ACCT-001 ACCT-C05 ACCT-C10 ACCT-C11 ACCT-C12 ACCT-C13 ACCT-C14 REQ-D002
+// @reqs ACCT-001 ACCT-C05 ACCT-C10 ACCT-C11 ACCT-C12 ACCT-C13 ACCT-C14 REQ-D002 REQ-D008
 import type { BrowserContext } from "patchright";
 import type { BrowserSession } from "../browser/chrome.js";
 import { watchLogin, type LoginCredential, type LoginWatcher } from "../browser/oauthLogin.js";
@@ -8,6 +8,7 @@ import { Redactor } from "./redact.js";
 import { AccountNotAuthorizedError, assertSameIdentity, expectedIdentity, registryIdentity, type SeenIdentity } from "./accountChoice.js";
 import type { Lookup } from "./accountRegistry.js";
 import { readPlatformAccount } from "../browser/identity.js";
+import { reportItem, reportWorkDone } from "./jobProcs.js";
 import { resolve, defaultDeps, type ResolveDeps } from "./secrets.js";
 import type { ConnectorDef, ItemResult, Platform, Registry, RunRequest, RunResult } from "./types.js";
 
@@ -98,13 +99,16 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
     sessions.delete(platform);
     if (p) { try { await (await p).close(); } catch { /* a session that never opened has nothing to close */ } }
   };
+  // REQ-D008: browser shutdowns run alongside, and the job learns the result before they finish.
+  const closing: Promise<void>[] = [];
+  const final = (): RunResult => { const items = results.filter(Boolean).map((i) => ({ ...i, ...tag })); return { ok: items.every((i) => i.status !== "error"), items }; };
   try {
     await runTasks();
+    reportWorkDone(final());
   } finally {
-    await Promise.allSettled(req.platforms.map((p) => closeSession(p)));
+    await Promise.allSettled([...closing, ...req.platforms.map((p) => closeSession(p))]);
   }
-  const items = results.filter(Boolean).map((i) => ({ ...i, ...tag }));
-  return { ok: items.every((i) => i.status !== "error"), items };
+  return final();
 
   async function runTasks(): Promise<void> {
     const wanted = req.connectors.includes("*") ? reg.connectors.filter((c) => req.includeTest || c.tier !== "test") : req.connectors.map((id) => reg.connectors.find((c) => c.id === id) ?? id);
@@ -130,8 +134,9 @@ export async function run(reg: Registry, req: RunRequest, opts: RunnerOptions = 
     const queue = [...byPlatform.values()];
     await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, async () => {
       for (let w = queue.shift(); w; w = queue.shift()) {
-        for (const t of w) results[t.idx] = await runTask(t, needsConnector);
-        await closeSession(w[0].platform); // done with this platform: free its browser and lane NOW, not at the end of the call
+        for (const t of w) { results[t.idx] = await runTask(t, needsConnector); reportItem({ ...results[t.idx], ...tag }); }
+        // Done with this platform: start freeing its browser and lane NOW. REQ-D008: the job's status does not wait for the shutdown.
+        closing.push(closeSession(w[0].platform));
       }
     }));
   }
