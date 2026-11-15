@@ -570,8 +570,40 @@ requirements:
   - {id: REQ-D010.AC8, text: "Errors and step lines carry the page's origin and path only: never a query string, email, token or password."}
   - {id: REQ-D010.AC9, text: "Everything is bounded: total clicks at most maxClicks x (1 + maxReloads); polling never faster than 500 ms; the real run's Chrome stays headful (REQ-D004 launch flags)."}
   - {id: REQ-D010.AC10, text: "The ledger no longer says cc never clicks the check or that a human at the machine finishes it (REQ-D004, REQ-D007)."}
+  test_cases:
+  - {id: TC-D010-01, ac: REQ-D010.AC1, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-01 auto-solved inside the window: no click, one Login press with that token, outcome auto-solved"}
+  - {id: TC-D010-02, ac: REQ-D010.AC1, kind: negative, test: "test/grok-human-check.test.ts > TC-D010-02 no click before the auto-solve window ends"}
+  - {id: TC-D010-03, ac: REQ-D010.AC1, kind: edge, test: "test/grok-human-check.test.ts > TC-D010-03 a page with no human check is never clicked and Login is pressed at once"}
+  - {id: TC-D010-04, ac: REQ-D010.AC2, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-04 still pending after the window: cc clicks once, the check passes, outcome passed-after-click"}
+  - {id: TC-D010-05, ac: REQ-D010.AC2, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-05 a first click with no effect is followed by a second click after the retry window, then the pass"}
+  - {id: TC-D010-06, ac: REQ-D010.AC2, kind: negative, test: "test/grok-human-check.test.ts > TC-D010-06 a check that has passed is never clicked"}
+  - {id: TC-D010-07, ac: REQ-D010.AC2, kind: edge, test: "test/grok-human-check.test.ts > TC-D010-07 a click that throws or finds nothing is counted and the loop goes on"}
+  - {id: TC-D010-08, ac: REQ-D010.AC2, kind: edge, test: "test/grok-human-check.test.ts > TC-D010-08 at most maxClicks clicks per page load"}
+  - {id: TC-D010-09, ac: REQ-D010.AC3, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-09 the checkbox inside the challenges.cloudflare.com frame is clicked first"}
+  - {id: TC-D010-10, ac: REQ-D010.AC3, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-10 falls back to the widget iframe element when the frame checkbox cannot be clicked"}
+  - {id: TC-D010-11, ac: REQ-D010.AC3, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-11 falls back to the widget box holding cf-turnstile-response, clicking at the checkbox position"}
+  - {id: TC-D010-12, ac: REQ-D010.AC3, kind: negative, test: "test/grok-human-check.test.ts > TC-D010-12 no widget at all: clicked false, method none, nothing is clicked"}
+  - {id: TC-D010-13, ac: REQ-D010.AC4, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-13 still pending after maxClicks: reload and refill, then the check passes on the new page load"}
+  - {id: TC-D010-14, ac: REQ-D010.AC4, kind: negative, test: "test/grok-human-check.test.ts > TC-D010-14 no reload before the clicks of that page load are used"}
+  - {id: TC-D010-15, ac: REQ-D010.AC4, kind: edge, test: "test/grok-human-check.test.ts > TC-D010-15 a reload that throws is counted and the loop goes on"}
+  - {id: TC-D010-16, ac: REQ-D010.AC4, kind: edge, test: "test/grok-human-check.test.ts > TC-D010-16 at most maxReloads reloads"}
+  - {id: TC-D010-17, ac: REQ-D010.AC5, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-17 after a pass that followed a click, Login is pressed with the pass token and grok.com is reached"}
+  - {id: TC-D010-18, ac: REQ-D010.AC5, kind: negative, test: "test/grok-human-check.test.ts > TC-D010-18 Login is never pressed while the check is pending"}
+  - {id: TC-D010-19, ac: REQ-D010.AC5, kind: edge, test: "test/grok-human-check.test.ts > TC-D010-19 a pass token the form rejects is followed by a press on the fresh token (REQ-D007 kept)"}
+  - {id: TC-D010-20, ac: REQ-D010.AC6, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-20 every attempt used: fails at once, well before the 10-minute bound, naming every attempt"}
+  - {id: TC-D010-21, ac: REQ-D010.AC6, kind: negative, test: "test/grok-human-check.test.ts > TC-D010-21 the error never asks a person to act and never says cc does not click"}
+  - {id: TC-D010-22, ac: REQ-D010.AC6, kind: edge, test: "test/grok-human-check.test.ts > TC-D010-22 the 10-minute bound error lists the same attempts"}
+  - {id: TC-D010-23, ac: REQ-D010.AC7, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-23 a passed login reports one step line with mode, outcome, clicks, methods, reloads, presses, confirmed host and waited ms"}
+  - {id: TC-D010-24, ac: REQ-D010.AC7, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-24 a failed login reports one step line with human-check=failed"}
+  - {id: TC-D010-25, ac: REQ-D010.AC7, kind: positive, test: "test/run-jobs.test.ts > TC-D010-25 inside a job, reportStep writes a step line to logs/runs/<job>.log"}
+  - {id: TC-D010-26, ac: REQ-D010.AC7, kind: negative, test: "test/run-jobs.test.ts > TC-D010-26 outside a job, reportStep writes nothing and never throws"}
+  - {id: TC-D010-27, ac: REQ-D010.AC8, kind: negative, test: "test/grok-human-check.test.ts > TC-D010-27 errors and step lines carry no query string, email or token"}
+  - {id: TC-D010-28, ac: REQ-D010.AC9, kind: edge, test: "test/grok-human-check.test.ts > TC-D010-28 the defaults bound total clicks at maxClicks x (1 + maxReloads) and polling at 500 ms or slower"}
+  - {id: TC-D010-29, ac: REQ-D010.AC9, kind: positive, test: "test/grok-login.test.ts > TC-D010-29 the real run's Chrome stays headful (REQ-D004 launch flags)"}
+  - {id: TC-D010-30, ac: REQ-D010.AC9, kind: edge, test: "test/grok-human-check.test.ts > TC-D010-30 grok.ts wires cc's own click and reload into the login"}
+  - {id: TC-D010-31, ac: REQ-D010.AC10, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-31 the ledger no longer says cc never clicks the check or that a human at the machine finishes it"}
   files: [src/adapters/grokLoginWait.ts, src/adapters/grok.ts, src/core/jobProcs.ts, src/core/runJobs.ts, test/grok-login.test.ts, test/grok-human-check.test.ts, test/run-jobs.test.ts]
   tools: [cc_run]
   decision: {quote: You literally just implemented the exact opposite solution, at: '2026-11-15', source: main chat t166u, from: REQ-U013}
 untraced:
-- {id: REQ-D010, why: "Spec-first order (REQ-U001, owner t166u): this commit holds the requirement only; its test cases come in the next commit and its test code in the one after, which removes this entry."}
+- {id: REQ-D010, why: "Spec-first order (REQ-U001, owner t166u): this commit holds the requirement only; its test cases are listed above (test_cases) and its test code comes in the next commit, which removes this entry."}
