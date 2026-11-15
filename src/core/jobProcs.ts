@@ -1,4 +1,4 @@
-// @reqs REQ-D009
+// @reqs REQ-D009 REQ-D010
 /**
  * Every process a cc job launches is recorded by PID in that job's state (REQ-D009): the PID, the time the
  * process started (read from the OS, so a reused PID is told apart), what it is, its CDP port, user-data-dir,
@@ -38,6 +38,8 @@ export interface JobHooks {
   processes: JobProcess[];
   onItem?: (item: unknown) => void;
   onWorkDone?: (result: unknown) => void;
+  /** REQ-D010: one step line (ids, counts and outcomes only) for the job's run log. */
+  onStep?: (line: string) => void;
 }
 
 const als = new AsyncLocalStorage<JobHooks>();
@@ -56,6 +58,10 @@ export function reportItem(item: unknown): void {
 }
 export function reportWorkDone(result: unknown): void {
   try { als.getStore()?.onWorkDone?.(result); } catch { /* a report must never fail a run */ }
+}
+/** REQ-D010: a step line for the current job's run log (logs/runs/<job>.log). Outside a job it does nothing. */
+export function reportStep(line: string): void {
+  try { als.getStore()?.onStep?.(line); } catch { /* a report must never fail a run */ }
 }
 
 export interface ProcDeps {

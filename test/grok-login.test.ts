@@ -1,4 +1,4 @@
-// @reqs REQ-D004 REQ-D007
+// @reqs REQ-D004 REQ-D007 REQ-D010
 import { describe, expect, it } from "vitest";
 import {
   GROK_LOGIN_TOTAL_WAIT_MS,
@@ -16,8 +16,8 @@ const SIGN_IN = "https://accounts.x.ai/sign-in?redirect=grok-com&email=true";
 
 /**
  * A fake sign-in page driven by a script of "ticks": at each poll the clock advances and the script may change the
- * human check's token or decide what a Login press does. Nothing on it can be clicked except through `submit`,
- * so a test that passes proves cc never clicks the human check.
+ * human check's token or decide what a Login press does. These REQ-D007 tests give cc no click or reload, so they
+ * cover the submit-and-confirm wait alone; REQ-D010's own clicks and reloads are tested in grok-human-check.test.ts.
  */
 function fakeLogin(opts: {
   /** token value of input[name=cf-turnstile-response] at time t (undefined = no such input). */
@@ -73,9 +73,9 @@ describe("grok login presses Login after the human check passes, then confirms g
     expect(out.submits).toBe(2);
   });
 
-  it("never presses Login while the check is pending, and reports a check that never passes in the visible window, precisely", async () => {
+  it("never presses Login while the check is pending, and reports a check that never passes precisely (no click or reload given: the REQ-D007 wait)", async () => {
     const f = fakeLogin({ token: () => "", frames: ["https://challenges.cloudflare.com/cdn-cgi/challenge-platform/turnstile/if"] });
-    await expect(f.run({ totalWaitMs: 60_000 })).rejects.toThrow(/did not reach grok\.com within 60s: Login pressed 0 time\(s\); human check pending \(it did not pass in the visible window; cc never clicks it\); page https:\/\/accounts\.x\.ai\/sign-in/);
+    await expect(f.run({ totalWaitMs: 60_000 })).rejects.toThrow(/did not reach grok\.com within 60s: Login pressed 0 time\(s\); human check pending; attempts: auto-solve wait 10s, clicked the check 0 time\(s\) \(methods: none\), reloaded 0 time\(s\) over 1 page load\(s\); page https:\/\/accounts\.x\.ai\/sign-in/);
     expect(f.presses).toHaveLength(0);
   });
 
@@ -100,7 +100,8 @@ describe("grok login presses Login after the human check passes, then confirms g
     expect((await humanCheckState(fakeLogin({ frames: ["https://challenges.cloudflare.com/x"] }).page)).state).toBe("pending");
   });
 
-  it("cc has no code that clicks the human check (RULE-212, R-188.4)", () => {
+  it("cc has its own click for the human check and no longer exports the v0.2.17 one-shot helpers (REQ-D010)", () => {
+    expect(Object.keys(loginWait)).toContain("clickTurnstileCheckbox");
     expect(Object.keys(loginWait)).not.toContain("clickTurnstileOnce");
     expect(Object.keys(loginWait)).not.toContain("waitForGrokLoginRedirect");
   });
@@ -121,13 +122,13 @@ describe("grok login presses Login after the human check passes, then confirms g
     expect(onGrokHost("about:blank")).toBe(false);
   });
 
-  it("the wait for a human in the visible window stays 10 minutes", () => {
+  it("the whole login stays bounded at 10 minutes", () => {
     expect(GROK_LOGIN_TOTAL_WAIT_MS).toBe(10 * 60 * 1000);
   });
 });
 
 describe("cc Chrome is visible (headful) by default (REQ-D004)", () => {
-  it("launch flags do not add --headless and windowsHide is false unless CC_CHROME_EXTRA_ARGS asks for headless", () => {
+  it("TC-D010-29 the real run's Chrome stays headful (REQ-D004 launch flags)", () => {
     const plain = chromeLaunchFlags({ CC_CHROME_EXTRA_ARGS: undefined });
     expect(plain.windowsHide).toBe(false);
     expect(plain.headless).toBe(false);

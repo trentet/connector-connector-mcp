@@ -1,4 +1,4 @@
-// @reqs REQ-D003 REQ-D005 REQ-D008 REQ-D009
+// @reqs REQ-D003 REQ-D005 REQ-D008 REQ-D009 REQ-D010
 /**
  * Long cc_run work (anything that opens a browser) lives in a job that is not tied to one MCP HTTP request.
  * A client timeout or disconnect does not cancel it. One run at a time per account: a second start in this
@@ -179,6 +179,8 @@ export function enqueueRun(req: RunRequest, fn: () => Promise<RunResult>, opts: 
     jobId: id,
     processes: job.processes,
     onItem: (item: unknown) => { job.items.push(item as ItemResult); logLine(job, "item", itemsDetail([item as ItemResult])); },
+    // REQ-D010: a login's human-check step line (mode, outcome, counts; never emails, URLs or tokens).
+    onStep: (line: string) => logLine(job, "step", line),
     onWorkDone: (result: unknown) => {
       finish(result as RunResult, "work-done");
       if (job.phase === "work") job.phase = "cleanup";

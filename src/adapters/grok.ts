@@ -1,14 +1,15 @@
-// @reqs ACCT-C02 REQ-U009 REQ-D001 REQ-D002 ACCT-C14 REQ-D004 REQ-D007
+// @reqs ACCT-C02 REQ-U009 REQ-D001 REQ-D002 ACCT-C14 REQ-D004 REQ-D007 REQ-D010
 import fs from "node:fs";
 import path from "node:path";
 import type { Page } from "patchright";
 import { domClick, domFill, sleep } from "../browser/dom.js";
-import { guarded, snapshot } from "../browser/chrome.js";
+import { chromeLaunchFlags, guarded, snapshot } from "../browser/chrome.js";
+import { reportStep } from "../core/jobProcs.js";
 import { assertFlowMethod, assertLoginAccount, assertMethodsAgree, ccMethodErrors } from "../core/accountChoice.js";
 import { detectSignInOptions, loadSignInOptions, resolveSignInMethod } from "../core/signInMethod.js";
 import { getCredential, signInStore } from "../core/vaultClient.js";
 import type { AdapterContext, AdapterOutcome, PlatformAdapter } from "./types.js";
-import { submitAndConfirmGrokLogin } from "./grokLoginWait.js";
+import { clickTurnstileCheckbox, submitAndConfirmGrokLogin } from "./grokLoginWait.js";
 
 const sel = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "grok.json"), "utf8"));
 const rx = (p: string) => new RegExp(p, "i");
@@ -71,13 +72,27 @@ async function login(ctx: AdapterContext): Promise<void> {
     const { method } = await resolveSignInMethod({ label: sel.loginVaultLabel, site: "grok.com", entryMethod: cred.signInMethod, detect }, { ...ccMethodErrors, store: signInStore });
     assertMethodsAgree("grok.com", recorded, method);
     assertFlowMethod("grok.com's email-and-password login", method, "email");
-    await page.locator(sel.login.emailInput).fill(cred.username!);
-    await page.getByRole("button", { name: rx(sel.login.next.name) }).first().click();
-    await page.locator(sel.login.passwordInput).first().waitFor({ timeout: 15000 });
-    await page.locator(sel.login.passwordInput).first().fill(cred.password!);
-    // REQ-D007: press Login only once the human check has passed (cc never clicks the check, RULE-212 / R-188.4), then confirm
-    // grok.com was reached. The runner then reads the signed-in account and its login method before anything acts (ACCT-C05, ACCT-C10).
-    await submitAndConfirmGrokLogin(page, () => page.getByRole("button", { name: rx(sel.login.submit.name) }).first().click({ timeout: 10000 }));
+    const fill = async () => {
+      await page.locator(sel.login.emailInput).fill(cred.username!);
+      await page.getByRole("button", { name: rx(sel.login.next.name) }).first().click();
+      await page.locator(sel.login.passwordInput).first().waitFor({ timeout: 15000 });
+      await page.locator(sel.login.passwordInput).first().fill(cred.password!);
+    };
+    await fill();
+    // REQ-D010: cc gets past the human check by itself (auto-solve wait, then its own click, then a reload and refill);
+    // REQ-D007: Login is pressed once the check has passed and the login is done only on grok.com. The runner then reads
+    // the signed-in account and its login method before anything acts (ACCT-C05, ACCT-C10).
+    await submitAndConfirmGrokLogin(page, () => page.getByRole("button", { name: rx(sel.login.submit.name) }).first().click({ timeout: 10000 }), {
+      clickCheck: () => clickTurnstileCheckbox(page),
+      reload: async () => {
+        await page.goto(sel.signInUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+        await sleep(2500);
+        await dismissCookies(page);
+        await fill();
+      },
+      onStep: reportStep,
+      mode: chromeLaunchFlags(process.env).headless ? "headless" : "headful",
+    });
   });
 }
 

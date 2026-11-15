@@ -395,14 +395,14 @@ requirements:
 - id: REQ-D004
   kind: derived
   status: decided
-  title: Grok email login waits for a visible Turnstile and a 10-minute redirect
+  title: Grok email login lets a visible Turnstile auto-solve first, inside a 10-minute bound
   text: >
     When the grok.com email-and-password sign-in page shows a Cloudflare Turnstile, cc first
     lets the challenge auto-solve in a visible (headful) Chrome, which is often enough in a
-    real browser. cc never clicks the challenge (amended 2026-11-15 by REQ-D007: the one click this entry
-    used to allow is removed, RULE-212 and R-188.4). It waits up to 10 minutes for the redirect to grok.com (or
-    accounts.x.ai/account) so a human at that machine can finish the challenge in the same
-    window. Chrome for a real run is launched with windowsHide false and without --headless
+    real browser. When it does not, cc gets through the check by itself: it clicks the Turnstile checkbox and, if
+    needed, reloads the sign-in page (amended 2026-11-15 by REQ-D010, which withdraws REQ-D007's no-click rule: the
+    operator never has to click the check). The whole login stays bounded at 10 minutes for the redirect to grok.com
+    (or accounts.x.ai/account). Chrome for a real run is launched with windowsHide false and without --headless
     unless CC_CHROME_EXTRA_ARGS requests headless (tests only). Secrets are never returned.
   files: [src/adapters/grok.ts, src/adapters/grokLoginWait.ts, src/browser/chrome.ts, test/grok-login.test.ts]
   tools: [cc_run]
@@ -467,21 +467,21 @@ requirements:
 - id: REQ-D007
   kind: derived
   status: decided
-  title: Grok email login presses Login after the human check passes, confirms grok.com, and never clicks the check
+  title: Grok email login presses Login after the human check passes and confirms grok.com
   text: >
     Root cause of the 15 Nov 2026 failure (run_86587827120479fd, screenshot 2026-11-15T16-19-47-231Z-grok-login-FAILED.png):
     Login was pressed while the Cloudflare check was still pending, so the form did not submit; the check then passed on
     its own and nothing pressed Login again, so the run waited ten minutes on a filled-in form. cc now reads the check's
     state from Turnstile's own form field (input name cf-turnstile-response: empty while pending, a token once passed),
     presses Login only when it has passed (or when the page has no check), and presses again, at most 4 times, when a
-    new pass token appears or 20 s pass after a press that did not leave the page. It never clicks the check itself
-    (RULE-212, R-188.4); the click REQ-D004 allowed is removed. The login is complete only when the browser is on grok.com
+    new pass token appears or 20 s pass after a press that did not leave the page. Getting the check to pass is
+    REQ-D010 (amended 2026-11-15: cc clicks the check itself; this entry's former no-click rule is withdrawn because it
+    was the opposite of the owner's ask). The login is complete only when the browser is on grok.com
     (or accounts.x.ai/account), judged by host and path, never by a substring of the URL; then the runner reads the
     signed-in email and login method and acts only when they are the run's account with an email login (ACCT-C05,
     ACCT-C10). A signed-out grok.com that redirects to accounts.x.ai is never taken for signed in (the cause of the retry's
-    "ACCOUNT_NOT_AUTHORIZED: the account signed in on grok could not be read"). If the check is still pending at the
-    10-minute deadline in the visible window, the error says so with the number of Login presses and the page's origin
-    and path only.
+    "ACCOUNT_NOT_AUTHORIZED: the account signed in on grok could not be read"). If the login does not reach grok.com,
+    the error lists every automated attempt (REQ-D010) with the page's origin and path only.
   files: [src/adapters/grokLoginWait.ts, src/adapters/grok.ts, test/grok-login.test.ts]
   tools: [cc_run]
   decision: {quote: "you correct the specific thing I asked you to correct but you don\u2019t correct the actual root cause", at: '2026-11-15', source: main chat t163u, from: REQ-U012}
@@ -518,3 +518,90 @@ requirements:
   files: [src/core/jobProcs.ts, src/core/runJobs.ts, src/browser/chrome.ts, src/core/types.ts, test/job-processes.test.ts]
   tools: [cc_run]
   decision: {quote: reliably identifying processes by PID in order to be able to identify what, at: '2026-11-15', source: main chat t164u, from: REQ-U012}
+- id: REQ-U013
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-15'
+  source: >
+    main chat t166u and t167u, 15 Nov 2026 (owner, verbatim fragments; his profanity is left out). Context: in t160u he
+    corrected the thread for asking him to click the Cloudflare human check on the w540 by hand during the Grok refresh
+    of helm-secret; v0.2.18 (REQ-D007) then removed cc's own click and left a person as the fallback, which t166u calls
+    the exact opposite of his ask. The parent thread's professional form of his intent: the operator must never have to
+    click the human check, and cc must get through it by itself.
+  quotes:
+  - You literally just implemented the exact opposite solution
+  - there has to be test cases linked directly to every single
+  - they need to be comprehensive
+  implemented_by: [REQ-D010]
+- id: REQ-D010
+  kind: derived
+  status: decided
+  title: Grok email login gets past the Cloudflare human check by itself (auto-solve wait, then cc clicks the checkbox, then reloads); no person is ever needed
+  text: >
+    Amends REQ-D004 and REQ-D007 (15 Nov 2026). The operator must never have to click the human check; cc gets through
+    it by itself in its headful Chrome. On grok.com's email-and-password sign-in page, after the form is filled, cc reads
+    the check's state from Turnstile's own form field (input name cf-turnstile-response, REQ-D007). While the check is
+    pending, cc first waits a short auto-solve window (default 10 s) without touching it. If it is still pending, cc
+    clicks the Turnstile checkbox itself, the way a person would (in order: the checkbox inside the
+    challenges.cloudflare.com frame; else the widget's iframe element; else a mouse click at the checkbox position of
+    the widget box that holds cf-turnstile-response), then waits a retry window (default 10 s) for a pass, at most 3
+    clicks per page load. If it is still pending after those clicks, cc reloads the sign-in page, fills the same vault
+    login again (same account and method checks), and repeats, at most 2 reloads. As soon as cf-turnstile-response holds
+    a token, Login is pressed and confirmed exactly as REQ-D007 says (fresh token or 20 s re-press, at most 4 presses
+    per page load; done only on grok.com or accounts.x.ai/account by host and path). Only when every automated attempt
+    is used and the check is still pending does the job end, at once and not at the 10-minute bound, as failed with an
+    exact error naming each way tried and its result (auto-solve wait, clicks with their methods, page loads and
+    reloads, Login presses) and the page's origin and path only. It never waits for a person and no error or log asks a
+    person to act. The 10-minute bound still caps the whole login and its error lists the same attempts. Each login,
+    passed or failed, writes one step line to the job's run log (logs/runs/<job>.log): mode, human-check outcome,
+    clicks, click methods, reloads, Login presses, confirmed host and waited ms; never an email, URL, query string,
+    token or password. Precedent reused: cc's own click of v0.2.17 (5a0b4b8, clickTurnstileOnce), and the HELM rule
+    that a human check is never a reason to stop and needs at least three different attempts with results
+    (helm-report-templates scripts/lib/human-check.mjs, RPT-BLD-060).
+  acceptance:
+  - {id: REQ-D010.AC1, text: "While the check is pending, cc waits the auto-solve window without clicking; a check that passes inside it is never clicked and Login is pressed with that token (outcome auto-solved, clicks 0); a page with no check is never clicked."}
+  - {id: REQ-D010.AC2, text: "A check still pending after the auto-solve window is clicked by cc itself, then retried after the retry window, at most maxClicks (3) clicks per page load; a check that has passed is never clicked; a click that fails or finds nothing is counted and the loop goes on."}
+  - {id: REQ-D010.AC3, text: "The click tries, in order, the checkbox inside the challenges.cloudflare.com frame, the widget iframe element, and a mouse click at the checkbox position of the box holding cf-turnstile-response, and reports which method worked; with no widget it reports clicked false and clicks nothing."}
+  - {id: REQ-D010.AC4, text: "A check still pending after maxClicks clicks on a page load makes cc reload the sign-in page and refill the form, at most maxReloads (2) times; no reload happens before the clicks of that load are used; a reload that throws is counted and the loop goes on."}
+  - {id: REQ-D010.AC5, text: "Once cf-turnstile-response holds a token, Login is pressed with it and the login completes only on grok.com or accounts.x.ai/account by host and path (REQ-D007 kept: never pressed while pending, re-pressed on a fresh token)."}
+  - {id: REQ-D010.AC6, text: "When every automated attempt is used and the check is still pending, the login fails at once (before the 10-minute bound) with an error that names the auto-solve wait, the clicks and their methods, the page loads and reloads and the Login presses; it never asks a person to act; the 10-minute bound error lists the same attempts."}
+  - {id: REQ-D010.AC7, text: "Every login, passed or failed, reports one step line (mode, human-check outcome, clicks, click methods, reloads, Login presses, confirmed host, waited ms) that a job writes to logs/runs/<job>.log; outside a job nothing is written."}
+  - {id: REQ-D010.AC8, text: "Errors and step lines carry the page's origin and path only: never a query string, email, token or password."}
+  - {id: REQ-D010.AC9, text: "Everything is bounded: total clicks at most maxClicks x (1 + maxReloads); polling never faster than 500 ms; the real run's Chrome stays headful (REQ-D004 launch flags)."}
+  - {id: REQ-D010.AC10, text: "The ledger no longer says cc never clicks the check or that a human at the machine finishes it (REQ-D004, REQ-D007)."}
+  test_cases:
+  - {id: TC-D010-01, ac: REQ-D010.AC1, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-01 auto-solved inside the window: no click, one Login press with that token, outcome auto-solved"}
+  - {id: TC-D010-02, ac: REQ-D010.AC1, kind: negative, test: "test/grok-human-check.test.ts > TC-D010-02 no click before the auto-solve window ends"}
+  - {id: TC-D010-03, ac: REQ-D010.AC1, kind: edge, test: "test/grok-human-check.test.ts > TC-D010-03 a page with no human check is never clicked and Login is pressed at once"}
+  - {id: TC-D010-04, ac: REQ-D010.AC2, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-04 still pending after the window: cc clicks once, the check passes, outcome passed-after-click"}
+  - {id: TC-D010-05, ac: REQ-D010.AC2, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-05 a first click with no effect is followed by a second click after the retry window, then the pass"}
+  - {id: TC-D010-06, ac: REQ-D010.AC2, kind: negative, test: "test/grok-human-check.test.ts > TC-D010-06 a check that has passed is never clicked"}
+  - {id: TC-D010-07, ac: REQ-D010.AC2, kind: edge, test: "test/grok-human-check.test.ts > TC-D010-07 a click that throws or finds nothing is counted and the loop goes on"}
+  - {id: TC-D010-08, ac: REQ-D010.AC2, kind: edge, test: "test/grok-human-check.test.ts > TC-D010-08 at most maxClicks clicks per page load"}
+  - {id: TC-D010-09, ac: REQ-D010.AC3, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-09 the checkbox inside the challenges.cloudflare.com frame is clicked first"}
+  - {id: TC-D010-10, ac: REQ-D010.AC3, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-10 falls back to the widget iframe element when the frame checkbox cannot be clicked"}
+  - {id: TC-D010-11, ac: REQ-D010.AC3, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-11 falls back to the widget box holding cf-turnstile-response, clicking at the checkbox position"}
+  - {id: TC-D010-12, ac: REQ-D010.AC3, kind: negative, test: "test/grok-human-check.test.ts > TC-D010-12 no widget at all: clicked false, method none, nothing is clicked"}
+  - {id: TC-D010-13, ac: REQ-D010.AC4, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-13 still pending after maxClicks: reload and refill, then the check passes on the new page load"}
+  - {id: TC-D010-14, ac: REQ-D010.AC4, kind: negative, test: "test/grok-human-check.test.ts > TC-D010-14 no reload before the clicks of that page load are used"}
+  - {id: TC-D010-15, ac: REQ-D010.AC4, kind: edge, test: "test/grok-human-check.test.ts > TC-D010-15 a reload that throws is counted and the loop goes on"}
+  - {id: TC-D010-16, ac: REQ-D010.AC4, kind: edge, test: "test/grok-human-check.test.ts > TC-D010-16 at most maxReloads reloads"}
+  - {id: TC-D010-17, ac: REQ-D010.AC5, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-17 after a pass that followed a click, Login is pressed with the pass token and grok.com is reached"}
+  - {id: TC-D010-18, ac: REQ-D010.AC5, kind: negative, test: "test/grok-human-check.test.ts > TC-D010-18 Login is never pressed while the check is pending"}
+  - {id: TC-D010-19, ac: REQ-D010.AC5, kind: edge, test: "test/grok-human-check.test.ts > TC-D010-19 a pass token the form rejects is followed by a press on the fresh token (REQ-D007 kept)"}
+  - {id: TC-D010-20, ac: REQ-D010.AC6, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-20 every attempt used: fails at once, well before the 10-minute bound, naming every attempt"}
+  - {id: TC-D010-21, ac: REQ-D010.AC6, kind: negative, test: "test/grok-human-check.test.ts > TC-D010-21 the error never asks a person to act and never says cc does not click"}
+  - {id: TC-D010-22, ac: REQ-D010.AC6, kind: edge, test: "test/grok-human-check.test.ts > TC-D010-22 the 10-minute bound error lists the same attempts"}
+  - {id: TC-D010-23, ac: REQ-D010.AC7, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-23 a passed login reports one step line with mode, outcome, clicks, methods, reloads, presses, confirmed host and waited ms"}
+  - {id: TC-D010-24, ac: REQ-D010.AC7, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-24 a failed login reports one step line with human-check=failed"}
+  - {id: TC-D010-25, ac: REQ-D010.AC7, kind: positive, test: "test/run-jobs.test.ts > TC-D010-25 inside a job, reportStep writes a step line to logs/runs/<job>.log"}
+  - {id: TC-D010-26, ac: REQ-D010.AC7, kind: negative, test: "test/run-jobs.test.ts > TC-D010-26 outside a job, reportStep writes nothing and never throws"}
+  - {id: TC-D010-27, ac: REQ-D010.AC8, kind: negative, test: "test/grok-human-check.test.ts > TC-D010-27 errors and step lines carry no query string, email or token"}
+  - {id: TC-D010-28, ac: REQ-D010.AC9, kind: edge, test: "test/grok-human-check.test.ts > TC-D010-28 the defaults bound total clicks at maxClicks x (1 + maxReloads) and polling at 500 ms or slower"}
+  - {id: TC-D010-29, ac: REQ-D010.AC9, kind: positive, test: "test/grok-login.test.ts > TC-D010-29 the real run's Chrome stays headful (REQ-D004 launch flags)"}
+  - {id: TC-D010-30, ac: REQ-D010.AC9, kind: edge, test: "test/grok-human-check.test.ts > TC-D010-30 grok.ts wires cc's own click and reload into the login"}
+  - {id: TC-D010-31, ac: REQ-D010.AC10, kind: positive, test: "test/grok-human-check.test.ts > TC-D010-31 the ledger no longer says cc never clicks the check or that a human at the machine finishes it"}
+  files: [src/adapters/grokLoginWait.ts, src/adapters/grok.ts, src/core/jobProcs.ts, src/core/runJobs.ts, test/grok-login.test.ts, test/grok-human-check.test.ts, test/run-jobs.test.ts]
+  tools: [cc_run]
+  decision: {quote: You literally just implemented the exact opposite solution, at: '2026-11-15', source: main chat t166u, from: REQ-U013}
