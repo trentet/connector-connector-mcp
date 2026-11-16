@@ -3,7 +3,7 @@
 # behaviour is not backfilled here; gate.code and gate.tools_in_scope list exactly what this ledger covers.
 gate:
   id_pattern: '\b(?:REQ-[UDG]\d{3}|ACCT-(?:\d{3}|[PCV]\d{2}))\b'
-  code: ['^src/core/signInMethod\.ts$', '^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/adapters/grokLoginWait\.ts$', '^src/core/runJobs\.ts$', '^src/core/jobProcs\.ts$', '^src/browser/chrome\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/adapters/claude\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
+  code: ['^src/core/signInMethod\.ts$', '^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/adapters/grokLoginWait\.ts$', '^src/core/runJobs\.ts$', '^src/core/jobProcs\.ts$', '^src/browser/chrome\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/adapters/claude\.ts$', '^src/adapters/chatgpt\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
   tests: ['^test/.+\.ts$']
   tool_files: ['^src/server/app\.ts$']
   tools_in_scope: [cc_signin, cc_run, cc_reauth]
@@ -664,7 +664,7 @@ requirements:
     carries them word for word (HIS WORDS).
   quotes:
   - We need to make sure that all of the connectors that we have are connected.
-  implemented_by: [REQ-D012]
+  implemented_by: [REQ-D012, REQ-D013]
 - id: REQ-D012
   kind: derived
   status: decided
@@ -709,5 +709,45 @@ requirements:
   - {id: TC-D012-15, ac: REQ-D012.AC7, kind: positive, test: "test/claude-reconnect.test.ts > TC-D012-15 the press is one native click on the matching button of the matching row and nothing is typed"}
   - {id: TC-D012-16, ac: REQ-D012.AC7, kind: negative, test: "test/claude-reconnect.test.ts > TC-D012-16 no query string and no secret reaches the result of a repair"}
   files: [src/adapters/claude.ts, data/selectors/claude.json, test/claude-reconnect.test.ts]
+  tools: [cc_run]
+  decision: {quote: We need to make sure that all of the connectors that we have are connected., at: '2026-11-15', source: worker brief A3-AUD-CONN3 START carrying the owner's words of Sun 15 Nov 2026, from: REQ-U015}
+- id: REQ-D013
+  kind: derived
+  status: decided
+  title: On ChatGPT cc reads every installed plugin, also those behind the "N more" link, and opens them by their id
+  text: >
+    Derived from REQ-U015 (15 Nov 2026). Root cause found on 15 Nov 2026 (worker A3-AUD-CONN3, page notes pages 6 and 7):
+    on the ChatGPT account main, helm-drive, vault-mcp, patchright-mcp and connector-connector were reported missing, and
+    add --if-existing skip ended "submitted, but did not appear in the Installed list" with the add form still open. They
+    are installed. ChatGPT's plugins page (/plugins) shows only the first 12 installed plugins in its Installed section and
+    ends the section with a link whose text is "11 more" (accessible name "11 more connected plugins", address
+    /settings/plugins-settings). That page lists every installed plugin: each entry is a link
+    /settings/plugins-settings/plugin_<id> whose first text line is the plugin's name, and the same id opens the plugin's
+    own page at /plugins/plugin_<id>. cc (src/adapters/chatgpt.ts readInstalled) read only the section, so list, verify and the
+    "already installed?" check never saw plugin 13 onward, and add then tried to create a second plugin of the same name.
+    cc now follows that link's page for the full list (the section's own names are kept), refuses to report a partial list,
+    and opens a plugin that is not in the section by its id. Nothing on the settings page is clicked.
+  acceptance:
+  - {id: REQ-D013.AC1, text: "When the Installed section has no link of the form \"N more\", cc reads the names from the section as before and loads no other page."}
+  - {id: REQ-D013.AC2, text: "When it has one, cc reads every installed plugin from the settings page (entry links; the name is the first text line), each name once, in page order; a name in the section that the settings page lacks is added; the \"N more\" link itself is never a name."}
+  - {id: REQ-D013.AC3, text: "The settings page is read until its entry count is the same in three reads at least 500 ms apart (bounded 30 s); a page that never settles is an error that refuses to report a partial list."}
+  - {id: REQ-D013.AC4, text: "A plugin that is not in the section is opened at /plugins/<id> with the id taken from its settings entry; an id is accepted only when it matches plugin_ followed by lower-case letters, digits and underscores, taken from the path of the link and nothing after it; the plugin page's title must still show the name."}
+  - {id: REQ-D013.AC5, text: "add --if-existing skip of a connector installed behind the \"N more\" link finds it installed, makes no create attempt, and checks its own page for Connected; verify reads that page the same way."}
+  - {id: REQ-D013.AC6, text: "The link text, the settings address, the entry-link selector and the plugin page address base are data in data/selectors/chatgpt.json."}
+  - {id: REQ-D013.AC7, text: "Reading the settings page clicks nothing and reads only the entry links (plugin names and ids), never other text of the page."}
+  test_cases:
+  - {id: TC-D013-01, ac: REQ-D013.AC1, kind: positive, test: "test/chatgpt-installed.test.ts > TC-D013-01 a section without an N more link gives its names as they are"}
+  - {id: TC-D013-02, ac: REQ-D013.AC1, kind: negative, test: "test/chatgpt-installed.test.ts > TC-D013-02 without an N more link the settings page is never loaded"}
+  - {id: TC-D013-03, ac: REQ-D013.AC2, kind: positive, test: "test/chatgpt-installed.test.ts > TC-D013-03 with an N more link the list holds every plugin of the settings page, each once, in page order"}
+  - {id: TC-D013-04, ac: REQ-D013.AC2, kind: edge, test: "test/chatgpt-installed.test.ts > TC-D013-04 a name in the section that the settings page lacks is added, and the more link is never a name"}
+  - {id: TC-D013-05, ac: REQ-D013.AC3, kind: positive, test: "test/chatgpt-installed.test.ts > TC-D013-05 entries that appear progressively are waited for until the count is stable"}
+  - {id: TC-D013-06, ac: REQ-D013.AC3, kind: negative, test: "test/chatgpt-installed.test.ts > TC-D013-06 a settings page that never shows entries is an error, not an empty or partial list"}
+  - {id: TC-D013-07, ac: REQ-D013.AC4, kind: positive, test: "test/chatgpt-installed.test.ts > TC-D013-07 the id of an entry link is read from its path only, for both page kinds"}
+  - {id: TC-D013-08, ac: REQ-D013.AC4, kind: negative, test: "test/chatgpt-installed.test.ts > TC-D013-08 addresses that are not a plugin id are never accepted"}
+  - {id: TC-D013-09, ac: REQ-D013.AC4, kind: positive, test: "test/chatgpt-installed.test.ts > TC-D013-09 a plugin that is not in the section is opened at its own id address"}
+  - {id: TC-D013-10, ac: REQ-D013.AC5, kind: positive, test: "test/chatgpt-installed.test.ts > TC-D013-10 add skip of a plugin behind the more link makes no create attempt and reports it Connected"}
+  - {id: TC-D013-11, ac: REQ-D013.AC6, kind: edge, test: "test/chatgpt-installed.test.ts > TC-D013-11 the link text, addresses and selector are data in data/selectors/chatgpt.json"}
+  - {id: TC-D013-12, ac: REQ-D013.AC7, kind: negative, test: "test/chatgpt-installed.test.ts > TC-D013-12 reading the settings page clicks nothing and reads only the entry links"}
+  files: [src/adapters/chatgpt.ts, data/selectors/chatgpt.json, test/chatgpt-installed.test.ts]
   tools: [cc_run]
   decision: {quote: We need to make sure that all of the connectors that we have are connected., at: '2026-11-15', source: worker brief A3-AUD-CONN3 START carrying the owner's words of Sun 15 Nov 2026, from: REQ-U015}
