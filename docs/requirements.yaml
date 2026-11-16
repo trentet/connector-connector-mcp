@@ -725,12 +725,15 @@ requirements:
     /settings/plugins-settings/plugin_<id> whose first text line is the plugin's name, and the same id opens the plugin's
     own page at /plugins/plugin_<id>. cc (src/adapters/chatgpt.ts readInstalled) read only the section, so list, verify and the
     "already installed?" check never saw plugin 13 onward, and add then tried to create a second plugin of the same name.
-    cc now follows that link's page for the full list (the section's own names are kept), refuses to report a partial list,
+    cc now follows that link's page for the full list (the section's own names are kept), refuses to report a partial list
+    (the first live run of 15 Nov 2026, 10:38 to 10:45 PM, showed reads that were partial because the page was still filling in: three of
+    twelve verifies failed on names that a read a minute before had found; the section is now read until its names are stable and the
+    settings page is accepted only at the count the section and its link announce),
     and opens a plugin that is not in the section by its id. Nothing on the settings page is clicked.
   acceptance:
   - {id: REQ-D013.AC1, text: "When the Installed section has no link of the form \"N more\", cc reads the names from the section as before and loads no other page."}
   - {id: REQ-D013.AC2, text: "When it has one, cc reads every installed plugin from the settings page (entry links; the name is the first text line), each name once, in page order; a name in the section that the settings page lacks is added; the \"N more\" link itself is never a name."}
-  - {id: REQ-D013.AC3, text: "The settings page is read until its entry count is the same in three reads at least 500 ms apart (bounded 30 s); a page that never settles is an error that refuses to report a partial list."}
+  - {id: REQ-D013.AC3, text: "Nothing is trusted while the page is still filling in: the Installed section is read until its names are the same in three reads at least 500 ms apart (bounded 30 s); the settings page is read until its entry count is the same in three reads at least 500 ms apart AND is at least the section's names plus the number in the \"N more\" link (bounded 30 s). A page that never reaches that is an error that refuses to report a partial list."}
   - {id: REQ-D013.AC4, text: "A plugin that is not in the section is opened at /plugins/<id> with the id taken from its settings entry; an id is accepted only when it matches plugin_ followed by lower-case letters, digits and underscores, taken from the path of the link and nothing after it; the plugin page's title must still show the name."}
   - {id: REQ-D013.AC5, text: "add --if-existing skip of a connector installed behind the \"N more\" link finds it installed, makes no create attempt, and checks its own page for Connected; verify reads that page the same way."}
   - {id: REQ-D013.AC6, text: "The link text, the settings address, the entry-link selector and the plugin page address base are data in data/selectors/chatgpt.json."}
@@ -742,6 +745,9 @@ requirements:
   - {id: TC-D013-04, ac: REQ-D013.AC2, kind: edge, test: "test/chatgpt-installed.test.ts > TC-D013-04 a name in the section that the settings page lacks is added, and the more link is never a name"}
   - {id: TC-D013-05, ac: REQ-D013.AC3, kind: positive, test: "test/chatgpt-installed.test.ts > TC-D013-05 entries that appear progressively are waited for until the count is stable"}
   - {id: TC-D013-06, ac: REQ-D013.AC3, kind: negative, test: "test/chatgpt-installed.test.ts > TC-D013-06 a settings page that never shows entries is an error, not an empty or partial list"}
+  - {id: TC-D013-13, ac: REQ-D013.AC3, kind: positive, test: "test/chatgpt-installed.test.ts > TC-D013-13 a section that is still filling in is read again until its names are stable"}
+  - {id: TC-D013-14, ac: REQ-D013.AC3, kind: positive, test: "test/chatgpt-installed.test.ts > TC-D013-14 a settings page that holds still at fewer entries than the section and its more link announce is waited for"}
+  - {id: TC-D013-15, ac: REQ-D013.AC3, kind: negative, test: "test/chatgpt-installed.test.ts > TC-D013-15 a settings page that stays below the announced count is an error, never a partial list"}
   - {id: TC-D013-07, ac: REQ-D013.AC4, kind: positive, test: "test/chatgpt-installed.test.ts > TC-D013-07 the id of an entry link is read from its path only, for both page kinds"}
   - {id: TC-D013-08, ac: REQ-D013.AC4, kind: negative, test: "test/chatgpt-installed.test.ts > TC-D013-08 addresses that are not a plugin id are never accepted"}
   - {id: TC-D013-09, ac: REQ-D013.AC4, kind: positive, test: "test/chatgpt-installed.test.ts > TC-D013-09 a plugin that is not in the section is opened at its own id address"}
