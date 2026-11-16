@@ -37,7 +37,9 @@
     "submitButton": "^add connector$"
   },
   "list": {
-    "rowMarkerText": "Added"
+    "rowMarkerText": "Connected",
+    "connectedChip": "\\d+ connected",
+    "showAll": "^show all \\d+ apps$"
   },
   "remove": {
     "disconnectButton": "^disconnect$",

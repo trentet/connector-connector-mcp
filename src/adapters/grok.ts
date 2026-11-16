@@ -1,4 +1,4 @@
-// @reqs ACCT-C02 REQ-U009 REQ-D001 REQ-D002 ACCT-C14 REQ-D004 REQ-D007 REQ-D010
+// @reqs ACCT-C02 REQ-U009 REQ-D001 REQ-D002 ACCT-C14 REQ-D004 REQ-D007 REQ-D010 REQ-D014
 import fs from "node:fs";
 import path from "node:path";
 import type { Page } from "patchright";
@@ -13,6 +13,9 @@ import { clickTurnstileCheckbox, submitAndConfirmGrokLogin } from "./grokLoginWa
 
 const sel = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "grok.json"), "utf8"));
 const rx = (p: string) => new RegExp(p, "i");
+
+/** The adapter's pause for the list read; tests replace it (REQ-D014). */
+export const timing = { sleep: (ms: number): Promise<unknown> => sleep(ms) };
 
 async function dismissCookies(page: Page): Promise<void> {
   const rej = page.getByRole("button", { name: rx(sel.login.rejectCookies.name) });
@@ -164,35 +167,60 @@ export async function updateByRemoveThenAdd(
 }
 
 
-/** Names in the "Connected" section: rows are elements whose own text is exactly the marker ("Added"); the row's first line is the name. */
-async function readConnected(ctx: AdapterContext): Promise<string[]> {
-  const page = await openConnectors(ctx);
-  const marker: string = sel.list.rowMarkerText;
-  const read = () => page.evaluate((m) => {
-    // Rows are <button> (name line + subtitle line); the "Added" tag lives in the row WRAPPER, not inside the button.
+/** One button of the page: its own text lines, and the text lines of its wrapper (up to two levels up, while the wrapper holds that one button), where the status word sits. */
+export interface RawRow { own: string[]; wrap: string[] }
+/** REQ-D014 AC1: the name is the first text line, or the second when the first is a one-character avatar letter. */
+export const rowName = (own: string[]): string | undefined => (own[0] && own[0].length === 1 && own.length > 1 ? own[1] : own[0]);
+/** REQ-D014 AC1: names of the rows whose wrapper carries the status word (data: list.rowMarkerText); rows that say Connect are not connected. */
+export function namesFromRows(rows: RawRow[], marker: string): string[] {
+  const names = new Set<string>();
+  for (const r of rows) { if (!r.wrap.includes(marker)) continue; const n = rowName(r.own); if (n) names.add(n); }
+  return [...names];
+}
+/** REQ-D014 AC3: the number in "19 connected" or in the button that offers all of them. */
+export const parseConnectedCount = (text: string | null | undefined): number | undefined => { const m = /\d+/.exec(text ?? ""); return m ? Number(m[0]) : undefined; };
+
+/**
+ * REQ-D014. The connectors page opens a settings dialog with a chip "N connected"; the chip opens the Manage view, whose button
+ * the offer-all button lists every connected app. Presses each once when it is there (nothing else), then reads the rows until the names are the same
+ * in two reads and at least N (500 ms apart, at most 30 s): an empty or partial list is an error, never a fact.
+ */
+export async function revealAndReadConnected(page: Page): Promise<string[]> {
+  let expected: number | undefined;
+  const chip = page.locator("[role=dialog] button, [role=dialog] [role=button], [role=dialog] a").filter({ hasText: rx(sel.list.connectedChip) }).first();
+  if (await chip.count()) { expected = parseConnectedCount(await chip.innerText()); await chip.click(); await timing.sleep(2500); }
+  const more = page.getByRole("button", { name: rx(sel.list.showAll) }).first();
+  if (await more.count()) { expected ??= parseConnectedCount(await more.innerText()); await more.click(); await timing.sleep(2500); }
+  const read = (): Promise<RawRow[]> => page.evaluate(() => {
     const lines = (e: Element | null) => ((e as HTMLElement | null)?.innerText ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
-    const names = new Set<string>();
+    const rows: Array<{ own: string[]; wrap: string[] }> = [];
     for (const b of [...document.querySelectorAll("button")]) {
       const own = lines(b);
       if (!own.length) continue;
-      for (let wrap: Element | null = b.parentElement, up = 0; wrap && up < 2; wrap = wrap.parentElement, up++) {
-        if (wrap.querySelectorAll("button").length !== 1) break; // wrapper holds several rows: too far up
-        if (lines(wrap).includes(m)) { names.add(own[0]); break; }
+      const wrap: string[] = [];
+      for (let w: Element | null = b.parentElement, up = 0; w && up < 2; w = w.parentElement, up++) {
+        if (w.querySelectorAll("button").length !== 1) break; // wrapper holds several rows: too far up
+        wrap.push(...lines(w));
       }
+      rows.push({ own, wrap });
     }
-    return [...names];
-  }, marker);
-  // The list loads asynchronously: wait until it is non-empty and unchanged for two reads. Never report an empty list as fact.
+    return rows;
+  });
   let names: string[] = [], stable = 0, last = "";
-  for (let i = 0; i < 20 && stable < 2; i++) {
-    await sleep(1500);
-    names = await read();
+  for (let i = 0; i < 60 && stable < 2; i++) {
+    await timing.sleep(500);
+    names = namesFromRows(await read(), sel.list.rowMarkerText);
     const key = names.slice().sort().join("|");
-    stable = names.length > 0 && key === last ? stable + 1 : 0;
+    stable = names.length > 0 && names.length >= (expected ?? 0) && key === last ? stable + 1 : 0;
     last = key;
   }
-  if (stable < 2) throw new Error(`grok.com's Connected list did not finish loading (${names.length} rows seen); refusing to report a partial or empty list`);
+  if (stable < 2) throw new Error(`grok.com's Connected list did not finish loading (${names.length} rows seen${expected ? `, ${expected} announced` : ""}); refusing to report a partial or empty list`);
   return names;
+}
+
+/** Names in the Connected list (REQ-D014: the whole list, through the Manage view). */
+async function readConnected(ctx: AdapterContext): Promise<string[]> {
+  return revealAndReadConnected(await openConnectors(ctx));
 }
 
 export function grokAdapter(): PlatformAdapter {
