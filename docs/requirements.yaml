@@ -3,7 +3,7 @@
 # behaviour is not backfilled here; gate.code and gate.tools_in_scope list exactly what this ledger covers.
 gate:
   id_pattern: '\b(?:REQ-[UDG]\d{3}|ACCT-(?:\d{3}|[PCV]\d{2}))\b'
-  code: ['^src/core/signInMethod\.ts$', '^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/adapters/grokLoginWait\.ts$', '^src/core/runJobs\.ts$', '^src/core/jobProcs\.ts$', '^src/browser/chrome\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
+  code: ['^src/core/signInMethod\.ts$', '^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/adapters/grokLoginWait\.ts$', '^src/core/runJobs\.ts$', '^src/core/jobProcs\.ts$', '^src/browser/chrome\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/browser/lanes\.ts$', '^src/browser/screenHold\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
   tests: ['^test/.+\.ts$']
   tool_files: ['^src/server/app\.ts$']
   tools_in_scope: [cc_signin, cc_run, cc_reauth]
@@ -654,3 +654,74 @@ requirements:
   files: [registry/connectors.json, test/desktop-control-registry.test.ts]
   tools: [cc_run]
   decision: {quote: if production was never created and deployed for the remote connector, then that needs to be done and fixed, at: '2026-11-15', source: main thread 15 Nov 2026 about 8:14 PM CST via the worker brief A3-AUD-DEPLOY2 START, from: REQ-U014}
+- id: REQ-U016
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-15'
+  source: >
+    The owner's words of Sun 15 Nov 2026, 11:07 PM CST, typed in the CSC505 W5-1 assignment thread (account 2, Masters scope),
+    as that thread's handoff file (section "Added 11:10 PM CST 15 Nov 2026: Connector Connector must hold off while the screen
+    is in use") carries them word for word, and as the worker brief A3-AUD-CCH1 START cites that section.
+  quotes:
+  - Is there a way for us to pause the connector connector loops while we are actively using the screen?
+  implemented_by: [REQ-D015]
+- id: REQ-D015
+  kind: derived
+  status: decided
+  title: cc starts no browser while the screen is in use - a screen hold set by a running screen-control session on the host, or by a manual command - and a run that meets the hold waits for it to clear
+  text: >
+    Derived from REQ-U016 (15 Nov 2026). Evidence of the same night (worker A3-AUD-CONN3, handoff of the CSC505 W5-1 thread):
+    cc verify and list runs each opened a visible Chrome on the W540 every 10 to 20 seconds and covered PowerPoint while an
+    assignment was being built there, and the screen-control tool refused steps because another window was in front. cc had lane
+    locks, a master lock and host-load sampling, and nothing for a screen in use. He asked for a way to pause the cc loops while
+    the screen is actively in use. cc now has a hold, checked in the one place every browser start passes through (acquireLane in
+    src/browser/lanes.ts, before a lane is claimed and before any Chrome starts). The hold is set (1) while a screen-control
+    session holds this host's screen, read from the host itself: the session shows overlay windows of the window classes named in
+    data/screen-hold.json, owned by the session's server process; they exist exactly while a session holds control, are removed
+    when the session ends and are destroyed by Windows when the process dies, so the hold follows the session with no timer and a
+    dead session cannot leave it behind; the on-disk session record is not used because its end time is rewritten at every save
+    and so cannot tell a running, an ended and a dead session apart; (2) by a manual command, cc hold set, that he or any thread
+    can run and clear with cc hold clear, for any other use of the screen (the code cannot see his own mouse and keyboard, and a
+    recent-input rule would be a timer). A run that meets the hold sleeps and polls, prints that it waits and why and how long it
+    waited, claims no lane meanwhile, and goes on the moment the hold is clear. A run already in progress is not interrupted:
+    only starts are held.
+  acceptance:
+  - {id: REQ-D015.AC1, text: "Every browser start of cc (run, verify, list, add, update, remove, the cookie merge, seed, signin, reauth, threads) passes the hold check inside acquireLane, before a lane is claimed and before any Chrome starts. Only starts are held: a lane claimed before the hold was set is not touched."}
+  - {id: REQ-D015.AC2, text: "The hold is set while a window of one of the overlay window classes listed in data/screen-hold.json, owned by a live process, exists on this host, and clear when no such window exists. It is read by a read-only window enumeration that opens no window and takes no focus. No timer sets or clears it. The class names are data, not code."}
+  - {id: REQ-D015.AC3, text: "A session that died cannot hold the screen: a window whose owner process is not alive is ignored. The on-disk session record is never read for this, because its end time equals its last save and cannot tell running, ended and dead apart."}
+  - {id: REQ-D015.AC4, text: "cc hold set [--reason <text>] [--owner-pid <pid>], cc hold clear and cc hold status [--json] set, clear and show a manual hold, kept as screen-hold.json in the lanes folder (CC_LANES_DIR). A manual hold with an owner pid ends by itself when that process is gone; one without stays until cc hold clear. An unreadable hold file is ignored and removed. The reason is one line of at most 200 characters; a non-numeric owner pid or an unknown subcommand is a usage error (exit 2)."}
+  - {id: REQ-D015.AC5, text: "A run that meets the hold waits: it sleeps and polls, never faster than every 500 ms (default 3 s, CC_SCREEN_HOLD_POLL_MS), claims no lane and starts no browser meanwhile, prints on stderr that it waits and why, a still-waiting line every 60 s, and when it goes on how many seconds it waited. It goes on at the first poll after the hold cleared, not after a fixed time."}
+  - {id: REQ-D015.AC6, text: "A wait is bounded so a forgotten manual hold cannot freeze a caller for ever: after CC_SCREEN_HOLD_MAX_WAIT_MS (default 2 hours) the start ends with an error that names the hold and the seconds waited, and no browser is started."}
+  - {id: REQ-D015.AC7, text: "When the window state cannot be read (the enumeration fails or does not answer within 20 s) that source is not counted as a hold, one line on stderr says so with the error, and the run goes on; a manual hold is still honoured in the same check. Never silent."}
+  - {id: REQ-D015.AC8, text: "CC_SCREEN_HOLD=off switches the check off completely (no enumeration, no file read). On a system that is not Windows the session source is empty and only the manual hold applies."}
+  - {id: REQ-D015.AC9, text: "What the hold prints holds only the reason text of a manual hold, window class names, process ids and seconds: no environment value, no path of a profile, no secret."}
+  test_cases:
+  - {id: TC-D015-01, ac: REQ-D015.AC1, kind: positive, test: "test/screen-hold.test.ts > TC-D015-01 acquireLane waits while a hold is set, claims no lane meanwhile, and returns a lane once the hold is cleared"}
+  - {id: TC-D015-02, ac: REQ-D015.AC1, kind: negative, test: "test/screen-hold.test.ts > TC-D015-02 acquireLane with no hold set returns at once and says nothing"}
+  - {id: TC-D015-03, ac: REQ-D015.AC1, kind: edge, test: "test/screen-hold.test.ts > TC-D015-03 a lane claimed before the hold was set is not touched by a hold set later"}
+  - {id: TC-D015-04, ac: REQ-D015.AC2, kind: positive, test: "test/screen-hold.test.ts > TC-D015-04 an overlay window of a live process holds the screen and the status names its class and process"}
+  - {id: TC-D015-05, ac: REQ-D015.AC2, kind: positive, test: "test/screen-hold.test.ts > TC-D015-05 the hold clears the moment the window is gone"}
+  - {id: TC-D015-06, ac: REQ-D015.AC2, kind: edge, test: "test/screen-hold.test.ts > TC-D015-06 the window classes come from data/screen-hold.json and the code holds no copy of them"}
+  - {id: TC-D015-07, ac: REQ-D015.AC3, kind: negative, test: "test/screen-hold.test.ts > TC-D015-07 a window whose owner process is gone does not hold the screen"}
+  - {id: TC-D015-08, ac: REQ-D015.AC3, kind: edge, test: "test/screen-hold.test.ts > TC-D015-08 the code never reads the on-disk session record"}
+  - {id: TC-D015-09, ac: REQ-D015.AC4, kind: positive, test: "test/screen-hold.test.ts > TC-D015-09 cc hold set writes a manual hold that the status shows with its reason"}
+  - {id: TC-D015-10, ac: REQ-D015.AC4, kind: positive, test: "test/screen-hold.test.ts > TC-D015-10 cc hold clear removes it and says whether there was one"}
+  - {id: TC-D015-11, ac: REQ-D015.AC4, kind: negative, test: "test/screen-hold.test.ts > TC-D015-11 a manual hold whose owner process is gone is stale, ignored and removed"}
+  - {id: TC-D015-12, ac: REQ-D015.AC4, kind: edge, test: "test/screen-hold.test.ts > TC-D015-12 a manual hold without an owner pid stays until it is cleared"}
+  - {id: TC-D015-13, ac: REQ-D015.AC4, kind: negative, test: "test/screen-hold.test.ts > TC-D015-13 an unreadable hold file is ignored and removed"}
+  - {id: TC-D015-14, ac: REQ-D015.AC4, kind: negative, test: "test/screen-hold.test.ts > TC-D015-14 the reason is one line of at most 200 characters and a bad owner pid or subcommand is a usage error"}
+  - {id: TC-D015-15, ac: REQ-D015.AC4, kind: positive, test: "test/screen-hold.test.ts > TC-D015-15 the hold command line sets, shows and clears through main with exit 0"}
+  - {id: TC-D015-16, ac: REQ-D015.AC5, kind: edge, test: "test/screen-hold.test.ts > TC-D015-16 polling is never faster than 500 ms, even when asked for less"}
+  - {id: TC-D015-17, ac: REQ-D015.AC5, kind: positive, test: "test/screen-hold.test.ts > TC-D015-17 a waiting run says it waits and why, says it still waits every 60 s, and says how long it waited"}
+  - {id: TC-D015-18, ac: REQ-D015.AC5, kind: edge, test: "test/screen-hold.test.ts > TC-D015-18 the wait follows the condition: still held after ten minutes, goes on at the first poll after the clear"}
+  - {id: TC-D015-19, ac: REQ-D015.AC6, kind: negative, test: "test/screen-hold.test.ts > TC-D015-19 a wait past the limit ends with an error naming the hold and the seconds, and returns no lane"}
+  - {id: TC-D015-20, ac: REQ-D015.AC7, kind: negative, test: "test/screen-hold.test.ts > TC-D015-20 an enumeration that fails is said once and not counted, and a manual hold still holds"}
+  - {id: TC-D015-21, ac: REQ-D015.AC8, kind: positive, test: "test/screen-hold.test.ts > TC-D015-21 CC_SCREEN_HOLD=off reads nothing and holds nothing"}
+  - {id: TC-D015-22, ac: REQ-D015.AC8, kind: edge, test: "test/screen-hold.test.ts > TC-D015-22 on a system that is not Windows the session source is empty and starts no process"}
+  - {id: TC-D015-23, ac: REQ-D015.AC2, kind: edge, test: "test/screen-hold.test.ts > TC-D015-23 the enumeration output is parsed, a class name that is not plain is refused, and garbage lines are ignored"}
+  - {id: TC-D015-24, ac: REQ-D015.AC2, kind: edge, test: "test/screen-hold.test.ts > TC-D015-24 on Windows the real enumeration answers for a class nothing uses with an empty list and opens no window"}
+  - {id: TC-D015-25, ac: REQ-D015.AC9, kind: negative, test: "test/screen-hold.test.ts > TC-D015-25 what the hold prints holds no environment value and no profile path"}
+  files: [src/browser/screenHold.ts, src/browser/lanes.ts, src/cli.ts, data/screen-hold.json, test/screen-hold.test.ts]
+  tools: []
+  decision: {quote: "Is there a way for us to pause the connector connector loops while we are actively using the screen?", at: '2026-11-15', source: worker brief A3-AUD-CCH1 START carrying the owner's words of Sun 15 Nov 2026 11:07 PM CST from the handoff file of the CSC505 W5-1 thread, from: REQ-U016}
