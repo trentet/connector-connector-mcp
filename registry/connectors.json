@@ -1081,6 +1081,29 @@
       "tier": "test"
     },
     {
+      "id": "desktop-control",
+      "name": "HELM Desktop Control",
+      "repo": "trentet/helm-desktop-control",
+      "description": "PRODUCTION environment of the desktop control connector (desktop.trentt.me, port 8860): screen, pointer and keyboard control of the signed-in desktop with the step recorder and safety layer. Claude only: the HTTP entry point accepts only the x-api-key header, and ChatGPT and Grok need a token in the URL. Deployed from a release tag only.",
+      "url": {
+        "type": "literal",
+        "value": "https://desktop.trentt.me/mcp"
+      },
+      "auth": {
+        "mode": "header",
+        "headerName": "x-api-key",
+        "headerValue": {
+          "type": "fileRegex",
+          "path": "C:/Users/Trent/AppData/Local/HELM/desktop-control/production/secrets/token",
+          "pattern": "[0-9A-Za-z_-]+"
+        }
+      },
+      "platforms": [
+        "claude"
+      ],
+      "tier": "production"
+    },
+    {
       "id": "patchright-mcp-test",
       "name": "Patchright MCP TEST",
       "description": "TEST environment of patchright-mcp (on demand)",
