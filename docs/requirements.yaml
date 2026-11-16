@@ -605,3 +605,52 @@ requirements:
   files: [src/adapters/grokLoginWait.ts, src/adapters/grok.ts, src/core/jobProcs.ts, src/core/runJobs.ts, test/grok-login.test.ts, test/grok-human-check.test.ts, test/run-jobs.test.ts]
   tools: [cc_run]
   decision: {quote: You literally just implemented the exact opposite solution, at: '2026-11-15', source: main chat t166u, from: REQ-U013}
+- id: REQ-U014
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-15'
+  source: >
+    The owner's words of 15 Nov 2026 about 8:14 PM CST (main thread, as quoted in the worker brief A3-AUD-DEPLOY2 START,
+    which carries them word for word). Context: the desktop control connector had only a test tier on the W540 and no
+    production tier was ever deployed or registered.
+  quotes:
+  - if production was never created and deployed for the remote connector, then that needs to be done and fixed
+  - test connectors are never to be used for production
+  implemented_by: [REQ-D011]
+- id: REQ-D011
+  kind: derived
+  status: decided
+  title: The production registry entry of the desktop control connector reads its own production token and shares nothing with the test entry
+  text: >
+    Derived from REQ-U014 (15 Nov 2026). The connector's production tier (host KNOTTYAI-PC, desktop.trentt.me, port 8860)
+    is defined in registry/connectors.json as the entry desktop-control (tier production, Claude only, x-api-key header,
+    pull request 97). cc resolves a token reference by reading a file on the machine cc itself runs on (the W540):
+    src/core/secrets.ts uses local file reads only, and every production connector hosted on KNOTTYAI-PC (helm-vision-mcp,
+    helm-audio-mcp, helm-thread-monitor) is named in the registry by a W540 path of the form
+    C:/Users/Trent/AppData/Local/HELM/<id>/production/secrets/<file>. The desktop-control entry follows that form:
+    its token file is C:/Users/Trent/AppData/Local/HELM/desktop-control/production/secrets/token, a local drive path
+    (never a share or network path), read with the pattern [0-9A-Za-z_-]+ that covers the whole 64-character token the
+    connector's own setup writes. The production entry never uses the test entry's token file, URL or host name, and the
+    test entry keeps its own. Where the token file has to be put on the W540 is a step of the deployment record, not of
+    this entry; no token value is stored in the registry, the ledger, a test or a log.
+  acceptance:
+  - {id: REQ-D011.AC1, text: "The registry holds exactly one entry desktop-control: tier production, platforms [claude] only, url the literal https://desktop.trentt.me/mcp."}
+  - {id: REQ-D011.AC2, text: "The entry sends the token in the x-api-key header from a fileRegex token source, with the same set of fields as the test entry."}
+  - {id: REQ-D011.AC3, text: "The token file is C:/Users/Trent/AppData/Local/HELM/desktop-control/production/secrets/token: a local drive path under the production secrets folder of the connector, never a share or network path, in the same form as the other production connectors hosted on KNOTTYAI-PC."}
+  - {id: REQ-D011.AC4, text: "The pattern takes a whole 64-character token made of the characters 0-9, A-Z, a-z, underscore and hyphen, and matches nothing in an empty file."}
+  - {id: REQ-D011.AC5, text: "Production shares nothing with test: its token file, URL and id differ from the test entry, and nothing in it points into a test folder or a test host name; the test entry keeps its own path and host."}
+  test_cases:
+  - {id: TC-D011-01, ac: REQ-D011.AC1, kind: positive, test: "test/desktop-control-registry.test.ts > TC-D011-01 exists once, tier production, Claude only, on the production host name"}
+  - {id: TC-D011-02, ac: REQ-D011.AC2, kind: positive, test: "test/desktop-control-registry.test.ts > TC-D011-02 sends the token in the x-api-key header (the only header the HTTP entry point accepts)"}
+  - {id: TC-D011-03, ac: REQ-D011.AC2, kind: edge, test: "test/desktop-control-registry.test.ts > TC-D011-03 has the same shape as the test entry apart from the environment (no field is missing or extra)"}
+  - {id: TC-D011-04, ac: REQ-D011.AC3, kind: positive, test: "test/desktop-control-registry.test.ts > TC-D011-04 names the token file under the local production secrets folder of desktop-control"}
+  - {id: TC-D011-05, ac: REQ-D011.AC3, kind: negative, test: "test/desktop-control-registry.test.ts > TC-D011-05 uses a local drive path only: never a share or network path (cc reads local files only)"}
+  - {id: TC-D011-06, ac: REQ-D011.AC4, kind: edge, test: "test/desktop-control-registry.test.ts > TC-D011-06 its pattern takes a whole 64-character token made of the characters the connector's setup writes"}
+  - {id: TC-D011-07, ac: REQ-D011.AC3, kind: positive, test: "test/desktop-control-registry.test.ts > TC-D011-07 follows the pattern of the other production connectors hosted on the host (folder <id>/production/secrets under the same base)"}
+  - {id: TC-D011-08, ac: REQ-D011.AC5, kind: negative, test: "test/desktop-control-registry.test.ts > TC-D011-08 the token file, the URL and the name differ from the test entry"}
+  - {id: TC-D011-09, ac: REQ-D011.AC5, kind: negative, test: "test/desktop-control-registry.test.ts > TC-D011-09 nothing of the production entry points into a test folder or a test host name"}
+  - {id: TC-D011-10, ac: REQ-D011.AC5, kind: positive, test: "test/desktop-control-registry.test.ts > TC-D011-10 the test entry keeps its own test token file and host (the definition of production changes nothing of it)"}
+  files: [registry/connectors.json, test/desktop-control-registry.test.ts]
+  tools: [cc_run]
+  decision: {quote: if production was never created and deployed for the remote connector, then that needs to be done and fixed, at: '2026-11-15', source: main thread 15 Nov 2026 about 8:14 PM CST via the worker brief A3-AUD-DEPLOY2 START, from: REQ-U014}
