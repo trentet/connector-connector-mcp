@@ -38,7 +38,12 @@
     "connectConfirm": "^connect\\b"
   },
   "list": {
-    "installedHeading": "Installed"
+    "installedHeading": "Installed",
+    "moreLinkText": "^\\d+ more",
+    "settingsUrl": "https://chatgpt.com/settings/plugins-settings",
+    "entryLink": "a[href*=\"/settings/plugins-settings/\"]",
+    "pluginUrlBase": "https://chatgpt.com/plugins/",
+    "idPath": "^\\/(?:plugins|settings\\/plugins-settings)\\/(plugin_[a-z0-9_]+)(?:[?#][^/]*)?$"
   },
   "remove": {
     "moreActions": "button[aria-label=\"More actions\"]",
