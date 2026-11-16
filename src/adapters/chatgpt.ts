@@ -1,3 +1,4 @@
+// @reqs REQ-D013
 import fs from "node:fs";
 import path from "node:path";
 import type { Page } from "patchright";
@@ -10,6 +11,9 @@ import type { AdapterContext, AdapterOutcome, PlatformAdapter } from "./types.js
 
 const sel = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "chatgpt.json"), "utf8"));
 const rx = (p: string) => new RegExp(p, "i");
+
+/** The adapter's pause; tests replace it (REQ-D013). */
+export const timing = { sleep: (ms: number): Promise<unknown> => sleep(ms) };
 
 async function signedIn(page: Page): Promise<boolean> {
   const body = (await page.evaluate(() => document.body.innerText.slice(0, 1200)).catch(() => "")).toLowerCase();
@@ -28,13 +32,13 @@ async function login(ctx: AdapterContext): Promise<void> {
   const redact = (x: string) => { let o = ctx.redact(x); for (const v of [google?.password, google?.username]) if (v) o = o.split(v).join("<REDACTED>"); return o; };
   await guarded(s, "chatgpt-login", redact, async () => {
     await page.goto(sel.loginUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
-    await sleep(2500);
+    await timing.sleep(2500);
     const popupP = s.context.waitForEvent("page", { timeout: 6000 }).catch(() => null);
     await page.getByRole("button", { name: rx(sel.login.continueWithGoogle) }).first().click();
     const popup = await popupP;
     let cur = popup ?? page;
     await cur.waitForLoadState("domcontentloaded").catch(() => {});
-    await sleep(3500);
+    await timing.sleep(3500);
     if (cur.url().includes("accounts.google.com")) {
       if (!google?.password) throw new Error(`Google asked for credentials but vault entry "${sel.loginVaultLabel}" has no password`);
       // ACCT-C12: the entry's sign-in method (set, else settled from accounts.google.com's options), then a check, not
@@ -44,12 +48,12 @@ async function login(ctx: AdapterContext): Promise<void> {
       if (await cur.locator(sel.login.googleEmailInput).count()) {
         await cur.locator(sel.login.googleEmailInput).fill(google.username ?? "");
         await cur.getByRole("button", { name: rx(sel.login.googleNext) }).click();
-        await sleep(3500);
+        await timing.sleep(3500);
       }
       if (await cur.locator(sel.login.googlePasswordInput).count()) {
         await cur.locator(sel.login.googlePasswordInput).first().fill(google.password);
         await cur.getByRole("button", { name: rx(sel.login.googleNext) }).click();
-        await sleep(6000);
+        await timing.sleep(6000);
       }
     }
     cur = s.context.pages().find((p) => /auth\.openai\.com|chatgpt\.com/.test(p.url())) ?? cur;
@@ -60,7 +64,7 @@ async function login(ctx: AdapterContext): Promise<void> {
       await cur.locator(sel.login.mfaCodeInput).fill(code);
       await cur.getByRole("button", { name: rx(sel.login.mfaContinue) }).click();
       await deleteCredential(sel.smsCodeVaultLabel).catch(() => {});
-      await sleep(7000);
+      await timing.sleep(7000);
     }
   });
 }
@@ -68,23 +72,67 @@ async function login(ctx: AdapterContext): Promise<void> {
 async function openPlugins(ctx: AdapterContext): Promise<Page> {
   const s = await ctx.session();
   await s.page.goto(sel.pluginsUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
-  await sleep(3500);
+  await timing.sleep(3500);
   if (!(await signedIn(s.page))) {
     await login(ctx);
     await s.page.goto(sel.pluginsUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
-    await sleep(3500);
+    await timing.sleep(3500);
     if (!(await signedIn(s.page))) throw new Error("chatgpt.com still shows signed out after login");
   }
   return s.page;
 }
 
-/** Names in the "Installed" section of the plugins page (item text's first line). */
-async function readInstalled(ctx: AdapterContext): Promise<string[]> {
+/** REQ-D013 AC4: the id of a plugin from the path of one of its two links (pattern: data/selectors/chatgpt.json list.idPath): plugin_ then lower-case letters, digits, underscores, nothing after it but a query or fragment. Anything else is not an id. */
+export function pluginIdFromHref(href: string | null | undefined): string | undefined {
+  if (!href || !href.startsWith("/")) return undefined;
+  return new RegExp(sel.list.idPath).exec(href)?.[1];
+}
+export interface InstalledLink { text?: string | null; href?: string | null }
+/** REQ-D013 AC2: the entries of the settings page, from their links only: the first text line is the name; each name once, in page order. */
+export function parseSettingsEntries(links: InstalledLink[]): Array<{ name: string; id: string }> {
+  const out: Array<{ name: string; id: string }> = [];
+  const seen = new Set<string>();
+  for (const l of links) {
+    const id = pluginIdFromHref(l.href);
+    const name = (l.text ?? "").split("\n").map((x) => x.trim()).filter(Boolean)[0];
+    if (!id || !name || name.length >= 80 || seen.has(name)) continue;
+    seen.add(name);
+    out.push({ name, id });
+  }
+  return out;
+}
+/** REQ-D013 AC1 AC2: the first text lines of the Installed section become names, except the "N more" link, which only says the list goes on. */
+export function parseInstalledSection(lines: string[]): { names: string[]; more: boolean; moreCount?: number } {
+  const moreRx = new RegExp(sel.list.moreLinkText, "i");
+  const names: string[] = [];
+  let more = false;
+  let moreCount: number | undefined;
+  for (const l of lines) { if (moreRx.test(l.trim())) { more = true; moreCount = Number(/\d+/.exec(l)?.[0]); } else if (!names.includes(l)) names.push(l); }
+  return { names, more, moreCount };
+}
+
+/** Every entry of the installed-plugins settings page. Waits until the count is the same in three reads (500 ms apart, at most 30 s) and refuses a partial list. */
+async function readSettingsEntries(page: Page, minCount = 1): Promise<Array<{ name: string; id: string }>> {
+  await page.goto(sel.list.settingsUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+  let entries: Array<{ name: string; id: string }> = [];
+  let stable = 0, last = -1;
+  for (let i = 0; i < 60 && stable < 3; i++) {
+    const links: InstalledLink[] = await page.$$eval(sel.list.entryLink, (as) => as.map((a) => ({ text: (a as HTMLElement).innerText, href: a.getAttribute("href") })));
+    entries = parseSettingsEntries(links);
+    stable = entries.length === last && entries.length >= minCount ? stable + 1 : 0;
+    last = entries.length;
+    await timing.sleep(500);
+  }
+  if (stable < 3) throw new Error(`the installed-plugins settings page did not finish loading (${entries.length} entries seen, at least ${minCount} expected from the section and its more link); refusing to report a partial list`);
+  return entries;
+}
+
+/** Every installed plugin: the section of /plugins, plus (when it ends in an "N more" link) the whole settings page. `id` is known for entries read from the settings page. */
+async function readInstalledEntries(ctx: AdapterContext): Promise<Array<{ name: string; id?: string }>> {
   const page = await openPlugins(ctx);
   const heading: string = sel.list.installedHeading;
   await page.waitForFunction((h) => [...document.querySelectorAll("h1,h2,h3,[role=heading]")].some((e) => (e as HTMLElement).innerText.trim() === h), heading, { timeout: 20000, polling: 500 }).catch(() => {});
-  await sleep(1500);
-  return page.evaluate((h) => {
+  const readSection = (): Promise<string[]> => page.evaluate((h) => {
     const hd = [...document.querySelectorAll("h1,h2,h3,[role=heading]")].find((e) => (e as HTMLElement).innerText.trim() === h);
     if (!hd) return [];
     const sec = hd.closest("section") ?? hd.parentElement?.parentElement;
@@ -95,12 +143,32 @@ async function readInstalled(ctx: AdapterContext): Promise<string[]> {
     }
     return [...names];
   }, heading);
+  let lines: string[] = [];
+  let same = 0, lastKey = "";
+  for (let i = 0; i < 60 && same < 3; i++) { lines = await readSection(); const key = JSON.stringify(lines); same = lines.length > 0 && key === lastKey ? same + 1 : 0; lastKey = key; await timing.sleep(500); }
+  if (lines.length === 0) return [];
+  if (same < 3) throw new Error("the Installed section of the plugins page did not finish loading; refusing to report a partial list");
+  const { names, more, moreCount } = parseInstalledSection(lines);
+  if (!more) return names.map((name) => ({ name }));
+  const entries = await readSettingsEntries(page, names.length + (moreCount ?? 0));
+  const known = new Set(entries.map((e) => e.name));
+  return [...entries, ...names.filter((n) => !known.has(n)).map((name) => ({ name }))];
 }
-/** Opens the plugin's own page from the Installed list and checks the heading, so nothing is clicked on the wrong plugin. */
-async function openPluginPage(ctx: AdapterContext, name: string): Promise<Page> {
+/** Names in the "Installed" list of the plugins page (item text's first line), including those behind its "N more" link. */
+const readInstalled = async (ctx: AdapterContext): Promise<string[]> => (await readInstalledEntries(ctx)).map((e) => e.name);
+
+/** Opens a plugin's own page: from the Installed section when it is listed there, else at /plugins/<id> with the id of its settings entry (REQ-D013 AC4). */
+async function gotoPlugin(ctx: AdapterContext, page: Page, name: string): Promise<void> {
+  const link = page.locator("section a", { hasText: new RegExp("^\\s*" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*$") });
+  if (await link.count()) { await link.first().click(); await page.waitForURL(/\/plugins\/[^/]+/, { timeout: 15000 }); return; }
+  const entry = (await readInstalledEntries(ctx)).find((e) => e.name === name);
+  if (!entry?.id) throw new Error(`"${name}" is not installed: no entry for it on the installed-plugins page`);
+  await page.goto(sel.list.pluginUrlBase + entry.id, { waitUntil: "domcontentloaded", timeout: 45000 });
+}
+/** Opens the plugin's own page and checks the heading, so nothing is clicked on the wrong plugin. */
+export async function openPluginPage(ctx: AdapterContext, name: string): Promise<Page> {
   const page = await openPlugins(ctx);
-  await page.locator("section a", { hasText: new RegExp("^\\s*" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*$") }).first().click();
-  await page.waitForURL(/\/plugins\/[^/]+/, { timeout: 15000 });
+  await gotoPlugin(ctx, page, name);
   const onPage = await page.waitForFunction((n) => ((document.querySelector("main") as HTMLElement | null)?.innerText ?? "").split("\n").some((l) => l.trim() === n), name, { timeout: 12000, polling: 500 }).then(() => true, () => false);
   if (!onPage) throw new Error(`opened a plugin page that never showed "${name}" as a title`);
   return page;
@@ -124,7 +192,7 @@ async function pageConnectionState(page: Page): Promise<ConnectionState> {
     if (lines.some((l) => connect.test(l))) return "not-connected";
     // An OAuth app that has finished its sign-in shows no "Connected" label, only "Try in chat" (seen live 2026-10-02, with the server log showing the token exchange). Checked after "Connect" so an unconnected app that also offers "Try in chat" is not misread.
     if (lines.some((l) => ready.test(l))) return "connected";
-    await sleep(1500);
+    await timing.sleep(1500);
   }
   return "unreadable";
 }
@@ -141,7 +209,7 @@ async function ensureConnected(ctx: AdapterContext, name: string): Promise<"alre
   await dlg.waitFor({ timeout: 12000 }).catch(() => { throw new Error(`no connect dialog naming "${name}" appeared; not confirming`); });
   await dlg.getByRole("button", { name: new RegExp(sel.verify.connectConfirm, "i") }).last().click();
   for (let i = 0; i < 10; i++) {
-    await sleep(2000);
+    await timing.sleep(2000);
     if ((await pageConnectionState(page)) === "connected") return "connected-now";
   }
   throw new Error(`clicked Connect for "${name}" but its page never showed Connected`);
@@ -171,22 +239,21 @@ export function chatgptAdapter(): PlatformAdapter {
         return res;
       };
       await g("open-plugin-page", async () => {
-        await page.locator("section a", { hasText: new RegExp("^\\s*" + c.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*$") }).first().click();
-        await page.waitForURL(/\/plugins\/[^/]+/, { timeout: 15000 });
-        await sleep(2000);
+        await gotoPlugin(ctx, page, c.name);
+        await timing.sleep(2000);
         const h1 = (await page.locator("h1").first().innerText().catch(() => "")).trim();
         if (h1 !== c.name) throw new Error(`opened a page headed "${h1}", expected "${c.name}"; not deleting`);
       });
-      await g("open-menu", async () => { await page.locator(r.moreActions).last().click(); await sleep(800); });
-      await g("click-delete", async () => { await page.getByRole("menuitem", { name: rx(r.deleteItem) }).first().click(); await sleep(1200); });
+      await g("open-menu", async () => { await page.locator(r.moreActions).last().click(); await timing.sleep(800); });
+      await g("click-delete", async () => { await page.getByRole("menuitem", { name: rx(r.deleteItem) }).first().click(); await timing.sleep(1200); });
       await g("confirm", async () => {
         const dlg = page.getByRole("alertdialog").or(page.getByRole("dialog")).last();
         await dlg.waitFor({ timeout: 8000 });
         if (!(await dlg.innerText()).includes(c.name)) throw new Error(`confirmation does not mention "${c.name}"; not confirming`);
         await dlg.getByRole("button", { name: rx(r.confirmButton) }).last().click();
-        await sleep(3000);
+        await timing.sleep(3000);
       });
-      for (let i = 0; i < 5; i++) { if (!(await pageHasName(ctx, c.name))) return { status: "ok", detail: `"${c.name}" deleted` }; await sleep(3000); }
+      for (let i = 0; i < 5; i++) { if (!(await pageHasName(ctx, c.name))) return { status: "ok", detail: `"${c.name}" deleted` }; await timing.sleep(3000); }
       return { status: "error", detail: `confirmed delete but "${c.name}" is still in the Installed list` };
     },
     async update() { return { status: "not-implemented", detail: "chatgpt update not yet mapped" }; },
@@ -222,13 +289,13 @@ export function chatgptAdapter(): PlatformAdapter {
         for (let i = 0; i < 45 && (await btn.isDisabled()); i++) {
           const text = await dlg.innerText();
           if (rx(a.failureText).test(text)) throw new Error("ChatGPT rejected the server: " + (text.match(rx(a.failureText))?.[0] ?? "see screenshot"));
-          await sleep(1000);
+          await timing.sleep(1000);
         }
         if (await btn.isDisabled()) throw new Error("Create stayed disabled after server validation");
         await btn.click();
-        await sleep(4000);
+        await timing.sleep(4000);
       });
-      for (let i = 0; i < 5; i++) { if (await pageHasName(ctx, c.name)) { await ensureConnected(ctx, c.name); return { status: "ok", detail: `"${c.name}" added, appears in Installed list, and page shows Connected` }; } await sleep(3000); }
+      for (let i = 0; i < 5; i++) { if (await pageHasName(ctx, c.name)) { await ensureConnected(ctx, c.name); return { status: "ok", detail: `"${c.name}" added, appears in Installed list, and page shows Connected` }; } await timing.sleep(3000); }
       return { status: "error", detail: `submitted, but "${c.name}" did not appear in ChatGPT's Installed list after waiting` };
     },
   };
