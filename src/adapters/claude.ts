@@ -1,3 +1,4 @@
+// @reqs REQ-D012
 import fs from "node:fs";
 import path from "node:path";
 import type { Page } from "patchright";
@@ -13,6 +14,12 @@ export class DuplicateUrlError extends Error {}
 const squash = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
 /** True when `text` mentions `name`, ignoring case, spaces and punctuation. Exported for tests. */
 export const sameName = (text: string, name: string) => squash(text).includes(squash(name));
+
+/** The adapter's clock and pause; tests replace them with a fake clock (REQ-D012). */
+export const timing = { now: (): number => Date.now(), sleep: (ms: number): Promise<unknown> => sleep(ms) };
+
+/** REQ-D012 AC1: a row button that starts a connector's sign-in is one whose WHOLE name is Connect or Reconnect (data/selectors/claude.json add.rowConnectButton): never Disconnect, never a name that only contains those words. */
+export const isConnectAction = (name: string): boolean => rx(sel.add.rowConnectButton).test(name.trim());
 
 export interface Row { name: string; custom: boolean; connected: boolean; /** Raw status text when it is neither "Connected" nor "Connect" (e.g. a re-authorise state), so the row is still found and can be removed. */ status?: string }
 
@@ -49,7 +56,7 @@ async function readRows(ctx: AdapterContext): Promise<Row[]> {
     texts = await s.page.$$eval(sel.listRow, (rs) => rs.map((r) => (r as HTMLElement).innerText));
     stable = texts.length === last && texts.length > 1 ? stable + 1 : 0;
     last = texts.length;
-    await sleep(800);
+    await timing.sleep(800);
   }
   if (stable < 3) throw new Error(`connector list did not finish loading (${texts.length} rows seen); refusing to report a partial list`);
   return texts.map(parseRow).filter((r): r is Row => !!r);
@@ -117,7 +124,39 @@ async function doAdd(ctx: AdapterContext, c: ResolvedConnector): Promise<void> {
   });
 }
 
-async function connectIfNeeded(ctx: AdapterContext, name: string): Promise<Row | undefined> {
+export interface RoundTrip { left: boolean; returned: boolean; waitedMs: number; /** Where the tab stayed (origin and path only) when it did not come back. */ stayedAt?: string }
+const hostOf = (u: string): string => { try { return new URL(u).hostname; } catch { return ""; } };
+const originPath = (u: string): string => { try { const x = new URL(u); return x.origin + x.pathname; } catch { return "an unreadable address"; } };
+const onClaude = (u: string): boolean => hostOf(u) === "claude.ai";
+
+/**
+ * REQ-D012 AC3 AC4. Pressing Reconnect on a connector row sends the SAME tab to the connector's own sign-in page (found live 15 Nov 2026) and,
+ * once signed in (src/browser/oauthLogin.ts runs beside this), back to claude.ai. The list must not be read in that tab before it is back.
+ * Waits up to `leaveMs` (15 s) for the tab to leave claude.ai; a tab that never leaves had no round trip (`left: false`). A tab that left is
+ * waited for up to `maxMs` (120 s), polling no faster than 500 ms, and after it is back one short settle lets claude.ai finish its redirect.
+ */
+export async function awaitSignInRoundTrip(page: { url(): string }, o: { leaveMs?: number; maxMs?: number; pollMs?: number; settleMs?: number } = {}): Promise<RoundTrip> {
+  const leaveMs = o.leaveMs ?? 15000, maxMs = o.maxMs ?? 120000, pollMs = Math.max(500, o.pollMs ?? 1000), settleMs = o.settleMs ?? 3000;
+  const t0 = timing.now();
+  let left = false;
+  for (;;) {
+    const u = page.url();
+    const waited = timing.now() - t0;
+    if (!onClaude(u)) left = true;
+    if (!left && waited >= leaveMs) return { left: false, returned: true, waitedMs: waited };
+    if (left && onClaude(u)) { await timing.sleep(settleMs); return { left: true, returned: true, waitedMs: timing.now() - t0 }; }
+    if (left && waited >= maxMs) return { left: true, returned: false, waitedMs: waited, stayedAt: originPath(u) };
+    await timing.sleep(pollMs);
+  }
+}
+
+export interface PressReport { row?: Row; /** "Reconnect" or "Connect" when a button was pressed. */ pressed?: string; trip?: RoundTrip }
+
+/**
+ * REQ-D012 AC2 AC5 AC6 AC7. Presses the row's Connect or Reconnect button once (a native click on that button of that row, nothing typed),
+ * waits for the sign-in round trip, then reads the list back. A row that is not listed, or has no such button, is not pressed.
+ */
+export async function connectIfNeeded(ctx: AdapterContext, name: string): Promise<PressReport> {
   const s = await ctx.session();
   await s.page.goto(sel.listUrl, { waitUntil: "domcontentloaded" });
   await s.page.waitForSelector(sel.listRow, { timeout: 20000 }).catch(() => {});
@@ -125,13 +164,23 @@ async function connectIfNeeded(ctx: AdapterContext, name: string): Promise<Row |
   // "name" as a prefix too, so this must resolve the exact row by parsed name, not loose hasText.
   const rowTexts = await s.page.$$eval(sel.listRow, (rs) => rs.map((r) => (r as HTMLElement).innerText));
   const rowIndex = rowTexts.findIndex((t) => parseRow(t)?.name === name);
+  let pressed: string | undefined;
+  let trip: RoundTrip | undefined;
   if (rowIndex >= 0) {
     const row = s.page.locator(sel.listRow).nth(rowIndex);
     const btn = row.getByRole("button", { name: rx(sel.add.rowConnectButton) });
-    if (await btn.count()) { await domClick(btn.first()); await sleep(5000); }
+    if (await btn.count()) {
+      pressed = /^reconnect$/i.test(parseRow(rowTexts[rowIndex])?.status ?? "") ? "Reconnect" : "Connect";
+      await domClick(btn.first());
+      trip = await awaitSignInRoundTrip(s.page);
+      if (!trip.left) await timing.sleep(5000);
+    }
   }
-  return (await readRows(ctx)).find((r) => r.name === name);
+  return { row: (await readRows(ctx)).find((r) => r.name === name), pressed, trip };
 }
+
+/** What a press that did not end in Connected adds to the error: where the tab stayed, never a query string. */
+const tripNote = (t?: RoundTrip): string => (t && t.left && !t.returned ? ` (the tab stayed on ${t.stayedAt} and did not come back to claude.ai in ${Math.round(t.waitedMs / 1000)} s)` : "");
 
 export function claudeAdapter(): PlatformAdapter {
   const find = async (ctx: AdapterContext, name: string) => (await readRows(ctx)).find((r) => r.name === name);
@@ -147,15 +196,22 @@ export function claudeAdapter(): PlatformAdapter {
     async add(ctx, c, ifExisting): Promise<AdapterOutcome> {
       const existing = await find(ctx, c.name);
       if (existing) {
-        if (ifExisting === "skip") return { status: "skipped", detail: `"${c.name}" already registered` };
+        if (ifExisting === "skip") {
+          if (existing.connected) return { status: "skipped", detail: `"${c.name}" already registered` };
+          // REQ-D012 AC2: a registered row that is not Connected is repaired, not skipped.
+          const fix = await connectIfNeeded(ctx, c.name);
+          if (!fix.row) return { status: "error", detail: `"${c.name}" is no longer listed after the press` };
+          if (fix.row.connected) return { status: "ok", detail: `"${c.name}" was registered but not Connected; pressed ${fix.pressed ?? "nothing"}, now Connected` };
+          return { status: "error", detail: fix.pressed ? `"${c.name}" registered but still not Connected after pressing ${fix.pressed}${tripNote(fix.trip)}` : `"${c.name}" registered but not Connected, and its row has no Connect or Reconnect button` };
+        }
         if (ifExisting === "fail") return { status: "error", detail: `"${c.name}" already registered` };
         const rm = await this.remove(ctx, c);
         if (rm.status === "error" || rm.status === "not-implemented") return rm;
       }
       try { await doAdd(ctx, c); } catch (e) { if (/connector with this URL already exists/.test((e as Error).message)) return { status: "error", detail: (e as Error).message.replace(/^claude-add-check-duplicate-url failed: /, "").replace(/ \(screenshot:.*$/, "") }; throw e; }
-      const row = await connectIfNeeded(ctx, c.name);
-      if (!row) return { status: "error", detail: `submitted, but "${c.name}" did not appear in the list` };
-      return row.connected ? { status: "ok", detail: `"${c.name}" added and Connected` } : { status: "error", detail: `"${c.name}" added but not Connected` };
+      const res = await connectIfNeeded(ctx, c.name);
+      if (!res.row) return { status: "error", detail: `submitted, but "${c.name}" did not appear in the list` };
+      return res.row.connected ? { status: "ok", detail: `"${c.name}" added and Connected` } : { status: "error", detail: `"${c.name}" added but not Connected` + (res.pressed ? ` after pressing ${res.pressed}${tripNote(res.trip)}` : ", and its row has no Connect or Reconnect button") };
     },
     async update(ctx, c) { return this.add(ctx, c, "update"); },
     async remove(ctx, c): Promise<AdapterOutcome> {

@@ -33,7 +33,7 @@ function world(o: { initial: "reconnect" | "connected" | "connect" | "missing"; 
   };
   const page = {
     url: () => (awayNow() ? o.away!.url : base),
-    goto: async (u: string) => { if (awayNow()) log.push("goto-while-away"); log.push(`goto@${clock}`); base = u; forcedBack = true; },
+    goto: async (u: string) => { if (awayNow()) log.push("goto-while-away"); log.push(`goto@${clock}`); base = u; if (pressedAt !== undefined) forcedBack = true; },
     waitForSelector: async () => undefined,
     evaluate: async () => "customize connectors",
     $$eval: async (_s: string, fn: (r: Array<{ innerText: string }>) => unknown) => fn(rows().map((r) => ({ innerText: r.text }))),
