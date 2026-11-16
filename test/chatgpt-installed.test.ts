@@ -17,7 +17,7 @@ const VISIBLE = ["HELM Thread Monitor", "roku-mcp", "HELM Relay", "Fleet Connect
 const ALL = [...VISIBLE, "Connector Connector", "HELM Drive MCP Connector", "Patchright MCP", "Vault MCP"];
 const entryFor = (name: string) => ({ text: name + "\nA description line", href: "/settings/plugins-settings/" + ID(name.toLowerCase().replace(/[^a-z0-9]/g, "")) });
 
-interface Opts { section: string[]; settings?: Array<{ text: string; href: string | null }> | (() => Array<{ text: string; href: string | null }>); titleOk?: boolean }
+interface Opts { section: string[]; sectionFn?: () => string[]; settings?: Array<{ text: string; href: string | null }> | (() => Array<{ text: string; href: string | null }>); titleOk?: boolean }
 function world(o: Opts) {
   const log: string[] = [];
   let settingsReads = 0;
@@ -27,7 +27,7 @@ function world(o: Opts) {
     evaluate: async (fn: (...a: never[]) => unknown, arg?: unknown) => {
       log.push("evaluate");
       if (String(fn).includes("1200")) return "welcome";
-      if (arg === "Installed") return o.section;
+      if (arg === "Installed") return o.sectionFn ? o.sectionFn() : o.section;
       return ["Connected"]; // the plugin page's main lines
     },
     waitForFunction: async (fn: unknown, arg?: unknown) => { log.push("waitForFunction"); if (o.titleOk === false && typeof arg === "string" && arg !== "Installed") throw new Error("timeout"); return true; },
@@ -42,7 +42,7 @@ function world(o: Opts) {
   return { ctx, log, settingsReads: () => settingsReads, page };
 }
 const VISIBLE_OF = (o: Opts) => o.section.filter((n) => !/^\d+ more/.test(n));
-const MORE = "11 more";
+const MORE = "4 more"; // 6 visible + 4 more = the 10 entries of settingsAll()
 const settingsAll = () => ALL.map(entryFor);
 const rc = (name: string): ResolvedConnector => ({ def: { id: "x", name, auth: { mode: "none" }, platforms: ["chatgpt"] } as never, name, url: "https://x.example/mcp" });
 
@@ -79,6 +79,23 @@ describe("REQ-D013 ChatGPT reads every installed plugin", () => {
   it("TC-D013-06 a settings page that never shows entries is an error, not an empty or partial list", async () => {
     const w = world({ section: [...VISIBLE, MORE], settings: [] });
     await expect(chatgptAdapter().list(w.ctx)).rejects.toThrow(/did not finish loading|partial list/);
+  });
+  it("TC-D013-13 a section that is still filling in is read again until its names are stable", async () => {
+    let call = 0;
+    const w = world({ section: [], sectionFn: () => (++call <= 2 ? VISIBLE.slice(0, 2) : [...VISIBLE, MORE]), settings: settingsAll() });
+    const r = await chatgptAdapter().list(w.ctx);
+    expect(r.names).toEqual(ALL);
+  });
+  it("TC-D013-14 a settings page that holds still at fewer entries than the section and its more link announce is waited for", async () => {
+    let call = 0;
+    const w = world({ section: [...VISIBLE, MORE], settings: () => (++call <= 8 ? settingsAll().slice(0, 7) : settingsAll()) });
+    const r = await chatgptAdapter().list(w.ctx);
+    expect(r.names).toEqual(ALL);
+    expect(w.settingsReads()).toBeGreaterThan(8);
+  });
+  it("TC-D013-15 a settings page that stays below the announced count is an error, never a partial list", async () => {
+    const w = world({ section: [...VISIBLE, MORE], settings: settingsAll().slice(0, 7) });
+    await expect(chatgptAdapter().list(w.ctx)).rejects.toThrow(/partial list/);
   });
   it("TC-D013-07 the id of an entry link is read from its path only, for both page kinds", () => {
     expect(pluginIdFromHref("/settings/plugins-settings/plugin_asdk_app_6abf4d0e")).toBe("plugin_asdk_app_6abf4d0e");
