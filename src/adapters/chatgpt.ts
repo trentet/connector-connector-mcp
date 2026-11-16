@@ -102,27 +102,28 @@ export function parseSettingsEntries(links: InstalledLink[]): Array<{ name: stri
   return out;
 }
 /** REQ-D013 AC1 AC2: the first text lines of the Installed section become names, except the "N more" link, which only says the list goes on. */
-export function parseInstalledSection(lines: string[]): { names: string[]; more: boolean } {
+export function parseInstalledSection(lines: string[]): { names: string[]; more: boolean; moreCount?: number } {
   const moreRx = new RegExp(sel.list.moreLinkText, "i");
   const names: string[] = [];
   let more = false;
-  for (const l of lines) { if (moreRx.test(l.trim())) more = true; else if (!names.includes(l)) names.push(l); }
-  return { names, more };
+  let moreCount: number | undefined;
+  for (const l of lines) { if (moreRx.test(l.trim())) { more = true; moreCount = Number(/\d+/.exec(l)?.[0]); } else if (!names.includes(l)) names.push(l); }
+  return { names, more, moreCount };
 }
 
 /** Every entry of the installed-plugins settings page. Waits until the count is the same in three reads (500 ms apart, at most 30 s) and refuses a partial list. */
-async function readSettingsEntries(page: Page): Promise<Array<{ name: string; id: string }>> {
+async function readSettingsEntries(page: Page, minCount = 1): Promise<Array<{ name: string; id: string }>> {
   await page.goto(sel.list.settingsUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
   let entries: Array<{ name: string; id: string }> = [];
   let stable = 0, last = -1;
   for (let i = 0; i < 60 && stable < 3; i++) {
     const links: InstalledLink[] = await page.$$eval(sel.list.entryLink, (as) => as.map((a) => ({ text: (a as HTMLElement).innerText, href: a.getAttribute("href") })));
     entries = parseSettingsEntries(links);
-    stable = entries.length === last && entries.length > 0 ? stable + 1 : 0;
+    stable = entries.length === last && entries.length >= minCount ? stable + 1 : 0;
     last = entries.length;
     await timing.sleep(500);
   }
-  if (stable < 3) throw new Error(`the installed-plugins settings page did not finish loading (${entries.length} entries seen); refusing to report a partial list`);
+  if (stable < 3) throw new Error(`the installed-plugins settings page did not finish loading (${entries.length} entries seen, at least ${minCount} expected from the section and its more link); refusing to report a partial list`);
   return entries;
 }
 
@@ -131,8 +132,7 @@ async function readInstalledEntries(ctx: AdapterContext): Promise<Array<{ name: 
   const page = await openPlugins(ctx);
   const heading: string = sel.list.installedHeading;
   await page.waitForFunction((h) => [...document.querySelectorAll("h1,h2,h3,[role=heading]")].some((e) => (e as HTMLElement).innerText.trim() === h), heading, { timeout: 20000, polling: 500 }).catch(() => {});
-  await timing.sleep(1500);
-  const lines: string[] = await page.evaluate((h) => {
+  const readSection = (): Promise<string[]> => page.evaluate((h) => {
     const hd = [...document.querySelectorAll("h1,h2,h3,[role=heading]")].find((e) => (e as HTMLElement).innerText.trim() === h);
     if (!hd) return [];
     const sec = hd.closest("section") ?? hd.parentElement?.parentElement;
@@ -143,9 +143,14 @@ async function readInstalledEntries(ctx: AdapterContext): Promise<Array<{ name: 
     }
     return [...names];
   }, heading);
-  const { names, more } = parseInstalledSection(lines);
+  let lines: string[] = [];
+  let same = 0, lastKey = "";
+  for (let i = 0; i < 60 && same < 3; i++) { lines = await readSection(); const key = JSON.stringify(lines); same = lines.length > 0 && key === lastKey ? same + 1 : 0; lastKey = key; await timing.sleep(500); }
+  if (lines.length === 0) return [];
+  if (same < 3) throw new Error("the Installed section of the plugins page did not finish loading; refusing to report a partial list");
+  const { names, more, moreCount } = parseInstalledSection(lines);
   if (!more) return names.map((name) => ({ name }));
-  const entries = await readSettingsEntries(page);
+  const entries = await readSettingsEntries(page, names.length + (moreCount ?? 0));
   const known = new Set(entries.map((e) => e.name));
   return [...entries, ...names.filter((n) => !known.has(n)).map((name) => ({ name }))];
 }

@@ -63,10 +63,10 @@ describe("REQ-D013 ChatGPT reads every installed plugin", () => {
     expect(r.names).toContain("Vault MCP");
   });
   it("TC-D013-04 a name in the section that the settings page lacks is added, and the more link is never a name", async () => {
-    const w = world({ section: [...VISIBLE, "Legacy Only In Section", MORE], settings: settingsAll() });
+    const w = world({ section: [...VISIBLE, "Legacy Only In Section", "3 more"], settings: settingsAll() }); // 7 names + 3 more = the 10 settings entries
     const r = await chatgptAdapter().list(w.ctx);
     expect(r.names).toContain("Legacy Only In Section");
-    expect(r.names).not.toContain(MORE);
+    expect(r.names.some((x) => /more$/.test(x))).toBe(false);
     expect(r.names.filter((n) => n === "DSM Connect")).toHaveLength(1);
   });
   it("TC-D013-05 entries that appear progressively are waited for until the count is stable", async () => {
