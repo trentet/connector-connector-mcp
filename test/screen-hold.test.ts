@@ -83,8 +83,10 @@ describe("REQ-D015 the hold is checked where every browser start passes", () => 
 
 describe("REQ-D015 the screen-control session as the source", () => {
   it("TC-D015-04 an overlay window of a live process holds the screen and the status names its class and process", async () => {
-    const st = await screenHoldStatus(dir, { probe: async () => [win()], alive: aliveOnlyMe });
+    const st = await screenHoldStatus(dir, { probe: async () => [win(), win()], alive: aliveOnlyMe }); // two bars, one per monitor
     expect(st.held).toBe(true);
+    expect(st.reasons.length).toBe(1);
+    expect(st.reasons[0]!.split(CLASS).length - 1).toBe(1);
     expect(st.reasons.join(" ")).toContain(CLASS);
     expect(st.reasons.join(" ")).toContain(String(ME));
   });
@@ -236,8 +238,8 @@ describe("REQ-D015 what a waiting run does", () => {
   it("TC-D015-18 the wait follows the condition: still held after ten minutes, goes on at the first poll after the clear", async () => {
     const c = fakeClock();
     const r = await waitForScreenFree(dir, { probe: async () => (c.elapsed() <= 600_500 ? [win()] : []), alive: aliveOnlyMe, now: c.now, sleep: c.sleep, log: () => {}, env: {} });
-    expect(r.waitedMs).toBe(603_000);
-    expect(new Set(c.sleeps)).toEqual(new Set([3000]));
+    expect(r.waitedMs).toBe(605_000);
+    expect(new Set(c.sleeps)).toEqual(new Set([5000]));
   });
 
   it("TC-D015-19 a wait past the limit ends with an error naming the hold and the seconds, and returns no lane", async () => {
@@ -265,7 +267,7 @@ describe("REQ-D015 what a waiting run does", () => {
       probe: async () => { throw new Error("enumeration timed out"); }, alive: aliveOnlyMe, now: c2.now, log: l2.log, env: {},
       sleep: async (ms) => { await c2.sleep(ms); if (c2.elapsed() >= 9000) clearManualHold(dir); },
     });
-    expect(r.waitedMs).toBe(9000);
+    expect(r.waitedMs).toBe(10_000);
     expect(l2.out.filter((m) => /could not read the windows/.test(m)).length).toBe(1);
     expect(l2.out.join(" ")).toContain("still here");
   });

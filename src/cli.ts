@@ -9,6 +9,7 @@ import { reauth } from "./core/reauth.js";
 import { checkMaster, seedMaster } from "./browser/seed.js";
 import { accountMaster, loadAccounts, pickAccount, type AccountDef, type Accounts } from "./core/accounts.js";
 import { formatReport, runThreads } from "./threads.js";
+import { holdCommand } from "./browser/screenHold.js";
 import { PLATFORMS, type Op, type Platform } from "./core/types.js";
 
 const OPS: Op[] = ["add", "remove", "update", "list", "verify", "probe"];
@@ -20,6 +21,7 @@ cc audit --google [--root <dir> ...] [--github <owner>] [--registry <path>] [--j
 cc audit --scan <repo-root> [--json]     (find per-repo registration / Google-reauth scripts that cc replaces)
 cc reauth [connector-id ...|--all] [--include-test] [--dry-run] [--only-if-older-than <days>] [--registry <path>] [--json]   (renew the Google OAuth token of connectors with a googleOAuth registry block; --only-if-older-than skips one renewed more recently, for a second renewer)
 cc settings <apply|verify> --account <id> [--dry-run] [--json]   (claude.ai Projects of an account: create the declared project if missing and set its instructions from the referenced file when they are empty (apply; different existing instructions are refused, never overwritten), or compare read-only (verify); prints only length and sha256 prefix, never the text)
+cc hold set [--reason <text>] [--owner-pid <pid>] | cc hold clear | cc hold status [--json]   (REQ-D015: pause every cc browser start while the screen is in use; a running screen-control session on this host sets the hold by itself, this is the manual hold; a run that meets it waits and says so)
 cc threads --account <id> [--json]                       (read-only: list the claude.ai/code threads as id, status, title, and say plainly what could and could not be read; one browser, never writes to claude.ai)
 cc <op> [connector-id ...|--all] [--platform <claude|chatgpt|grok ...>|all] [--account <id>] [--dry-run] [--include-test] [--registry <path>] [--if-existing skip|update|fail] [--json]
 ops: ${OPS.join(", ")}`;
@@ -80,6 +82,7 @@ export function parseThreadsArgs(rest: string[], accounts: Accounts, env: NodeJS
 
 export async function main(argv: string[]): Promise<number> {
   const args = argv.slice();
+  if (args[0] === "hold") return holdCommand(args.slice(1)); // REQ-D015: no browser, no registry; reads and writes the hold only
   if (args[0] === "audit" && args.includes("--google")) {
     const roots: string[] = []; let owner: string | undefined; let regPath = path.resolve("registry", "connectors.json");
     for (let i = 1; i < args.length; i++) { if (args[i] === "--root") roots.push(args[++i]); else if (args[i] === "--github") owner = args[++i]; else if (args[i] === "--registry") regPath = path.resolve(args[++i]); }

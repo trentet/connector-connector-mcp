@@ -3,6 +3,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { capacityByHardware, hasHeadroom, headroomLimits } from "./hostload.js";
+import { waitForScreenFree, type HoldDeps } from "./screenHold.js";
 
 /**
  * Lane slots: the cross-process cap on concurrent cc browsers, and the owner of each browser's CDP port.
@@ -123,9 +124,12 @@ let exitHook = false;
  * Claim an idle lane, waiting (and saying so) when all are busy. Never returns a lane another caller holds.
  * Throws a clear error when no lane frees up within `waitMs`.
  */
-export async function acquireLane(opts: { waitMs?: number } = {}): Promise<Lane> {
+export async function acquireLane(opts: { waitMs?: number; hold?: HoldDeps } = {}): Promise<Lane> {
   const dir = lanesDir();
   fs.mkdirSync(dir, { recursive: true });
+  // REQ-D015: the screen hold. Every browser start passes here, so a screen in use (a screen-control session on this host, or a manual hold) stops it
+  // BEFORE a lane is claimed and before any Chrome starts. Only starts are held; a run that already has its lane is not touched.
+  await waitForScreenFree(dir, opts.hold);
   const max = maxLanes(), base = portBase();
   const waitMs = opts.waitMs ?? (Number(process.env.CC_LANE_WAIT_MS) || DEFAULT_WAIT_MS);
   if (!exitHook) { exitHook = true; process.on("exit", () => { for (const l of held) { try { fs.rmSync(l, { force: true }); } catch { /* best effort */ } } }); }

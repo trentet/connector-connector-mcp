@@ -1,0 +1,9 @@
+{
+  "_note": "REQ-D015: facts about the screen-control session that holds a host's screen. While a session holds control, its server process shows overlay windows of these window classes (a bar, a banner and a STOP button); they are removed when the session ends and destroyed by Windows if the process dies. cc reads them (read-only window enumeration) to know the screen is in use. Source of the class names: the screen-control add-on, packages/core/native/src/win/overlay.rs (v0.1.8).",
+  "label": "desktop-control session",
+  "overlayWindowClasses": [
+    "HelmDesktopControlOverlayBar",
+    "HelmDesktopControlOverlayBanner",
+    "HelmDesktopControlOverlayStop"
+  ]
+}
