@@ -3,13 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { launchChrome, shutdownChrome } from "../src/browser/chrome.js";
-import { profileInUse } from "../src/browser/profile.js";
+import { profileInUse, removeProfile } from "../src/browser/profile.js";
 
 // REQ-D015: a Chrome running on a user-data-dir makes it "in use" on every platform, so a clone refuses it with the stated message.
 const CHROME = process.env.CC_TEST_CHROME ?? (fs.existsSync("/opt/pw-browsers") ? fs.readdirSync("/opt/pw-browsers").filter((d) => d.startsWith("chromium-")).map((d) => `/opt/pw-browsers/${d}/chrome-linux/chrome`).find((p) => fs.existsSync(p)) : undefined);
 const tmp = (p: string) => fs.mkdtempSync(path.join(os.tmpdir(), p));
 const dirs: string[] = [];
-afterEach(() => { for (const k of ["CC_CHROME_PATH", "CC_CHROME_EXTRA_ARGS"]) delete process.env[k]; while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true, maxRetries: 20, retryDelay: 300 }); });
+afterEach(() => { for (const k of ["CC_CHROME_PATH", "CC_CHROME_EXTRA_ARGS"]) delete process.env[k]; while (dirs.length) removeProfile(dirs.pop()!); /* retries, and never throws: Chrome releases its files a moment after it exits on Windows */ });
 
 describe.skipIf(!CHROME)("REQ-D015 profileInUse against a real Chrome", () => {
   const start = async () => {
