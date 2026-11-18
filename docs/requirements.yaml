@@ -654,3 +654,47 @@ requirements:
   files: [registry/connectors.json, test/desktop-control-registry.test.ts]
   tools: [cc_run]
   decision: {quote: if production was never created and deployed for the remote connector, then that needs to be done and fixed, at: '2026-11-15', source: main thread 15 Nov 2026 about 8:14 PM CST via the worker brief A3-AUD-DEPLOY2 START, from: REQ-U014}
+- id: REQ-U015
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-18'
+  source: >
+    The owner's order of 18 Nov 2026 as relayed word for word in the worker start text A1-DV-M1-CCFIX1 START (folder of
+    the owner thread A1-DV-AMS1, account 1). Context: the Google sign-in of the Drive, Audio and Vision connectors expired on
+    18 Nov 2026 about 2:30 AM CST because the scheduled renewal of 16 Nov 2026 failed and nothing told anyone.
+  quotes:
+  - it all needs to be fixed
+  implemented_by: [REQ-D012]
+- id: REQ-D012
+  kind: derived
+  status: decided
+  title: The identity check of cc reauth reads the account on Google's unverified-app warning page, so the scheduled renewal gets past it
+  text: >
+    Derived from REQ-U015 (18 Nov 2026) and amending ACCT-C06. Cause (proved from reauth.log of 11, 16 and 18 Nov 2026, from
+    the history of src/browser/googleConsent.ts and from a read-only probe of live Google on 18 Nov 2026 2:17 PM CST): the
+    first page Google shows the renewal is accounts.google.com/signin/oauth/warning ("Google hasn't verified this app", the
+    OAuth app is in Testing status). That page has no [data-email] element and no "Google Account:" chip, so googleIdentity
+    returned no account and assertGoogleAccount refused with ACCOUNT_NOT_AUTHORIZED before Continue, on every connector, on 16 and
+    18 Nov. The page names the signed-in account only in the attribute data-third-party-email of its Continue button, which is
+    Google's own marker for the account the grant would be given with. The next page (/signin/oauth/v3/consent) carries
+    [data-email] and already passed. The fake Google of test/google-consent.test.ts showed [data-email] on every page, so the
+    gap was never seen. The identity reader now also reads data-third-party-email. The rule of ACCT-C06 is unchanged: the accounts
+    shown must be exactly the specified account, none shown refuses (ACCOUNT_NOT_AUTHORIZED), another account refuses
+    (ACCOUNT_MISMATCH), and nothing is clicked in either case. Email text elsewhere on the page is still not identity.
+  acceptance:
+  - {id: REQ-D012.AC1, text: "On the unverified-app warning page, which shows the account only in data-third-party-email, the reader returns exactly that account and Continue is clicked when it is the specified account."}
+  - {id: REQ-D012.AC2, text: "On the same page showing another account, the run refuses with ACCOUNT_MISMATCH and nothing is clicked."}
+  - {id: REQ-D012.AC3, text: "On a warning page with no account marker at all, the run refuses with ACCOUNT_NOT_AUTHORIZED and nothing is clicked (fail-closed is kept)."}
+  - {id: REQ-D012.AC4, text: "The reader merges every marker it knows (data-email, the chip aria-label, data-third-party-email) without duplicates; an email only in page text or a script is not identity."}
+  - {id: REQ-D012.AC5, text: "The whole flow warning page, then consent page, then redirect completes with the specified account and stops once the redirect delivered the code."}
+  test_cases:
+  - {id: TC-D012-01, ac: REQ-D012.AC1, kind: positive, test: "test/google-warning-identity.test.ts > TC-D012-01 the warning page's data-third-party-email is read as the signed-in account"}
+  - {id: TC-D012-02, ac: REQ-D012.AC1, kind: positive, test: "test/google-warning-identity.test.ts > TC-D012-02 Continue on the warning page is clicked for the specified account"}
+  - {id: TC-D012-03, ac: REQ-D012.AC2, kind: negative, test: "test/google-warning-identity.test.ts > TC-D012-03 another account on the warning page refuses with ACCOUNT_MISMATCH and the consent page is never reached"}
+  - {id: TC-D012-04, ac: REQ-D012.AC3, kind: negative, test: "test/google-warning-identity.test.ts > TC-D012-04 a warning page with no account marker refuses with ACCOUNT_NOT_AUTHORIZED"}
+  - {id: TC-D012-05, ac: REQ-D012.AC4, kind: edge, test: "test/google-warning-identity.test.ts > TC-D012-05 markers are merged without duplicates and an email in page text is not identity"}
+  - {id: TC-D012-06, ac: REQ-D012.AC5, kind: positive, test: "test/google-warning-identity.test.ts > TC-D012-06 warning page then consent page then redirect completes and delivers the code"}
+  files: [src/browser/googleConsent.ts, test/google-warning-identity.test.ts]
+  tools: [cc_reauth]
+  decision: {quote: it all needs to be fixed, at: '2026-11-18', source: "the owner's order of 18 Nov 2026 as relayed in the worker start text A1-DV-M1-CCFIX1 START; the cause and the wording of this entry are NOT FROM HIS WORDS: FOR HIS REVIEW", from: REQ-U015}
