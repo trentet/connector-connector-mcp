@@ -50,6 +50,16 @@ describe("REQ-D014 hours left on a Google sign-in", () => {
     expect(parseFlags(["--status", "--warn-hours", "0"])).toEqual({ error: expect.stringMatching(/warn-hours/) });
     expect(parseFlags(["--status", "--warn-hours"])).toEqual({ error: expect.stringMatching(/warn-hours/) });
   });
+  it("TC-D014-06 the renewing host is in the status data and the alert file, not in the printed lines", async () => {
+    const g: GoogleOAuthDef = { secretsDir: "/a", scopes: ["s"], account: { vaultLabel: "L" } };
+    const reg: Registry = { version: 1, connectors: [{ id: "a", name: "a", url: { type: "literal", value: "https://x.example/mcp" }, auth: { mode: "none" }, platforms: ["claude"], googleOAuth: g }] };
+    const t: Transport = { where: "fake", join: (d, n) => `${d}/${n}`, readFile: async () => hoursAgo(150), replaceFile: async () => { throw new Error("no write"); }, exec: async () => { throw new Error("no exec"); }, fetchText: async () => { throw new Error("no fetch"); } };
+    const out = await signInStatuses(reg, { connectors: ["*"] }, { transport: () => t, now: () => NOW }, 72);
+    expect(out[0]).toMatchObject({ connector: "a", state: "warn", byHost: "W540" });
+    const alert = evaluateAlert(out, { warnHours: 72, nowIso: "2026-11-18T20:00:00.000Z" });
+    expect(alert.file.connectors[0]).toMatchObject({ connector: "a", byHost: "W540" });
+    expect(alert.lines.join("\n")).not.toMatch(/W540/);
+  });
 });
 
 describe("REQ-D013 a failed or overdue renewal always raises an alert", () => {
