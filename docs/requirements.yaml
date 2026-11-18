@@ -202,11 +202,12 @@ requirements:
   text: >
     In Google sign-in and consent flows (cc reauth, cc browser signin), after cc enters its own credentials and
     before any other click or consent (Continue, Allow, Advanced, Go to app, Select all, scope boxes), the accounts
-    the page shows as signed in ([data-email] values and the account chip aria-label, data/selectors/google-consent.json
+    the page shows as signed in ([data-email] values, data-third-party-email values and the account chip aria-label, data/selectors/google-consent.json
     accountSwitcherChipAria) must be exactly the specified account: for cc reauth the vault entry the connector's
     own googleOAuth definition names. Another account refuses with ACCOUNT_MISMATCH, none shown with
-    ACCOUNT_NOT_AUTHORIZED, and nothing is clicked. These page markers are not yet checked against live Google
-    (fail-closed: a screen without them is refused).
+    ACCOUNT_NOT_AUTHORIZED, and nothing is clicked. [data-email] (consent page) and data-third-party-email (warning page) were read on
+    live Google on 18 Nov 2026 (REQ-D012); the account chip's aria-label is not yet checked on a live page (fail-closed: a screen without
+    the markers is refused).
   files: [src/browser/googleConsent.ts, src/core/accountChoice.ts]
   tools: [cc_reauth, cc_signin]
   decision: {quote: "it would not be acceptable to just be blindly using the accounts that are already logged in without validating that we\u2019re actually logged into the correct account", at: '2026-11-11', source: main chat t119u, from: REQ-U005}
@@ -710,12 +711,12 @@ requirements:
     renewal is 3 days old or unreadable (-OnlyIfOlderThanDays 3, the existing --only-if-older-than), so a failed run is retried
     every day and gets four attempts in all before Google's 7-day limit, the first and three retries (a renewal made after that
     day's run time gets its attempts on days 4, 5, 6 and 7 after it, the last one some hours before the 168 hours end; a renewal
-    made just before the run time gets days 3, 4, 5 and 6; counted by simulation in the pull request evidence, not observed live);
+    made just before the run time gets days 3, 4, 5 and 6; counted by test TC-D013-13, which applies the renewal rule of src/core/reauth.ts to a daily 02:30 run and a 168-hour token, not observed live);
     (2) after every scheduled run scripts/run-reauth.ps1 calls
     `cc reauth --all --status` (REQ-D014), adding --run-failed only when the renewal itself exited non-zero (never because only the coverage check failed); (3) `--status` raises an ALERT
     when the run failed, or any sign-in has fewer than 72 hours left (--warn-hours), is expired, or cannot be read: it writes
-    alerts/reauth-ALERT.json beside the logs (connector, hours left, state, time; no secret), prints one ALERT line per
-    connector, exits 1, and, when CC_ALERT_COMMAND names a program, runs it with the alert file path as its only argument (no
+    alerts/reauth-ALERT.json beside the logs (connector, hours left, state, time; no secret), prints one line per connector (ALERT for one with a problem, ok for a healthy one) and
+    one more ALERT line when the run failed, exits 1, and, when CC_ALERT_COMMAND names a program, runs it with the alert file path as its only argument (no
     shell) so the alert can be routed to the owner and the owner threads; a healthy status removes the alert file. A hook that
     fails or is absent never hides the alert: the file, the log line and the exit code remain. The scheduled run also starts its
     Chrome on its own Windows desktop (CC_CHROME_DESKTOP=own, REQ-D006) so a daily retry shows no window and takes no focus. Which
@@ -741,7 +742,8 @@ requirements:
   - {id: TC-D013-10, ac: REQ-D013.AC2, kind: negative, test: "test/run-reauth-script.test.ts > TC-D013-10 renewal failed: the finished line carries exit 1, the status call has --run-failed, exit 1"}
   - {id: TC-D013-11, ac: REQ-D013.AC2, kind: negative, test: "test/run-reauth-script.test.ts > TC-D013-11 coverage gap only: exit 3, the status call has no --run-failed, the gap is logged"}
   - {id: TC-D013-12, ac: REQ-D013.AC2, kind: negative, test: "test/run-reauth-script.test.ts > TC-D013-12 not deployed: exit 2, nothing is called"}
-  files: [src/core/signinHealth.ts, src/core/reauth.ts, src/cli.ts, scripts/run-reauth.ps1, scripts/install-reauth-task.ps1, test/signin-health.test.ts, test/run-reauth-script.test.ts]
+  - {id: TC-D013-13, ac: REQ-D013.AC1, kind: positive, test: "test/reauth.test.ts > TC-D013-13 a daily 02:30 run with a 3-day threshold makes four attempts before a 168-hour token ends, for a renewal at 14:22 and at 02:20"}
+  files: [src/core/signinHealth.ts, src/core/reauth.ts, src/cli.ts, scripts/run-reauth.ps1, scripts/install-reauth-task.ps1, test/signin-health.test.ts, test/run-reauth-script.test.ts, test/reauth.test.ts]
   tools: [cc_reauth]
   decision: {quote: it all needs to be fixed, at: '2026-11-18', source: "the owner's order of 18 Nov 2026 as relayed in the worker start text A1-DV-M1-CCFIX1 START; the alert rules, the 72-hour limit and the 3-day threshold are NOT FROM HIS WORDS: FOR HIS REVIEW", from: REQ-U015}
 - id: REQ-D014
