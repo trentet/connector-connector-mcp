@@ -3,7 +3,7 @@
 # behaviour is not backfilled here; gate.code and gate.tools_in_scope list exactly what this ledger covers.
 gate:
   id_pattern: '\b(?:REQ-[UDG]\d{3}|ACCT-(?:\d{3}|[PCV]\d{2}))\b'
-  code: ['^src/core/signInMethod\.ts$', '^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/adapters/grokLoginWait\.ts$', '^src/core/runJobs\.ts$', '^src/core/jobProcs\.ts$', '^src/browser/chrome\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
+  code: ['^src/core/signInMethod\.ts$', '^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/core/signinHealth\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/adapters/grokLoginWait\.ts$', '^src/core/runJobs\.ts$', '^src/core/jobProcs\.ts$', '^src/browser/chrome\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
   tests: ['^test/.+\.ts$']
   tool_files: ['^src/server/app\.ts$']
   tools_in_scope: [cc_signin, cc_run, cc_reauth]
@@ -665,7 +665,7 @@ requirements:
     18 Nov 2026 about 2:30 AM CST because the scheduled renewal of 16 Nov 2026 failed and nothing told anyone.
   quotes:
   - it all needs to be fixed
-  implemented_by: [REQ-D012]
+  implemented_by: [REQ-D012, REQ-D013, REQ-D014]
 - id: REQ-D012
   kind: derived
   status: decided
@@ -698,3 +698,67 @@ requirements:
   files: [src/browser/googleConsent.ts, test/google-warning-identity.test.ts]
   tools: [cc_reauth]
   decision: {quote: it all needs to be fixed, at: '2026-11-18', source: "the owner's order of 18 Nov 2026 as relayed in the worker start text A1-DV-M1-CCFIX1 START; the cause and the wording of this entry are NOT FROM HIS WORDS: FOR HIS REVIEW", from: REQ-U015}
+- id: REQ-D013
+  kind: derived
+  status: decided
+  title: A failed or overdue Google sign-in renewal always raises an alert, and the renewal is retried every day until it succeeds
+  text: >
+    Derived from REQ-U015 (18 Nov 2026). The scheduled renewal of 16 Nov 2026 failed for all three connectors and nothing told
+    anyone for two days, until the sign-ins expired (scheduled-reauth.log exit 1, task result 1, no other trace). Now (1) the
+    scheduled task runs daily (install-reauth-task.ps1 default DaysInterval 1) and renews a connector only once its last
+    renewal is 3 days old or unreadable (-OnlyIfOlderThanDays 3, the existing --only-if-older-than), so a failed run is retried
+    the next day and four more times before Google's 7-day limit; (2) after every scheduled run scripts/run-reauth.ps1 calls
+    `cc reauth --all --status` (REQ-D014), adding --run-failed when the renewal exited non-zero; (3) `--status` raises an ALERT
+    when the run failed, or any sign-in has fewer than 72 hours left (--warn-hours), is expired, or cannot be read: it writes
+    alerts/reauth-ALERT.json beside the logs (connector, hours left, state, time; no secret), prints one ALERT line per
+    connector, exits 1, and, when CC_ALERT_COMMAND names a program, runs it with the alert file path as its only argument (no
+    shell) so the alert can be routed to the owner and the owner threads; a healthy status removes the alert file. A hook that
+    fails or is absent never hides the alert: the file, the log line and the exit code remain. The scheduled run also starts its
+    Chrome on its own Windows desktop (CC_CHROME_DESKTOP=own, REQ-D006) so a daily retry shows no window and takes no focus. Which
+    channel carries the hook to the owner's phone and to the owner threads is deployment configuration and is NOT ESTABLISHED
+    by this entry: FOR HIS REVIEW.
+  acceptance:
+  - {id: REQ-D013.AC1, text: "install-reauth-task.ps1 registers the primary renewal daily with -OnlyIfOlderThanDays 3 by default, and run-reauth.ps1 sets CC_CHROME_DESKTOP=own unless already set."}
+  - {id: REQ-D013.AC2, text: "run-reauth.ps1 calls cc reauth --all --status after every run, passes --run-failed when the renewal failed, and exits non-zero when the status raised an alert."}
+  - {id: REQ-D013.AC3, text: "A failed run, a sign-in with fewer hours left than the warn limit, an expired one, or an unreadable record each raise the alert: file written, ALERT line printed, exit 1."}
+  - {id: REQ-D013.AC4, text: "When every sign-in has more hours left than the warn limit and the run did not fail, no alert is raised and an old alert file is removed."}
+  - {id: REQ-D013.AC5, text: "CC_ALERT_COMMAND is run with the alert file path as its only argument and no shell; a failing or missing hook does not stop the alert file, the log line or the exit code."}
+  - {id: REQ-D013.AC6, text: "The alert file and the printed lines carry no token, code, password or email."}
+  test_cases:
+  - {id: TC-D013-01, ac: REQ-D013.AC1, kind: positive, test: "test/signin-health.test.ts > TC-D013-01 the installer defaults are daily with a 3-day renewal threshold and the runner starts Chrome on its own desktop"}
+  - {id: TC-D013-02, ac: REQ-D013.AC2, kind: positive, test: "test/signin-health.test.ts > TC-D013-02 the runner calls the status check after every run, passes --run-failed on failure and exits non-zero on an alert"}
+  - {id: TC-D013-03, ac: REQ-D013.AC3, kind: positive, test: "test/signin-health.test.ts > TC-D013-03 a sign-in under the warn limit raises the alert: file, ALERT line, exit 1"}
+  - {id: TC-D013-04, ac: REQ-D013.AC3, kind: negative, test: "test/signin-health.test.ts > TC-D013-04 an expired, an unreadable and a failed-run status each raise the alert"}
+  - {id: TC-D013-05, ac: REQ-D013.AC4, kind: positive, test: "test/signin-health.test.ts > TC-D013-05 healthy sign-ins raise nothing and remove an old alert file"}
+  - {id: TC-D013-06, ac: REQ-D013.AC5, kind: positive, test: "test/signin-health.test.ts > TC-D013-06 the hook is run with the alert file path as its only argument"}
+  - {id: TC-D013-07, ac: REQ-D013.AC5, kind: negative, test: "test/signin-health.test.ts > TC-D013-07 a failing hook does not hide the alert"}
+  - {id: TC-D013-08, ac: REQ-D013.AC6, kind: negative, test: "test/signin-health.test.ts > TC-D013-08 the alert file and lines carry no secret, code or email"}
+  files: [src/core/signinHealth.ts, src/core/reauth.ts, src/cli.ts, scripts/run-reauth.ps1, scripts/install-reauth-task.ps1, test/signin-health.test.ts]
+  tools: [cc_reauth]
+  decision: {quote: it all needs to be fixed, at: '2026-11-18', source: "the owner's order of 18 Nov 2026 as relayed in the worker start text A1-DV-M1-CCFIX1 START; the alert rules, the 72-hour limit and the 3-day threshold are NOT FROM HIS WORDS: FOR HIS REVIEW", from: REQ-U015}
+- id: REQ-D014
+  kind: derived
+  status: decided
+  title: cc reports the hours left on every Google sign-in it renews
+  text: >
+    Derived from REQ-U015 (18 Nov 2026). While the Google OAuth app is in Testing status a refresh token lives 7 days (168
+    hours); the new token.json of 18 Nov 2026 no longer carries refresh_token_expires_in, so the hours left are computed from
+    the renewal record (token.renewed.json, renewedAt) that cc writes at every renewal, on the connector's own host. `cc reauth
+    <ids|--all> --status [--warn-hours N] [--json]` reads that record for each connector with a googleOAuth block (no vault, no
+    browser, no change) and prints connector, hours left, state (ok, warn, expired, unknown) and the host that renewed it. An
+    unreadable or future-dated record is state unknown and counts as a problem. The same hours left are in the alert file of
+    REQ-D013. The health pages of the connectors themselves (their own repositories) are not changed by this entry.
+  acceptance:
+  - {id: REQ-D014.AC1, text: "hoursLeft is 168 minus the hours since renewedAt, never below 0, rounded to one decimal; a missing, unparsable or future-dated record gives no value."}
+  - {id: REQ-D014.AC2, text: "State is ok above the warn limit, warn from 0 up to the limit, expired at 0 or below, unknown when there is no value."}
+  - {id: REQ-D014.AC3, text: "cc reauth --status reads each googleOAuth connector's record over its own transport, performs no vault read, no browser launch and no write of token files, and prints one line per connector with its hours left and state."}
+  - {id: REQ-D014.AC4, text: "--warn-hours must be a positive number; --status never starts a renewal."}
+  test_cases:
+  - {id: TC-D014-01, ac: REQ-D014.AC1, kind: positive, test: "test/signin-health.test.ts > TC-D014-01 hours left from the renewal record"}
+  - {id: TC-D014-02, ac: REQ-D014.AC1, kind: edge, test: "test/signin-health.test.ts > TC-D014-02 missing, garbage and future-dated records give no value; an old one gives 0"}
+  - {id: TC-D014-03, ac: REQ-D014.AC2, kind: edge, test: "test/signin-health.test.ts > TC-D014-03 the state boundaries"}
+  - {id: TC-D014-04, ac: REQ-D014.AC3, kind: positive, test: "test/signin-health.test.ts > TC-D014-04 status reads every googleOAuth connector's record and starts no consent"}
+  - {id: TC-D014-05, ac: REQ-D014.AC4, kind: negative, test: "test/signin-health.test.ts > TC-D014-05 --status and --warn-hours parse, and a bad warn limit is refused"}
+  files: [src/core/signinHealth.ts, src/core/reauth.ts, src/cli.ts, test/signin-health.test.ts]
+  tools: [cc_reauth]
+  decision: {quote: it all needs to be fixed, at: '2026-11-18', source: "the owner's order of 18 Nov 2026 as relayed in the worker start text A1-DV-M1-CCFIX1 START; the 168-hour limit is Google's documented Testing-status limit as the owner thread read it (token.json carried refresh_token_expires_in), the rest is NOT FROM HIS WORDS: FOR HIS REVIEW", from: REQ-U015}
