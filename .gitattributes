@@ -1,2 +1,4 @@
 
 scripts/hooks/* text eol=lf
+# REQ-D016: a byte copy pinned by sha256 (npm test: check:hidden-launch); never let a machine's core.autocrlf change its bytes.
+scripts/check-hidden-launch.mjs text eol=lf
