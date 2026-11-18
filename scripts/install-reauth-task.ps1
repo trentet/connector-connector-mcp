@@ -1,6 +1,6 @@
 <#
   Registers the scheduled Google OAuth renewal (idempotent; replaces the same-named task): runs scripts\run-reauth.ps1 from the DEPLOYED
-  cc copy every 5 days, comfortably inside Google's 7-day refresh-token expiry.
+  cc copy every day; it renews a connector only once its last renewal is 3 days old (REQ-D013), so a failed run is retried every day, four more times, inside Google's 7-day refresh-token expiry.
 
     .\scripts\install-reauth-task.ps1 [-Environment production] [-At 03:30] [-Start] [-TaskName <name>] [-DaysInterval 5] [-Connectors id1,id2] [-OnlyIfOlderThanDays 4.75] [-SkipCoverage]
 
@@ -17,9 +17,9 @@
 #>
 param([ValidateSet("production", "test")][string]$Environment = "production", [string]$At = "03:30", [switch]$Start,
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9 ()._-]{0,79}$')][string]$TaskName = "cc-mcp Google Reauth",
-    [ValidateRange(1, 6)][int]$DaysInterval = 5,
+    [ValidateRange(1, 6)][int]$DaysInterval = 1,
     [ValidatePattern('^$|^[a-z0-9][a-z0-9-]*([, ]+[a-z0-9][a-z0-9-]*)*$')][string]$Connectors = "",
-    [ValidateRange(0, 6)][double]$OnlyIfOlderThanDays = 0, [switch]$SkipCoverage)
+    [ValidateRange(0, 6)][double]$OnlyIfOlderThanDays = 3, [switch]$SkipCoverage)
 $ErrorActionPreference = "Stop"
 $base = Join-Path $env:LOCALAPPDATA "HELM\connector-connector-mcp"
 $runner = Join-Path $base "deploy\$Environment\scripts\run-reauth.ps1"
