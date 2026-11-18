@@ -37,8 +37,9 @@ describe("reauth script input checks (#44)", () => {
   };
 
   it("-DaysInterval is limited to 1..6 (never past Google's 7-day limit) and the age limit to 0..6", () => {
-    expect(install).toMatch(/\[ValidateRange\(1, 6\)\]\[int\]\$DaysInterval = 5/);
-    expect(install).toMatch(/\[ValidateRange\(0, 6\)\]\[double\]\$OnlyIfOlderThanDays = 0/);
+    // REQ-D013 (18 Nov 2026): the primary renewal is daily (was every 5 days) and renews once the last renewal is 3 days old (was always), so a failed run is retried.
+    expect(install).toMatch(/\[ValidateRange\(1, 6\)\]\[int\]\$DaysInterval = 1\b/);
+    expect(install).toMatch(/\[ValidateRange\(0, 6\)\]\[double\]\$OnlyIfOlderThanDays = 3\b/);
     expect(run).toMatch(/\[ValidateRange\(0, 6\)\]\[double\]\$OnlyIfOlderThanDays = 0/);
   });
   it("the deployed parameter names are unchanged", () => {
