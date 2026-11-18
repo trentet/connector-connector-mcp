@@ -99,8 +99,9 @@ export async function clickAccountChooserEntry(page: Page, spec: ConsentSpec, ow
 
 /**
  * Every account a Google page shows as signed in: [data-email] values, [data-third-party-email] values (the unverified-app warning page, REQ-D012) and the account chip's aria-label
- * (spec.accountSwitcherChipAria). Email text elsewhere on the page is not identity. ACCT-C06; not yet checked against
- * live Google, so a screen without these markers is refused (fail-closed).
+ * (spec.accountSwitcherChipAria). Email text elsewhere on the page is not identity. ACCT-C06; the warning page's marker and the
+ * consent page's [data-email] were read on live Google on 18 Nov 2026 (read-only probe, REQ-D012); other Google pages are not known,
+ * so a screen without these markers is refused (fail-closed).
  */
 export async function googleIdentity(page: Page, spec: ConsentSpec): Promise<string[]> {
   const raw = await page.evaluate((chip) => {

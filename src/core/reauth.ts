@@ -183,7 +183,6 @@ export function buildConsentUrl(p: { clientId: string; redirectUri: string; scop
   return `${CONSENT_ENDPOINT}?${q.toString()}`;
 }
 
-/** This machine's name for the `googleOAuth.renewers` filter: CC_HOST_NAME when set (tests, containers), else os.hostname(). */
 /** REQ-D014: hours left on each Google sign-in cc renews, from the renewal record on the connector's own host. Reads only: no vault, no browser, no write. */
 export async function signInStatuses(reg: Registry, req: { connectors: string[]; includeTest?: boolean }, deps: { transport: (def: GoogleOAuthDef) => Transport; now: () => number }, warnHours: number = DEFAULT_WARN_HOURS): Promise<SignInStatus[]> {
   const { picked, items } = selectGoogleConnectors(reg, { connectors: req.connectors, includeTest: req.includeTest });
@@ -203,6 +202,7 @@ export function alertsDir(): string {
   const lf = defaultReauthDeps().logFile;
   return lf ? path.join(path.dirname(path.dirname(lf)), "alerts") : path.resolve("alerts");
 }
+/** This machine's name for the `googleOAuth.renewers` filter: CC_HOST_NAME when set (tests, containers), else os.hostname(). */
 export function hostName(): string { return (process.env.CC_HOST_NAME?.trim() || os.hostname()).trim(); }
 
 /** True when the entry has no renewer list, or `host` (case-insensitive) is on it. */

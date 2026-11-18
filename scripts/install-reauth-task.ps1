@@ -1,10 +1,10 @@
 <#
   Registers the scheduled Google OAuth renewal (idempotent; replaces the same-named task): runs scripts\run-reauth.ps1 from the DEPLOYED
-  cc copy every day; it renews a connector only once its last renewal is 3 days old (REQ-D013), so a failed run is retried every day, four more times, inside Google's 7-day refresh-token expiry.
+  cc copy every day; it renews a connector only once its last renewal is 3 days old (REQ-D013), so a failed run is retried every day: four attempts in all (the first and three retries) inside Google's 7-day refresh-token expiry.
 
-    .\scripts\install-reauth-task.ps1 [-Environment production] [-At 03:30] [-Start] [-TaskName <name>] [-DaysInterval 5] [-Connectors id1,id2] [-OnlyIfOlderThanDays 4.75] [-SkipCoverage]
+    .\scripts\install-reauth-task.ps1 [-Environment production] [-At 03:30] [-Start] [-TaskName <name>] [-DaysInterval 1] [-Connectors id1,id2] [-OnlyIfOlderThanDays 4.75] [-SkipCoverage]
 
-  The defaults register the primary renewer ('cc-mcp Google Reauth', every 5 days, all connectors). A SECOND renewer on another host registers its own
+  The defaults register the primary renewer ('cc-mcp Google Reauth', every day, renewing a connector only once its last renewal is 3 days old, all connectors). A SECOND renewer on another host registers its own
   task, for example: -TaskName 'cc-mcp Google Reauth (second)' -DaysInterval 1 -At 15:30 -Connectors <robot-id> -OnlyIfOlderThanDays 4.75 -SkipCoverage
 
   Inputs are checked before anything is registered: -DaysInterval 1 to 6 (never past Google's 7-day limit), -OnlyIfOlderThanDays 0 to 6, -TaskName letters/digits/space/()._- only,
