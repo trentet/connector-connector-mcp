@@ -720,6 +720,35 @@ requirements:
   - {id: REQ-D017.AC7, text: "An ok verify names the number of connected apps read, the number of tools Grok lists and every tool name; a row that is not found, a detail that does not open for that connector, has no tools line, lists no tool or does not give the same tools in two reads within 10 s is an error, never an ok."}
   - {id: REQ-D017.AC8, text: "No URL, query string or token leaves the page: detail lines that hold :// or token= are dropped inside the page, and outcomes carry only names and tool names."}
   - {id: REQ-D017.AC9, text: "cc list, verify, add, remove and update on Grok read the list through this code, and the release is version 0.2.20."}
+  test_cases:
+  - {id: TC-D017-01, ac: REQ-D017.AC1, kind: positive, test: "test/grok-connected-list.test.ts > TC-D017-01 the name is the first line, or the second after a one-character avatar letter"}
+  - {id: TC-D017-02, ac: REQ-D017.AC1, kind: negative, test: "test/grok-connected-list.test.ts > TC-D017-02 only rows whose wrapper says Connected are names; rows that say Connect are not"}
+  - {id: TC-D017-03, ac: REQ-D017.AC3, kind: positive, test: "test/grok-connected-list.test.ts > TC-D017-03 the number is read from the chip text or from the Show all text"}
+  - {id: TC-D017-04, ac: REQ-D017.AC2, kind: positive, test: "test/grok-connected-list.test.ts > TC-D017-04 from the first view cc presses the chip then Show all, once each, and reads every connected app"}
+  - {id: TC-D017-05, ac: REQ-D017.AC2, kind: edge, test: "test/grok-connected-list.test.ts > TC-D017-05 already in the Manage view cc presses only Show all"}
+  - {id: TC-D017-06, ac: REQ-D017.AC2, kind: negative, test: "test/grok-connected-list.test.ts > TC-D017-06 with neither the chip nor Show all on the page cc presses nothing"}
+  - {id: TC-D017-07, ac: REQ-D017.AC3, kind: positive, test: "test/grok-connected-list.test.ts > TC-D017-07 rows that load progressively are waited for until the count is stable and at least N"}
+  - {id: TC-D017-08, ac: REQ-D017.AC3, kind: negative, test: "test/grok-connected-list.test.ts > TC-D017-08 a list that stays below N is an error, never a partial list"}
+  - {id: TC-D017-09, ac: REQ-D017.AC4, kind: edge, test: "test/grok-connected-list.test.ts > TC-D017-09 the marker, the button patterns and the detail patterns are data in data/selectors/grok.json"}
+  - {id: TC-D017-10, ac: REQ-D017.AC3, kind: edge, test: "test/grok-connected-list.test.ts > TC-D017-10 an empty page is an error, never an empty list, and polling is 500 ms within 30 s"}
+  - {id: TC-D017-11, ac: REQ-D017.AC6, kind: positive, test: "test/grok-connected-list.test.ts > TC-D017-11 toolsFromDetail returns the tool names between the tools line and See more"}
+  - {id: TC-D017-12, ac: REQ-D017.AC6, kind: edge, test: "test/grok-connected-list.test.ts > TC-D017-12 the tool list also ends at See less or at the end of the dialog and keeps only tool-name lines"}
+  - {id: TC-D017-13, ac: REQ-D017.AC7, kind: negative, test: "test/grok-connected-list.test.ts > TC-D017-13 toolsFromDetail refuses a detail that is not this connector's (no name, no Disconnect or no tools line)"}
+  - {id: TC-D017-14, ac: REQ-D017.AC5, kind: positive, test: "test/grok-connected-list.test.ts > TC-D017-14 verify of a connected connector names the apps read, the tool count and every tool, system_brief among them"}
+  - {id: TC-D017-15, ac: REQ-D017.AC5, kind: negative, test: "test/grok-connected-list.test.ts > TC-D017-15 verify of a name that is not in the list is an error and opens no row"}
+  - {id: TC-D017-16, ac: REQ-D017.AC6, kind: negative, test: "test/grok-connected-list.test.ts > TC-D017-16 verify presses only the row and See more once; never a tool, a toggle, Disconnect or Manage"}
+  - {id: TC-D017-17, ac: REQ-D017.AC6, kind: edge, test: "test/grok-connected-list.test.ts > TC-D017-17 without a See more button verify presses only the row"}
+  - {id: TC-D017-18, ac: REQ-D017.AC7, kind: negative, test: "test/grok-connected-list.test.ts > TC-D017-18 a row that is not found is an error, never an ok"}
+  - {id: TC-D017-19, ac: REQ-D017.AC7, kind: negative, test: "test/grok-connected-list.test.ts > TC-D017-19 a detail that never shows the tools line within 10 s is an error naming the connector"}
+  - {id: TC-D017-20, ac: REQ-D017.AC7, kind: edge, test: "test/grok-connected-list.test.ts > TC-D017-20 a detail that lists no tool is an error"}
+  - {id: TC-D017-21, ac: REQ-D017.AC7, kind: edge, test: "test/grok-connected-list.test.ts > TC-D017-21 the tools are read until two reads agree"}
+  - {id: TC-D017-22, ac: REQ-D017.AC8, kind: negative, test: "test/grok-connected-list.test.ts > TC-D017-22 the in-page detail reader drops every line that holds :// or token="}
+  - {id: TC-D017-23, ac: REQ-D017.AC8, kind: negative, test: "test/grok-connected-list.test.ts > TC-D017-23 no outcome carries a URL or a token even when the page shows one"}
+  - {id: TC-D017-24, ac: REQ-D017.AC1, kind: positive, test: "test/grok-connected-list.test.ts > TC-D017-24 the in-page row reader returns each button's lines and the lines of its one-button wrapper"}
+  - {id: TC-D017-25, ac: REQ-D017.AC6, kind: positive, test: "test/grok-connected-list.test.ts > TC-D017-25 the in-page row opener presses only the button whose name is exactly the connector's name"}
+  - {id: TC-D017-26, ac: REQ-D017.AC6, kind: edge, test: "test/grok-connected-list.test.ts > TC-D017-26 the in-page See more presser presses only a matching button and reports false when there is none"}
+  - {id: TC-D017-27, ac: REQ-D017.AC9, kind: positive, test: "test/grok-connected-list.test.ts > TC-D017-27 grok.ts reads list, verify, add, remove and update through grokConnectedList"}
+  - {id: TC-D017-28, ac: REQ-D017.AC9, kind: positive, test: "test/grok-connected-list.test.ts > TC-D017-28 the release is version 0.2.20"}
   files: [src/adapters/grokConnectedList.ts, src/adapters/grok.ts, data/selectors/grok.json, tools/probe/grok-connectors-page-probe.mjs, test/grok-connected-list.test.ts]
   tools: [cc_run]
   decision: {quote: We need to make sure that all of the connectors that we have are connected., at: '2026-11-15', source: worker brief A3-AUD-CONN3 START carrying the owner's words of Sun 15 Nov 2026; release ordered in main chat t173u (21 Nov 2026), from: REQ-U015}
