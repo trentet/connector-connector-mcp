@@ -37,7 +37,17 @@
     "submitButton": "^add connector$"
   },
   "list": {
-    "rowMarkerText": "Added"
+    "_note": "REQ-D017: a connected row's wrapper says Connected; the chip opens the Manage view; the offer-all button lists every connected app.",
+    "rowMarkerText": "Connected",
+    "connectedChip": "\\d+ connected",
+    "showAll": "^show all \\d+ apps$"
+  },
+  "detail": {
+    "_note": "REQ-D017: a connector's detail (read-only): the tools line, then one button per tool, ended by the expand button; never press a tool.",
+    "toolsLine": "tools enabled$",
+    "seeMore": "^see more$",
+    "toolsEnd": "^see (more|less)$",
+    "toolName": "^[a-z0-9_.:-]+$"
   },
   "remove": {
     "disconnectButton": "^disconnect$",

@@ -1,4 +1,4 @@
-// @reqs ACCT-C02 REQ-U009 REQ-D001 REQ-D002 ACCT-C14 REQ-D004 REQ-D007 REQ-D010
+// @reqs ACCT-C02 REQ-U009 REQ-D001 REQ-D002 ACCT-C14 REQ-D004 REQ-D007 REQ-D010 REQ-D017
 import fs from "node:fs";
 import path from "node:path";
 import type { Page } from "patchright";
@@ -10,6 +10,7 @@ import { detectSignInOptions, loadSignInOptions, resolveSignInMethod } from "../
 import { getCredential, signInStore } from "../core/vaultClient.js";
 import type { AdapterContext, AdapterOutcome, PlatformAdapter } from "./types.js";
 import { clickTurnstileCheckbox, submitAndConfirmGrokLogin } from "./grokLoginWait.js";
+import { revealAndReadConnected, verifyConnected } from "./grokConnectedList.js";
 
 const sel = JSON.parse(fs.readFileSync(path.resolve("data", "selectors", "grok.json"), "utf8"));
 const rx = (p: string) => new RegExp(p, "i");
@@ -164,35 +165,9 @@ export async function updateByRemoveThenAdd(
 }
 
 
-/** Names in the "Connected" section: rows are elements whose own text is exactly the marker ("Added"); the row's first line is the name. */
+/** Names in the Connected list: the whole list, through the Manage view (REQ-D017). */
 async function readConnected(ctx: AdapterContext): Promise<string[]> {
-  const page = await openConnectors(ctx);
-  const marker: string = sel.list.rowMarkerText;
-  const read = () => page.evaluate((m) => {
-    // Rows are <button> (name line + subtitle line); the "Added" tag lives in the row WRAPPER, not inside the button.
-    const lines = (e: Element | null) => ((e as HTMLElement | null)?.innerText ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
-    const names = new Set<string>();
-    for (const b of [...document.querySelectorAll("button")]) {
-      const own = lines(b);
-      if (!own.length) continue;
-      for (let wrap: Element | null = b.parentElement, up = 0; wrap && up < 2; wrap = wrap.parentElement, up++) {
-        if (wrap.querySelectorAll("button").length !== 1) break; // wrapper holds several rows: too far up
-        if (lines(wrap).includes(m)) { names.add(own[0]); break; }
-      }
-    }
-    return [...names];
-  }, marker);
-  // The list loads asynchronously: wait until it is non-empty and unchanged for two reads. Never report an empty list as fact.
-  let names: string[] = [], stable = 0, last = "";
-  for (let i = 0; i < 20 && stable < 2; i++) {
-    await sleep(1500);
-    names = await read();
-    const key = names.slice().sort().join("|");
-    stable = names.length > 0 && key === last ? stable + 1 : 0;
-    last = key;
-  }
-  if (stable < 2) throw new Error(`grok.com's Connected list did not finish loading (${names.length} rows seen); refusing to report a partial or empty list`);
-  return names;
+  return revealAndReadConnected(await openConnectors(ctx), sel);
 }
 
 export function grokAdapter(): PlatformAdapter {
@@ -202,8 +177,8 @@ export function grokAdapter(): PlatformAdapter {
     ensureSignedIn,
     async list(ctx) { return { names: await readConnected(ctx) }; },
     async verify(ctx, c): Promise<AdapterOutcome> {
-      const names = await readConnected(ctx);
-      return names.includes(c.name) ? { status: "ok", detail: `"${c.name}" is in grok.com's Connected list` } : { status: "error", detail: `"${c.name}" is not in grok.com's Connected list (${names.length} connectors listed)` };
+      // REQ-D017: in the whole Connected list, and the tools Grok lists for it (read-only: no tool, toggle or Disconnect is pressed).
+      return verifyConnected(await openConnectors(ctx), c.name, sel);
     },
     async remove(ctx, c): Promise<AdapterOutcome> {
       if (!(await readConnected(ctx)).includes(c.name)) return { status: "skipped", detail: `"${c.name}" not in Connected list` };
