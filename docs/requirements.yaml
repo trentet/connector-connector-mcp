@@ -3,7 +3,7 @@
 # behaviour is not backfilled here; gate.code and gate.tools_in_scope list exactly what this ledger covers.
 gate:
   id_pattern: '\b(?:REQ-[UDG]\d{3}|ACCT-(?:\d{3}|[PCV]\d{2}))\b'
-  code: ['^src/core/signInMethod\.ts$', '^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/adapters/grokLoginWait\.ts$', '^src/core/runJobs\.ts$', '^src/core/jobProcs\.ts$', '^src/browser/chrome\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
+  code: ['^src/core/signInMethod\.ts$', '^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/adapters/grokConnectedList\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/adapters/grokLoginWait\.ts$', '^src/core/runJobs\.ts$', '^src/core/jobProcs\.ts$', '^src/browser/chrome\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
   tests: ['^test/.+\.ts$']
   tool_files: ['^src/server/app\.ts$']
   tools_in_scope: [cc_signin, cc_run, cc_reauth]
@@ -654,3 +654,74 @@ requirements:
   files: [registry/connectors.json, test/desktop-control-registry.test.ts]
   tools: [cc_run]
   decision: {quote: if production was never created and deployed for the remote connector, then that needs to be done and fixed, at: '2026-11-15', source: main thread 15 Nov 2026 about 8:14 PM CST via the worker brief A3-AUD-DEPLOY2 START, from: REQ-U014}
+- id: REQ-U015
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-15'
+  source: >
+    The owner's words of Sun 15 Nov 2026 in the account 3 audit thread, as the worker brief A3-AUD-CONN3 START
+    carries them word for word (HIS WORDS). Entry carried over unchanged in wording from open pull request 98
+    (branch fix/claude-reconnect-sign-in, commit b126146), which is not merged; there it is implemented by REQ-D012,
+    here (main) by REQ-D017. Context on 21 Nov 2026 (main chat t172u and t173u "Go"): the Grok "Your apps" fix was
+    still unreleased while v0.2.19 kept failing to read the list.
+  quotes:
+  - We need to make sure that all of the connectors that we have are connected.
+  implemented_by: [REQ-D017]
+- id: REQ-D017
+  kind: derived
+  status: decided
+  title: On Grok cc reads the whole Connected list (Your apps, through Manage and Show all) and verify confirms the connector is connected and names the tools Grok lists for it (v0.2.20)
+  text: >
+    Derived from REQ-U015 (owner, 15 Nov 2026). Release v0.2.20. Root cause, reproduced on production v0.2.19 on
+    21 Nov 2026 10:41 AM CST (job run_6eaf43710be458c0, account ulostthegamers, email login): cc verify helm-secret on
+    grok ends "grok.com's Connected list did not finish loading (0 rows seen)". The page as read on 21 Nov 2026 by a
+    read-only probe (tools/probe/grok-connectors-page-probe.mjs, same account): grok.com/connectors opens the settings
+    dialog "Connect Apps"; a connected row is a button whose text lines are an avatar letter (only for a connector
+    without an icon), the name and "Use this connector in chats.", and its wrapper carries the status word "Connected"
+    (a row that is not connected says "Connect"); cc still looks for the old marker "Added" and takes the first line
+    (now the avatar letter) as the name. The dialog shows only a few custom rows; its chip "18 connected" opens the
+    "Manage apps" view headed "Installed" with six rows and a button "Show all 18 apps" that lists all of them. Opening a
+    connected row shows its detail in the same dialog: the name, "Custom", a Disconnect button, the line "All tools
+    enabled", one button per tool (helm-secret: 58, boot_status to writing_sweep, system_brief among them), a "See more"
+    button (it becomes "See less") and the server URL, which holds the connector's token and must never leave the page.
+    cc now: takes the name from the first line that is not a one-character avatar; counts only rows whose wrapper says
+    Connected; presses the chip once and "Show all N apps" once when they are there; accepts the list only when it is
+    the same in two reads 500 ms apart and holds at least N names (bounded 30 s). verify then requires the name in that
+    whole list, opens only that connector's row, presses "See more" once when it is there, and reads the tool names
+    listed between the tools line and "See more"/"See less" until two reads agree (bounded 10 s); it presses no tool,
+    toggle, Disconnect or Manage button. An ok verify names the number of connected apps read, the number of tools and
+    every tool name; a connector that is not in the list, a detail that does not open, has no tools line or lists no
+    tool is an error, never an ok. Lines holding a URL or token= are dropped inside the page and an outcome carries tool
+    names only. Markers and button patterns are data in data/selectors/grok.json. The page logic lives in
+    src/adapters/grokConnectedList.ts; grok.ts list, verify, add, remove and update use it.
+  prior_art: >
+    Searched 21 Nov 2026 before any code (helm-developer-reload-gate section 10). (1) trentet/connector-connector-mcp
+    open pull requests: #100 (branch fix/grok-connected-list, REQ-D014, labelled v0.2.23, stacked on #99 and #98, not
+    merged) is the earlier attempt at exactly this list read: rowName, namesFromRows, parseConnectedCount,
+    revealAndReadConnected, the selectors Connected / N connected / Show all N apps, 9 tests and a read-only probe; it is
+    reused here (its acceptance criteria AC1 to AC4 are kept word for word as AC1 to AC4 below, its tests are carried
+    into test/grok-connected-list.test.ts, its probe is carried and extended) and extended with the verify detail read
+    it lacked. It cannot be merged as it is: it is stacked on #98 (claude.ai Reconnect, REQ-D012) and #99 (ChatGPT
+    installed list, REQ-D013), which are other platforms and unmerged, and its id REQ-D014 is also used by #103 for a
+    different requirement. #101 (REQ-D015 screen hold), #103 (REQ-D012 to D014 Google sign-in renewal) and #104
+    (REQ-D015, D016 Windows lockfile and CRLF) touch no Grok list or verify code; not reused, not duplicated. #89
+    (src/core/liveToolCatalog.ts, the server's own tools/list) reads the server, not what Grok shows, so it does not
+    answer whether Grok lists the tools; not reused. (2) git grep of main and every open branch for a tool count or
+    tool list read on Grok: none. (3) Production v0.2.19 behaviour (job above) and the page probe of 21 Nov 2026. A new
+    id REQ-D017 is used because REQ-D012 to REQ-D016 are already taken by open pull requests.
+  acceptance:
+  - {id: REQ-D017.AC1, text: "The name of a row is its first text line, or its second when the first is a single character (an avatar letter); only rows whose wrapper carries the status word from data/selectors/grok.json list.rowMarkerText (Connected) are connected rows; rows that say Connect are never names."}
+  - {id: REQ-D017.AC2, text: "cc presses, once each and in this order, the \"N connected\" chip of the dialog (when present) and the \"Show all N apps\" button (when present); it presses nothing else; with neither present it presses nothing."}
+  - {id: REQ-D017.AC3, text: "The number N is read from the chip (or from the Show all button); the list is accepted only when its names are the same in two reads at least 500 ms apart and their count is at least N; a page that never reaches that is an error that refuses to report a partial or empty list (bounded 30 s)."}
+  - {id: REQ-D017.AC4, text: "The marker text, the chip and Show all patterns and the detail patterns (tools line, See more, end of the tool list, tool name) are data in data/selectors/grok.json, not in the code."}
+  - {id: REQ-D017.AC5, text: "verify is ok only when the connector's name is in the whole Connected list of AC1 to AC3; a name that is not there is an error naming how many connected apps were read, and no row is opened."}
+  - {id: REQ-D017.AC6, text: "verify then opens only the row whose name is exactly the connector's name, presses See more once when it is there, and reads the tool names listed between the tools line and See more / See less; it never presses a tool, a toggle, Disconnect or Manage."}
+  - {id: REQ-D017.AC7, text: "An ok verify names the number of connected apps read, the number of tools Grok lists and every tool name; a row that is not found, a detail that does not open for that connector, has no tools line, lists no tool or does not give the same tools in two reads within 10 s is an error, never an ok."}
+  - {id: REQ-D017.AC8, text: "No URL, query string or token leaves the page: detail lines that hold :// or token= are dropped inside the page, and outcomes carry only names and tool names."}
+  - {id: REQ-D017.AC9, text: "cc list, verify, add, remove and update on Grok read the list through this code, and the release is version 0.2.20."}
+  files: [src/adapters/grokConnectedList.ts, src/adapters/grok.ts, data/selectors/grok.json, tools/probe/grok-connectors-page-probe.mjs, test/grok-connected-list.test.ts]
+  tools: [cc_run]
+  decision: {quote: We need to make sure that all of the connectors that we have are connected., at: '2026-11-15', source: worker brief A3-AUD-CONN3 START carrying the owner's words of Sun 15 Nov 2026; release ordered in main chat t173u (21 Nov 2026), from: REQ-U015}
+untraced:
+- {id: REQ-D017, why: "Spec-first order (REQ-U001, owner t166u): this commit holds the requirement only; its test cases come in the next commit and its test code in the one after, which removes this entry."}
