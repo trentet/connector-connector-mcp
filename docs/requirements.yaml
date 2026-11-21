@@ -752,5 +752,3 @@ requirements:
   files: [src/adapters/grokConnectedList.ts, src/adapters/grok.ts, data/selectors/grok.json, tools/probe/grok-connectors-page-probe.mjs, test/grok-connected-list.test.ts]
   tools: [cc_run]
   decision: {quote: We need to make sure that all of the connectors that we have are connected., at: '2026-11-15', source: worker brief A3-AUD-CONN3 START carrying the owner's words of Sun 15 Nov 2026; release ordered in main chat t173u (21 Nov 2026), from: REQ-U015}
-untraced:
-- {id: REQ-D017, why: "Spec-first order (REQ-U001, owner t166u): this commit holds the requirement only; its test cases come in the next commit and its test code in the one after, which removes this entry."}
