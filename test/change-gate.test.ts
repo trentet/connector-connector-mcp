@@ -134,6 +134,8 @@ describe("REQ-G003 change gate", () => {
     const r = g.runCheck({ repo: repoDir(), base: "m", head: HEAD, exec: f.exec, tmp: tmp(), py: "py" });
     expect(r.tests).toEqual({ passed: 1, failed: 0, total: 1 });
     expect(r.verdict).toMatch(/1 tests passed/);
+    // Coverage is written also when a test fails, so a red suite still reports which changed lines ran.
+    expect(f.calls.find((c) => String(c.args[0]).endsWith("vitest.mjs"))!.args).toContain("--coverage.reportOnFailure=true");
   });
 
   it("TC-G003-05 a failed test fails the check and is named", () => {

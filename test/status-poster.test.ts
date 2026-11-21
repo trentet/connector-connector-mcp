@@ -86,6 +86,7 @@ describe("REQ-G003 status poster", () => {
     const ex = fakeExec({ report: { ok: true, verdict: "v", problems: [] } });
     const r = p.checkCommit({ pr: pr(5, REPO), home: h, pinned: "/pinned", exec: ex.exec, npmCli: "/npm-cli.js" });
     expect(r).toEqual({ ok: true, verdict: "v", problems: [] });
+    expect(ex.calls.find((c) => c.args[0] === "config")).toMatchObject({ args: ["config", "core.autocrlf", "false"], cwd: join(h, "work") });
     const fetch = ex.calls.find((c) => c.args[0] === "fetch")!;
     expect(fetch.args).toEqual(["fetch", "--quiet", "origin", "+refs/heads/main:refs/remotes/origin/main", "+refs/heads/feat/x:refs/remotes/origin/feat/x"]);
     expect(fetch.args.join(" ")).not.toMatch(/refs\/pull/);
