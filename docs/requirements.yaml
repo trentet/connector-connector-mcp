@@ -164,6 +164,34 @@ requirements:
   - {id: REQ-G003.AC7, text: "change-gate.mjs and req_gate.py run from the service's copy of main, never from the head; the head's worktree supplies only the code, tests and ledger under test; @vitest/coverage-v8 is installed at the head's vitest version without saving it to the head's package files; the worktree is removed after the check, also after a failure."}
   - {id: REQ-G003.AC8, text: "Each head commit is checked once: a head with a success, failure or error cc/req-gate status is not checked again; a pending status older than 30 minutes (a check cut off) is checked again; a newer push is a new head and is checked."}
   - {id: REQ-G003.AC9, text: "The service writes its PID and start time to state.json and one log line per check (pull request, commit, result); the GitHub token stays inside gh and is never written; the scheduled task starts it hidden through run-hidden.vbs at logon and a watchdog restarts it."}
+  test_cases:
+  - {id: TC-G003-01, ac: REQ-G003.AC1, kind: positive, test: "test/change-gate.test.ts > TC-G003-01 runs the pinned req_gate.py pre-push in the head's worktree and a clean result adds no problem"}
+  - {id: TC-G003-02, ac: REQ-G003.AC1, kind: negative, test: "test/change-gate.test.ts > TC-G003-02 a req_gate.py refusal fails the check with its problem lines"}
+  - {id: TC-G003-03, ac: REQ-G003.AC1, kind: edge, test: "test/change-gate.test.ts > TC-G003-03 the pushed range starts at the merge-base of main and the head, not at main's tip"}
+  - {id: TC-G003-04, ac: REQ-G003.AC2, kind: positive, test: "test/change-gate.test.ts > TC-G003-04 a suite whose tests all pass adds no problem and reports the count"}
+  - {id: TC-G003-05, ac: REQ-G003.AC2, kind: negative, test: "test/change-gate.test.ts > TC-G003-05 a failed test fails the check and is named"}
+  - {id: TC-G003-06, ac: REQ-G003.AC2, kind: edge, test: "test/change-gate.test.ts > TC-G003-06 no test, no result file, a failed run or a failed check:hidden-launch each fail the check"}
+  - {id: TC-G003-07, ac: REQ-G003.AC3, kind: positive, test: "test/change-gate.test.ts > TC-G003-07 reads the added and changed lines of every file from a zero-context diff"}
+  - {id: TC-G003-08, ac: REQ-G003.AC3, kind: positive, test: "test/change-gate.test.ts > TC-G003-08 changed lines run at 90% or more pass, exactly 90% included"}
+  - {id: TC-G003-09, ac: REQ-G003.AC3, kind: negative, test: "test/change-gate.test.ts > TC-G003-09 below 90% fails naming each file and its lines not run"}
+  - {id: TC-G003-10, ac: REQ-G003.AC3, kind: edge, test: "test/change-gate.test.ts > TC-G003-10 a changed code file the suite never loads counts its changed non-blank non-comment lines as not run"}
+  - {id: TC-G003-11, ac: REQ-G003.AC3, kind: edge, test: "test/change-gate.test.ts > TC-G003-11 tests, docs, tools and .d.ts files and lines no statement starts on are not counted; no changed code line passes"}
+  - {id: TC-G003-12, ac: REQ-G003.AC3, kind: edge, test: "test/change-gate.test.ts > TC-G003-12 coverage keys given as Windows absolute paths map to the repository's paths"}
+  - {id: TC-G003-13, ac: REQ-G003.AC4, kind: positive, test: "test/change-gate.test.ts > TC-G003-13 test cases of a changed requirement whose tests passed add no problem"}
+  - {id: TC-G003-14, ac: REQ-G003.AC4, kind: negative, test: "test/change-gate.test.ts > TC-G003-14 a test case whose test is missing, failed or in another file fails the check naming it"}
+  - {id: TC-G003-15, ac: REQ-G003.AC4, kind: edge, test: "test/change-gate.test.ts > TC-G003-15 test cases of requirements the pull request leaves unchanged are not re-checked"}
+  - {id: TC-G003-16, ac: REQ-G003.AC5, kind: positive, test: "test/change-gate.test.ts > TC-G003-16 a passing report becomes a success status starting with pass, at most 140 characters"}
+  - {id: TC-G003-17, ac: REQ-G003.AC5, kind: negative, test: "test/change-gate.test.ts > TC-G003-17 a failing report becomes a failure status naming the count and the first problem, at most 140 characters"}
+  - {id: TC-G003-18, ac: REQ-G003.AC6, kind: positive, test: "test/status-poster.test.ts > TC-G003-18 a same-repository pull request head without a status is checked"}
+  - {id: TC-G003-19, ac: REQ-G003.AC6, kind: negative, test: "test/status-poster.test.ts > TC-G003-19 a fork pull request is never fetched or run and gets the not run failure once"}
+  - {id: TC-G003-20, ac: REQ-G003.AC6, kind: edge, test: "test/status-poster.test.ts > TC-G003-20 a pull request whose head repository is gone is treated as a fork"}
+  - {id: TC-G003-21, ac: REQ-G003.AC7, kind: positive, test: "test/status-poster.test.ts > TC-G003-21 the check runs the pinned change-gate.mjs on a worktree of the head with coverage-v8 at the head's vitest version, not saved"}
+  - {id: TC-G003-22, ac: REQ-G003.AC7, kind: edge, test: "test/status-poster.test.ts > TC-G003-22 the worktree is removed after a failed install or a failed check, and the head gets failure"}
+  - {id: TC-G003-23, ac: REQ-G003.AC8, kind: positive, test: "test/status-poster.test.ts > TC-G003-23 a head with a final status is not checked again"}
+  - {id: TC-G003-24, ac: REQ-G003.AC8, kind: edge, test: "test/status-poster.test.ts > TC-G003-24 a pending status older than 30 minutes is checked again and a fresh one is left alone"}
+  - {id: TC-G003-25, ac: REQ-G003.AC5, kind: positive, test: "test/status-poster.test.ts > TC-G003-25 a cycle posts pending and then the final cc/req-gate status on the same head"}
+  - {id: TC-G003-26, ac: REQ-G003.AC9, kind: positive, test: "test/status-poster.test.ts > TC-G003-26 the service writes its PID and start time and one log line per check without any token"}
+  - {id: TC-G003-27, ac: REQ-G003.AC9, kind: positive, test: "test/status-poster.test.ts > TC-G003-27 the scheduled task starts the watchdog hidden through run-hidden.vbs at logon and the watchdog restarts the service"}
   files: [scripts/change-gate.mjs, scripts/status-poster.mjs, scripts/run-req-gate-poster.ps1, scripts/install-req-gate-poster.ps1, test/change-gate.test.ts, test/status-poster.test.ts]
   note: >
     The new files are listed here and are measured by this check's own coverage rule; they are added to gate.code once
