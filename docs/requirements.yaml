@@ -748,5 +748,3 @@ requirements:
   files: [registry/connectors.json, test/desktop-control-registry.test.ts]
   tools: [cc_run]
   decision: {quote: if production was never created and deployed for the remote connector, then that needs to be done and fixed, at: '2026-11-15', source: main thread 15 Nov 2026 about 8:14 PM CST via the worker brief A3-AUD-DEPLOY2 START, from: REQ-U014}
-untraced:
-- {id: REQ-G003, why: "Spec-first order (REQ-U001): this commit holds the requirement only; its test cases come in the next commit and its test code in the one after, which removes this entry."}
