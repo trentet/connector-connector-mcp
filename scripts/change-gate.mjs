@@ -252,6 +252,15 @@ export function main(argv, { exec = sh, log = console.log } = {}) {
   }
 }
 
+// Live proof of REQ-G003 (throwaway branch, never merged): a small helper.
+export function coverageLabel(run, total) {
+  if (!Number.isInteger(run) || !Number.isInteger(total) || total <= 0) {
+    return "no changed code lines";
+  }
+  const pct = Math.floor((run * 1000) / total) / 10;
+  return `${pct}% (${run}/${total})`;
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   process.exit(main(process.argv.slice(2)));
 }
