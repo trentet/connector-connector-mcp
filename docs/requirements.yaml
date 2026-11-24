@@ -123,7 +123,7 @@ requirements:
   title: GitHub merges into main only with a green cc/req-gate status, posted by a W540 service for same-repository pull requests only
   text: >
     The repository is public (REQ-U017), so GitHub rulesets can enforce the gate. A W540 service (scripts/status-poster.mjs,
-    run by a scheduled task at logon through helm-host-kit's hidden launcher, E13) polls the open pull requests. For a pull
+    run by a scheduled task at logon through helm-host-kit's hidden launcher, E13) polls every open pull request, whatever its base branch. For a pull
     request whose head is a branch of trentet/connector-connector-mcp itself it checks the head commit once and posts the
     commit status cc/req-gate (pending while it runs, then success or failure). A pull request from a fork is never
     fetched or run on the W540; its head gets the failure status "not run" at once. The check (scripts/change-gate.mjs)
@@ -154,6 +154,7 @@ requirements:
     code is not copied: HELM SECRET never goes to GitHub (RULE-233 R-233.1) and repositories are silos (RULE-280).
     (e) cc's own scripts/req_gate.py (REQ-G001, REQ-G002) is called as it is, in its pre-push mode. Where it runs:
     engineering standard E12 (CI only on self-hosted machines the operator owns, no money spent).
+    On 24 Nov 2026, before changing the poster: searched every trentet GitHub repository tree for run-pull/forgejo-pull (none owns that script) and re-read scripts/status-poster.mjs and test/status-poster.test.ts. plan() and classify() already handle any same-repository or fork pull request; cycle() was the only filter, listing only pulls?state=open&base=main, so stacked same-repository pull requests (for example #99 and #100) never received a cc/req-gate status. This AC extends cycle() in place; it does not add a second poster.
   acceptance:
   - {id: REQ-G003.AC1, text: "The check runs scripts/req_gate.py pre-push over the commits from the merge-base of main and the head up to the head; any problem it reports fails the check with its lines."}
   - {id: REQ-G003.AC2, text: "The check runs check:hidden-launch and the whole vitest suite on the head; a failed test, a failed run, a run with no result or a run with no test fails the check, naming the failed tests."}
@@ -164,6 +165,7 @@ requirements:
   - {id: REQ-G003.AC7, text: "change-gate.mjs and req_gate.py run from the service's copy of main, never from the head; the head's worktree supplies only the code, tests and ledger under test; @vitest/coverage-v8 is installed at the head's vitest version without saving it to the head's package files; the worktree is removed after the check, also after a failure."}
   - {id: REQ-G003.AC8, text: "Each head commit is checked once: a head with a success, failure or error cc/req-gate status is not checked again; a pending status older than 30 minutes (a check cut off) is checked again; a newer push is a new head and is checked."}
   - {id: REQ-G003.AC9, text: "The service writes its PID and start time to state.json and one log line per check (pull request, commit, result); the GitHub token stays inside gh and is never written; the scheduled task starts it hidden through run-hidden.vbs at logon and a watchdog restarts it."}
+  - {id: REQ-G003.AC10, text: "Every open pull request is listed, whatever its base branch; a same-repository head is checked even when the pull request does not target main; a fork pull request is still never fetched or run and still gets the not-run failure once."}
   test_cases:
   - {id: TC-G003-01, ac: REQ-G003.AC1, kind: positive, test: "test/change-gate.test.ts > TC-G003-01 runs the pinned req_gate.py pre-push in the head's worktree and a clean result adds no problem"}
   - {id: TC-G003-02, ac: REQ-G003.AC1, kind: negative, test: "test/change-gate.test.ts > TC-G003-02 a req_gate.py refusal fails the check with its problem lines"}
@@ -192,6 +194,9 @@ requirements:
   - {id: TC-G003-25, ac: REQ-G003.AC5, kind: positive, test: "test/status-poster.test.ts > TC-G003-25 a cycle posts pending and then the final cc/req-gate status on the same head"}
   - {id: TC-G003-26, ac: REQ-G003.AC9, kind: positive, test: "test/status-poster.test.ts > TC-G003-26 the service writes its PID and start time and one log line per check without any token"}
   - {id: TC-G003-27, ac: REQ-G003.AC9, kind: positive, test: "test/status-poster.test.ts > TC-G003-27 the scheduled task starts the watchdog hidden through run-hidden.vbs at logon and the watchdog restarts the service"}
+  - {id: TC-G003-28, ac: REQ-G003.AC10, kind: positive, test: "test/status-poster.test.ts > TC-G003-28 a same-repository pull request whose base is not main is listed and checked"}
+  - {id: TC-G003-29, ac: REQ-G003.AC10, kind: negative, test: "test/status-poster.test.ts > TC-G003-29 the service does not list only pull requests into main"}
+  - {id: TC-G003-30, ac: REQ-G003.AC10, kind: edge, test: "test/status-poster.test.ts > TC-G003-30 a mixed list checks the same-repository stacked head and marks a fork not-run without fetching"}
   files: [scripts/change-gate.mjs, scripts/status-poster.mjs, scripts/run-req-gate-poster.ps1, scripts/install-req-gate-poster.ps1, test/change-gate.test.ts, test/status-poster.test.ts]
   note: >
     The new files are listed here and are measured by this check's own coverage rule; they are added to gate.code once
