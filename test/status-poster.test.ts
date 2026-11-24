@@ -182,4 +182,33 @@ describe("REQ-G003 status poster", () => {
     expect(dog).toMatch(/poster started pid \$\(\$proc\.Id\) at \$\(\$proc\.StartTime/);
     expect(dog).toMatch(/status-poster\.mjs/);
   });
+  it("TC-G003-28 a same-repository pull request whose base is not main is listed and checked", () => {
+    const stacked = pr(99, REPO, SHA, "fix/chatgpt-installed-list");
+    const f = fakeApi([stacked]);
+    const done = p.cycle({ api: f.api, home: home(), exec: fakeExec().exec, pinned: "/pinned", now: () => NOW, check: () => ({ ok: true, verdict: "fine", problems: [] }) });
+    expect(f.calls.some((c) => c.method === "GET" && c.path === `repos/${REPO}/pulls?state=open&per_page=100`)).toBe(true);
+    expect(done).toEqual([{ pr: 99, sha: SHA, action: "check", state: "success", description: "pass: fine" }]);
+  });
+
+  it("TC-G003-29 the service does not list only pull requests into main", () => {
+    const f = fakeApi([pr(1, REPO)]);
+    p.cycle({ api: f.api, home: home(), exec: fakeExec().exec, pinned: "/pinned", now: () => NOW, check: () => ({ ok: true, verdict: "fine", problems: [] }) });
+    const gets = f.calls.filter((c) => c.method === "GET" && c.path.startsWith(`repos/${REPO}/pulls?`));
+    expect(gets.length).toBeGreaterThan(0);
+    expect(gets.every((c) => !c.path.includes("base=main"))).toBe(true);
+  });
+
+  it("TC-G003-30 a mixed list checks the same-repository stacked head and marks a fork not-run without fetching", () => {
+    const stacked = pr(100, REPO, SHA, "fix/grok-connected-list");
+    const fork = pr(7, "someone/fork", "a".repeat(40), "feat/fork");
+    const f = fakeApi([stacked, fork]);
+    const ex = fakeExec();
+    const done = p.cycle({ api: f.api, home: home(), exec: ex.exec, pinned: "/pinned", now: () => NOW, check: () => ({ ok: true, verdict: "fine", problems: [] }) });
+    expect(done.map((d) => ({ pr: d.pr, action: d.action, state: d.state }))).toEqual([
+      { pr: 100, action: "check", state: "success" },
+      { pr: 7, action: "fork", state: "failure" },
+    ]);
+    expect(ex.calls.filter((c) => c.cmd === "git" && c.args[0] === "fetch" && c.args.join(" ").includes("feat/fork")).length).toBe(0);
+  });
+
 });

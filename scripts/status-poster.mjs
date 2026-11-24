@@ -1,6 +1,6 @@
 // status-poster.mjs (REQ-G003): the W540 service that posts the cc/req-gate commit status on pull request heads.
 //   node scripts/status-poster.mjs --home <state folder> [--once] [--interval <seconds>]
-// Every interval: refresh this copy of main (the pinned gate), list the open pull requests into main, and for each head:
+// Every interval: refresh this copy of main (the pinned gate), list every open pull request, whatever its base, and for each head:
 //   same-repository head without a final cc/req-gate status -> pending, run change-gate.mjs on a worktree, success/failure;
 //   fork head (or head repository gone) -> failure "not run" once; its code is never fetched or run (REQ-G003.AC6).
 // GitHub is reached through gh (logged in on the W540); the token never leaves gh. One log line per check (AC9).
@@ -91,7 +91,7 @@ export function checkCommit({ pr, home, pinned, exec = sh, npmCli = join(dirname
 export function cycle({ api = ghApi, exec = sh, home, pinned = resolve(HERE, ".."), now = Date.now, log = () => {}, check = checkCommit, repo = REPO }) {
   exec("git", ["fetch", "--quiet", "origin", "main"], { cwd: pinned });
   exec("git", ["checkout", "--quiet", "--detach", "origin/main"], { cwd: pinned });
-  const prs = api(`repos/${repo}/pulls?state=open&base=main&per_page=100`);
+  const prs = api(`repos/${repo}/pulls?state=open&per_page=100`);
   const steps = plan(prs, (sha) => api(`repos/${repo}/commits/${sha}/statuses?per_page=100`), now(), repo);
   const done = [];
   for (const s of steps) {
