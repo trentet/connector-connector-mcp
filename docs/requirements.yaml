@@ -753,3 +753,63 @@ requirements:
   files: [registry/connectors.json, test/desktop-control-registry.test.ts]
   tools: [cc_run]
   decision: {quote: if production was never created and deployed for the remote connector, then that needs to be done and fixed, at: '2026-11-15', source: main thread 15 Nov 2026 about 8:14 PM CST via the worker brief A3-AUD-DEPLOY2 START, from: REQ-U014}
+- id: REQ-U016
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-18'
+  source: >
+    The owner's words of 18 Nov 2026 about 3:58 PM CST (main thread, as quoted in the worker brief A1-DV-M1-RED1 START,
+    which carries them word for word). Context: main of this repository had a failing test and its own npm test command
+    could not run, and pull requests were judged with "fails the same on main".
+  quotes:
+  - Why are we allowing code to go to Main if it has failed tests?
+  implemented_by: [REQ-D015, REQ-D016]
+- id: REQ-D015
+  kind: derived
+  status: decided
+  title: A Chrome running on a master profile is detected on Windows whatever sharing mode Chrome gives its lockfile
+  decision: {quote: "Why are we allowing code to go to Main if it has failed tests?", at: '2026-11-18 15:58 CST', source: main thread 18 Nov 2026 about 3:58 PM CST, from: REQ-U016}
+  text: >
+    Derived from REQ-U016 (18 Nov 2026) and from the existing rule that a clone refuses a master a Chrome has open
+    (CLAUDE.md rule 5 invariant b; src/browser/profile.ts, profileInUse). Cause proved on the W540 (Chrome 157.0.8103.51,
+    18 Nov 2026): on Windows profileInUse opened the profile's lockfile for reading and took a failed open to mean "in
+    use", but this Chrome keeps the file open with read sharing, so a read open succeeds while Chrome runs, the profile
+    is reported cold, and the clone then fails with EBUSY on Default/Network/Cookies instead of the stated refusal
+    (test/browser-concurrency.test.ts, "refuses a master that a running Chrome has open"). The same Chrome refuses
+    opening the lockfile for writing (r+) while it runs, and the file is gone after Chrome exits. On Windows the profile
+    is therefore in use when the lockfile exists and cannot be opened for reading and writing; it is cold when the
+    lockfile does not exist or can be opened for reading and writing.
+  acceptance:
+  - {id: REQ-D015.AC1, text: "While a Chrome runs on a user-data-dir, profileInUse reports true for it."}
+  - {id: REQ-D015.AC2, text: "After that Chrome has exited, profileInUse reports false for the same folder."}
+  - {id: REQ-D015.AC3, text: "A folder with no Chrome on it, including one that holds a leftover lockfile nobody keeps open, is reported not in use."}
+  - {id: REQ-D015.AC4, text: "Cloning a master a running Chrome has open refuses with the message that names the running Chrome and the cold master, never with EBUSY, and leaks no lane."}
+  test_cases:
+  - {id: TC-D015-01, ac: REQ-D015.AC1, kind: positive, test: "test/profile-in-use.test.ts > TC-D015-01 a running Chrome makes its profile folder in use"}
+  - {id: TC-D015-02, ac: REQ-D015.AC2, kind: edge, test: "test/profile-in-use.test.ts > TC-D015-02 the folder is not in use once that Chrome has exited"}
+  - {id: TC-D015-03, ac: REQ-D015.AC3, kind: negative, test: "test/profile-in-use.test.ts > TC-D015-03 a folder with no Chrome, or a leftover lockfile nobody holds, is not in use"}
+  - {id: TC-D015-04, ac: REQ-D015.AC4, kind: positive, test: "test/browser-concurrency.test.ts > refuses a master that a running Chrome has open (copying a live profile is unreliable)"}
+  files: [src/browser/profile.ts, test/profile-in-use.test.ts, test/browser-concurrency.test.ts]
+- id: REQ-D016
+  kind: derived
+  status: decided
+  title: The pinned hidden-launch check is checked out byte for byte whatever line-ending setting a machine has, so npm test can start
+  decision: {quote: "Why are we allowing code to go to Main if it has failed tests?", at: '2026-11-18 15:58 CST', source: main thread 18 Nov 2026 about 3:58 PM CST, from: REQ-U016}
+  text: >
+    Derived from REQ-U016 (18 Nov 2026) and from the pinned copy of the hidden-launch check (pull request 69, 31 Oct 2026):
+    scripts/check-hidden-launch.mjs is a byte copy of a release and "npm test" first runs it with --pinned, which compares
+    the sha256 of the file's own bytes with scripts/check-hidden-launch.sha256. Cause proved on the W540 (18 Nov 2026):
+    the committed blob is 15,541 bytes with line feeds only and has the pinned hash; the machine's global git setting
+    core.autocrlf=true wrote it out with carriage returns (15,848 bytes, 307 CR), so the hash differs and the check exits
+    2 before any test runs. .gitattributes fixed only scripts/hooks/* to LF. The file is declared text with eol=lf in
+    .gitattributes, so every checkout holds the committed bytes.
+  acceptance:
+  - {id: REQ-D016.AC1, text: ".gitattributes declares scripts/check-hidden-launch.mjs as text with eol=lf."}
+  - {id: REQ-D016.AC2, text: "A fresh checkout made with core.autocrlf=true holds scripts/check-hidden-launch.mjs with the sha256 recorded in scripts/check-hidden-launch.sha256."}
+  - {id: REQ-D016.AC3, text: "In that checkout the pinned check (node scripts/check-hidden-launch.mjs --pinned scripts/check-hidden-launch.sha256 .) exits 0."}
+  test_cases:
+  - {id: TC-D016-01, ac: REQ-D016.AC1, kind: positive, test: "test/checkout-eol.test.ts > TC-D016-01 .gitattributes declares the pinned check file text with eol=lf"}
+  - {id: TC-D016-02, ac: REQ-D016.AC2, kind: edge, test: "test/checkout-eol.test.ts > TC-D016-02 a checkout with core.autocrlf=true holds the pinned bytes"}
+  - {id: TC-D016-03, ac: REQ-D016.AC3, kind: positive, test: "test/checkout-eol.test.ts > TC-D016-03 the pinned check passes in that checkout"}
+  files: [.gitattributes, test/checkout-eol.test.ts]

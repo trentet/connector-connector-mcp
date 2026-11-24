@@ -34,10 +34,11 @@ const pidAlive = (pid: number) => { try { process.kill(pid, 0); return true; } c
 export function profileInUse(dir: string): boolean {
   try {
     if (process.platform === "win32") {
-      // Chrome keeps <dir>\lockfile open with no sharing for as long as it runs.
+      // Chrome keeps <dir>\lockfile open for as long as it runs and deletes it on exit. Some Chrome versions (157 on the W540) share it for reading, so
+      // a read-only open succeeds while Chrome runs; every version refuses an open for writing (EBUSY), so that is the test (REQ-D015).
       const f = path.join(dir, "lockfile");
       if (!fs.existsSync(f)) return false;
-      try { fs.closeSync(fs.openSync(f, "r")); return false; } catch { return true; }
+      try { fs.closeSync(fs.openSync(f, "r+")); return false; } catch { return true; }
     }
     const link = path.join(dir, "SingletonLock"); // symlink "<host>-<pid>"
     const target = fs.readlinkSync(link);
