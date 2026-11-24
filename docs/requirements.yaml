@@ -154,8 +154,8 @@ requirements:
     code is not copied: HELM SECRET never goes to GitHub (RULE-233 R-233.1) and repositories are silos (RULE-280).
     (e) cc's own scripts/req_gate.py (REQ-G001, REQ-G002) is called as it is, in its pre-push mode. Where it runs:
     engineering standard E12 (CI only on self-hosted machines the operator owns, no money spent).
-  acceptance:
     On 24 Nov 2026, before changing the poster: searched every trentet GitHub repository tree for run-pull/forgejo-pull (none owns that script) and re-read scripts/status-poster.mjs and test/status-poster.test.ts. plan() and classify() already handle any same-repository or fork pull request; cycle() was the only filter, listing only pulls?state=open&base=main, so stacked same-repository pull requests (for example #99 and #100) never received a cc/req-gate status. This AC extends cycle() in place; it does not add a second poster.
+  acceptance:
   - {id: REQ-G003.AC1, text: "The check runs scripts/req_gate.py pre-push over the commits from the merge-base of main and the head up to the head; any problem it reports fails the check with its lines."}
   - {id: REQ-G003.AC2, text: "The check runs check:hidden-launch and the whole vitest suite on the head; a failed test, a failed run, a run with no result or a run with no test fails the check, naming the failed tests."}
   - {id: REQ-G003.AC3, text: "Of the changed lines in code files (src/, scripts/, bin/; .ts .mts .js .mjs; not .d.ts) that a statement starts on, at least 90% must run in the suite; a changed code file the suite never loads counts each changed non-blank, non-comment line as not run; below 90% fails naming each file and its lines not run; a pull request with no changed code line passes this part."}
