@@ -3,7 +3,7 @@
 # behaviour is not backfilled here; gate.code and gate.tools_in_scope list exactly what this ledger covers.
 gate:
   id_pattern: '\b(?:REQ-[UDG]\d{3}|ACCT-(?:\d{3}|[PCV]\d{2}))\b'
-  code: ['^src/core/signInMethod\.ts$', '^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/adapters/grokLoginWait\.ts$', '^src/core/runJobs\.ts$', '^src/core/jobProcs\.ts$', '^src/browser/chrome\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
+  code: ['^src/core/signInMethod\.ts$', '^src/core/accountChoice\.ts$', '^src/core/accountRegistry\.ts$', '^src/core/accounts\.ts$', '^src/core/vaultClient\.ts$', '^src/adapters/grok\.ts$', '^src/browser/googleConsent\.ts$', '^src/cli\.ts$', '^src/server/app\.ts$', '^src/core/runner\.ts$', '^src/adapters/grokLoginWait\.ts$', '^src/core/runJobs\.ts$', '^src/core/jobProcs\.ts$', '^src/browser/chrome\.ts$', '^src/browser/identity\.ts$', '^src/browser/signin\.ts$', '^src/adapters/types\.ts$', '^src/adapters/claude\.ts$', '^src/browser/seed\.ts$', '^scripts/req_gate\.py$', '^scripts/hooks/[^/.]+$']
   tests: ['^test/.+\.ts$']
   tool_files: ['^src/server/app\.ts$']
   tools_in_scope: [cc_signin, cc_run, cc_reauth]
@@ -753,3 +753,60 @@ requirements:
   files: [registry/connectors.json, test/desktop-control-registry.test.ts]
   tools: [cc_run]
   decision: {quote: if production was never created and deployed for the remote connector, then that needs to be done and fixed, at: '2026-11-15', source: main thread 15 Nov 2026 about 8:14 PM CST via the worker brief A3-AUD-DEPLOY2 START, from: REQ-U014}
+- id: REQ-U015
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-15'
+  source: >
+    The owner's words of Sun 15 Nov 2026 in the account 3 audit thread, as the worker brief A3-AUD-CONN3 START
+    carries them word for word (HIS WORDS).
+  quotes:
+  - We need to make sure that all of the connectors that we have are connected.
+  implemented_by: [REQ-D012]
+- id: REQ-D012
+  kind: derived
+  status: decided
+  title: On claude.ai cc presses Reconnect as well as Connect, waits for the sign-in round trip, and repairs a registered row that is not Connected
+  text: >
+    Derived from REQ-U015 (15 Nov 2026). Root cause found on 15 Nov 2026 (worker A3-AUD-CONN3, page notes pages 1 to 4):
+    DSM Connect stayed "added but not Connected" on the claude.ai accounts main and trentfromrid. A row that was just added
+    already shows "Connection issue - Your session has expired. You can reconnect to re-authorize." with a Reconnect button,
+    and claude.ai opens no sign-in page at Add. Pressing Reconnect sends the SAME tab to the connector's own sign-in page
+    (https://dsm.trentt.me/login, no pop-up window). cc looked only for a row button named exactly "Connect" (src/adapters/claude.ts
+    connectIfNeeded, data/selectors/claude.json add.rowConnectButton), so it never pressed Reconnect; and it read the list
+    in the same tab five seconds after a press, which would have torn the sign-in page away before the vault sign-in
+    (src/browser/oauthLogin.ts) finished. add --if-existing skip also answered "already registered" for a row that was not Connected
+    and did nothing. cc now presses a row button whose whole name is Connect or Reconnect (never Disconnect), waits while the
+    tab is away from claude.ai (the connector's own sign-in, bounded), and reads the list again only after the tab is back;
+    add --if-existing skip repairs a registered row that is not Connected the same way, and the result is read back
+    (CLAUDE.md rule 4). The vault sign-in and its limits (oauthLogin: the connector's own origin only, a login form only, no
+    consent button) are unchanged.
+  acceptance:
+  - {id: REQ-D012.AC1, text: "The only row buttons cc presses to start a connector's sign-in are those whose whole name is Connect or Reconnect (any case); Disconnect, More options for <name> and any name that merely contains those words are never pressed; the pattern is data in data/selectors/claude.json."}
+  - {id: REQ-D012.AC2, text: "add with --if-existing skip on a registered row that is not Connected and shows Connect or Reconnect presses that button once and reads the row back; a Connected row is never pressed (outcome skipped); a row that is not listed is never pressed."}
+  - {id: REQ-D012.AC3, text: "After the press, while the tab is on another host than claude.ai (the connector's own sign-in page), cc does not navigate that tab or read the list; it waits until the tab is back on claude.ai, at most 120 s; polling is never faster than 500 ms."}
+  - {id: REQ-D012.AC4, text: "A press after which the tab does not leave claude.ai within 15 s is a press with no sign-in round trip: the former 5 s settle follows and the list is read back as before."}
+  - {id: REQ-D012.AC5, text: "The result is read back: ok only when the row then shows Connected; otherwise an error that names the state (registered but still not Connected after pressing Reconnect) and, when the tab did not come back, the origin and path where it stayed and the seconds waited; never a query string."}
+  - {id: REQ-D012.AC6, text: "The add and update paths (remove, add, press) use the same press and wait, so a row that claude.ai shows as Reconnect right after Add is signed in at once."}
+  - {id: REQ-D012.AC7, text: "The press is one native click on the matching button of the matching row (nothing is typed, no other element is clicked); no secret and no query string appears in any output."}
+  test_cases:
+  - {id: TC-D012-01, ac: REQ-D012.AC1, kind: positive, test: "test/claude-reconnect.test.ts > TC-D012-01 the names Connect and Reconnect, in any case, are pressable"}
+  - {id: TC-D012-02, ac: REQ-D012.AC1, kind: negative, test: "test/claude-reconnect.test.ts > TC-D012-02 Disconnect, More options for DSM Connect, Connect to server and Reconnecting are never pressable"}
+  - {id: TC-D012-03, ac: REQ-D012.AC1, kind: edge, test: "test/claude-reconnect.test.ts > TC-D012-03 the pattern is data in data/selectors/claude.json and the code holds no copy of it"}
+  - {id: TC-D012-04, ac: REQ-D012.AC2, kind: positive, test: "test/claude-reconnect.test.ts > TC-D012-04 add skip on a Reconnect row presses once, waits for the round trip, and reports ok when the row is then Connected"}
+  - {id: TC-D012-05, ac: REQ-D012.AC2, kind: negative, test: "test/claude-reconnect.test.ts > TC-D012-05 add skip on a Connected row is skipped and nothing is pressed"}
+  - {id: TC-D012-06, ac: REQ-D012.AC2, kind: negative, test: "test/claude-reconnect.test.ts > TC-D012-06 a row that is not listed is never pressed"}
+  - {id: TC-D012-07, ac: REQ-D012.AC3, kind: positive, test: "test/claude-reconnect.test.ts > TC-D012-07 while the tab is on the connector's sign-in page cc waits and reads the list only after the tab is back on claude.ai"}
+  - {id: TC-D012-08, ac: REQ-D012.AC3, kind: negative, test: "test/claude-reconnect.test.ts > TC-D012-08 no navigation of the tab happens before the tab is back"}
+  - {id: TC-D012-09, ac: REQ-D012.AC3, kind: edge, test: "test/claude-reconnect.test.ts > TC-D012-09 polling is never faster than 500 ms, even when asked for less"}
+  - {id: TC-D012-10, ac: REQ-D012.AC3, kind: edge, test: "test/claude-reconnect.test.ts > TC-D012-10 a tab that never comes back is given up after 120 s and reported as not returned"}
+  - {id: TC-D012-11, ac: REQ-D012.AC4, kind: edge, test: "test/claude-reconnect.test.ts > TC-D012-11 a press after which the tab never leaves claude.ai ends after 15 s as a press without a round trip"}
+  - {id: TC-D012-12, ac: REQ-D012.AC5, kind: negative, test: "test/claude-reconnect.test.ts > TC-D012-12 a row still not Connected after the press is an error that names the Reconnect press"}
+  - {id: TC-D012-13, ac: REQ-D012.AC5, kind: negative, test: "test/claude-reconnect.test.ts > TC-D012-13 a tab that stayed away is reported with origin and path only, never a query string, plus the seconds waited"}
+  - {id: TC-D012-14, ac: REQ-D012.AC6, kind: positive, test: "test/claude-reconnect.test.ts > TC-D012-14 the add path calls the same press-and-wait as the repair path"}
+  - {id: TC-D012-15, ac: REQ-D012.AC7, kind: positive, test: "test/claude-reconnect.test.ts > TC-D012-15 the press is one native click on the matching button of the matching row and nothing is typed"}
+  - {id: TC-D012-16, ac: REQ-D012.AC7, kind: negative, test: "test/claude-reconnect.test.ts > TC-D012-16 no query string and no secret reaches the result of a repair"}
+  files: [src/adapters/claude.ts, data/selectors/claude.json, test/claude-reconnect.test.ts]
+  tools: [cc_run]
+  decision: {quote: We need to make sure that all of the connectors that we have are connected., at: '2026-11-15', source: worker brief A3-AUD-CONN3 START carrying the owner's words of Sun 15 Nov 2026, from: REQ-U015}

@@ -19,7 +19,7 @@
     "headerNameCombobox": "header name",
     "headerValueTextbox": "^(value|header value)$",
     "finalSubmit": "^(add|save)$",
-    "rowConnectButton": "^connect$",
+    "rowConnectButton": "^(re)?connect$",
     "duplicateUrlText": "already exists in your organization"
   },
   "remove": {
