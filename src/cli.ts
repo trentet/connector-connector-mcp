@@ -5,7 +5,9 @@ import { audit } from "./audit.js";
 import { coverage, formatReport as formatGoogleReport, scanGithub, scanLocal, type Finding } from "./googleCoverage.js";
 import { run } from "./core/runner.js";
 import { enqueueRun, waitForJob } from "./core/runJobs.js";
-import { reauth } from "./core/reauth.js";
+import { alertsDir, reauth, signInStatuses } from "./core/reauth.js";
+import { applyAlert, DEFAULT_WARN_HOURS, evaluateAlert } from "./core/signinHealth.js";
+import { transportFor } from "./core/transport.js";
 import { checkMaster, seedMaster } from "./browser/seed.js";
 import { accountMaster, loadAccounts, pickAccount, type AccountDef, type Accounts } from "./core/accounts.js";
 import { formatReport, runThreads } from "./threads.js";
@@ -18,25 +20,32 @@ cc browser seed [--from-port <port>] [--account <id>]   (one-time: copy platform
 cc browser check [--account <id>]         (clone the account's master into a throwaway browser and report which of its platforms are signed in)
 cc audit --google [--root <dir> ...] [--github <owner>] [--registry <path>] [--json]   (find repos that use Google OAuth but have no registry googleOAuth block)
 cc audit --scan <repo-root> [--json]     (find per-repo registration / Google-reauth scripts that cc replaces)
-cc reauth [connector-id ...|--all] [--include-test] [--dry-run] [--only-if-older-than <days>] [--registry <path>] [--json]   (renew the Google OAuth token of connectors with a googleOAuth registry block; --only-if-older-than skips one renewed more recently, for a second renewer)
+cc reauth [connector-id ...|--all] [--include-test] [--dry-run] [--only-if-older-than <days>] [--status [--warn-hours <h>] [--run-failed]] [--registry <path>] [--json]   (renew the Google OAuth token of connectors with a googleOAuth registry block; --only-if-older-than skips one renewed more recently, for a second renewer)
 cc settings <apply|verify> --account <id> [--dry-run] [--json]   (claude.ai Projects of an account: create the declared project if missing and set its instructions from the referenced file when they are empty (apply; different existing instructions are refused, never overwritten), or compare read-only (verify); prints only length and sha256 prefix, never the text)
 cc threads --account <id> [--json]                       (read-only: list the claude.ai/code threads as id, status, title, and say plainly what could and could not be read; one browser, never writes to claude.ai)
 cc <op> [connector-id ...|--all] [--platform <claude|chatgpt|grok ...>|all] [--account <id>] [--dry-run] [--include-test] [--registry <path>] [--if-existing skip|update|fail] [--json]
 ops: ${OPS.join(", ")}`;
 
 
-export interface ParsedFlags { ids: string[]; platforms: Platform[]; dryRun: boolean; includeTest: boolean; json: boolean; ifExisting?: "skip" | "update" | "fail"; registryPath: string; onlyIfOlderThanDays?: number; account?: string }
+export interface ParsedFlags { ids: string[]; platforms: Platform[]; dryRun: boolean; includeTest: boolean; json: boolean; ifExisting?: "skip" | "update" | "fail"; registryPath: string; onlyIfOlderThanDays?: number; status: boolean; warnHours: number; runFailed: boolean; account?: string }
 
 /** --platform takes one or more platform names (or "all"); it stops at the first word that is not a platform, which is then a connector id. */
 export function parseFlags(args: string[]): ParsedFlags | { error: string } {
   const ids: string[] = [];
-  let platforms: Platform[] = PLATFORMS, dryRun = false, includeTest = false, json = false, ifExisting: ParsedFlags["ifExisting"], onlyIfOlderThanDays: number | undefined, account: string | undefined;
+  let platforms: Platform[] = PLATFORMS, dryRun = false, includeTest = false, json = false, ifExisting: ParsedFlags["ifExisting"], onlyIfOlderThanDays: number | undefined, account: string | undefined, status = false, runFailed = false, warnHours = DEFAULT_WARN_HOURS;
   let registryPath = path.resolve("registry", "connectors.json");
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--all") ids.push("*");
     else if (a === "--dry-run") dryRun = true;
     else if (a === "--include-test") includeTest = true;
+    else if (a === "--status") status = true;
+    else if (a === "--run-failed") runFailed = true;
+    else if (a === "--warn-hours") {
+      const v = Number(args[++i]);
+      if (!Number.isFinite(v) || v <= 0) return { error: "--warn-hours needs a positive number of hours, for example 72" };
+      warnHours = v;
+    }
     else if (a === "--json") json = true;
     else if (a === "--registry") registryPath = path.resolve(args[++i]);
     else if (a === "--only-if-older-than") {
@@ -62,7 +71,7 @@ export function parseFlags(args: string[]): ParsedFlags | { error: string } {
     }
     else ids.push(a);
   }
-  return { ids, platforms, dryRun, includeTest, json, ifExisting, registryPath, onlyIfOlderThanDays, account };
+  return { ids, platforms, dryRun, includeTest, json, ifExisting, registryPath, onlyIfOlderThanDays, status, warnHours, runFailed, account };
 }
 
 const THREADS_USAGE = "usage: cc threads --account <id> [--json]";
@@ -104,7 +113,16 @@ export async function main(argv: string[]): Promise<number> {
   if (args[0] === "reauth") {
     const parsed = parseFlags(args.slice(1));
     if ("error" in parsed) { console.error(parsed.error); return 2; }
-    if (parsed.ids.length === 0) { console.error("usage: cc reauth <connector-id ...|--all> [--include-test] [--dry-run] [--only-if-older-than <days>] [--registry <path>] [--json]"); return 2; }
+    if (parsed.status) {
+      // REQ-D013 REQ-D014: hours left on every Google sign-in; an alert (file, ALERT lines, exit 1, CC_ALERT_COMMAND hook) when one is low, expired, unreadable or the run failed. Reads only.
+      const statuses = await signInStatuses(loadRegistry(parsed.registryPath), { connectors: parsed.ids.length ? parsed.ids : ["*"], includeTest: parsed.includeTest }, { transport: transportFor, now: Date.now }, parsed.warnHours);
+      const alert = evaluateAlert(statuses, { warnHours: parsed.warnHours, nowIso: new Date().toISOString(), runFailed: parsed.runFailed });
+      const applied = await applyAlert(alert, { dir: alertsDir(), hookCommand: process.env.CC_ALERT_COMMAND });
+      if (parsed.json) console.log(JSON.stringify({ raised: alert.raised, statuses, lines: applied.lines }, null, 2));
+      else for (const l of applied.lines) console.log(l);
+      return applied.exit;
+    }
+    if (parsed.ids.length === 0) { console.error("usage: cc reauth <connector-id ...|--all> [--include-test] [--dry-run] [--only-if-older-than <days>] [--status [--warn-hours <h>] [--run-failed]] [--registry <path>] [--json]"); return 2; }
     const res = await reauth(loadRegistry(parsed.registryPath), { connectors: parsed.ids, includeTest: parsed.includeTest, dryRun: parsed.dryRun, onlyIfOlderThanDays: parsed.onlyIfOlderThanDays });
     if (parsed.json) console.log(JSON.stringify(res, null, 2));
     else for (const i of res.items) console.log(`${i.status.padEnd(8)} reauth ${i.connector}${i.detail ? " - " + i.detail : ""}`);

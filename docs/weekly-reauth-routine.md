@@ -1,6 +1,6 @@
 # Optional: staging `cc reauth` weekly through a Claude Routine + helm-workflow-runner
 
-The Scheduled Task `cc-mcp Google Reauth` (every 5 days, `scripts/install-reauth-task.ps1`) is the primary scheduler for `cc reauth` and needs
+The Scheduled Task `cc-mcp Google Reauth` (every day, renewing a connector only once its last renewal is 3 days old; `scripts/install-reauth-task.ps1`) is the primary scheduler for `cc reauth` and needs
 nothing else. If the operator also wants a Claude Routine that stages a one-approval helm-workflow-runner job each week - this
 is the prompt for it. Since 2026-10-03 it is a Routine of its own, **"cc weekly Google reauth (ALL Google-OAuth connectors)"** (`trig_014PARasGUsixL4eX1ZLPvuM`, Fridays 03:07 America/Denver), bound to a
 home thread rooted in THIS repo (session `session_01EV1VWNSe2bGEu2eEoX8NjR`), so its instructions are edited from here and nothing about it lives in any connector repo. It runs

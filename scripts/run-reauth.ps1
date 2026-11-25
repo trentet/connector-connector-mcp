@@ -9,13 +9,13 @@
   (the coverage guard needs gh and belongs to the primary).
 
   Google expires such a token after 7 days while the OAuth app stays in Testing status, so this is scheduled more often than that
-  (scripts\install-reauth-task.ps1: every 5 days). Safe by construction - cc never overwrites a token or restarts a server unless the
+  (scripts\install-reauth-task.ps1: every day, renewing a connector only once its last renewal is 3 days old). Safe by construction - cc never overwrites a token or restarts a server unless the
   new token was granted every declared scope, and it restores the previous token if the restarted server's health check fails.
   Logs: %LOCALAPPDATA%\HELM\connector-connector-mcp\logs\scheduled-reauth.log (this runner: start, finish, exit code, cc's redacted
   output) and ...\logs\reauth.log (cc's own step log). Never a token, authorization code or password.
   After the renewal it also runs the coverage guard (`cc audit --google --github <owner>`): a repo that uses Google OAuth but has no registry
   googleOAuth block is logged as "GOOGLE COVERAGE GAP" so a new Google connector can never be silently left out of the weekly renewal.
-  Exit code: 0 all renewed (or nothing due) and no coverage gap, 1 any connector failed (see the log), 2 not deployed, 3 renewals fine but a coverage gap exists.
+  Exit code: 0 all renewed (or nothing due) and no coverage gap, 1 any connector failed (see the log), 2 not deployed, 3 renewals fine but a coverage gap exists, 4 renewals reported fine but a sign-in is low, expired or unreadable (alert raised).
 #>
 param([ValidateSet("production", "test")][string]$Environment = "production", [switch]$IncludeTest, [switch]$DryRun, [string]$GithubOwner = "trentet",
     [ValidatePattern('^$|^[a-z0-9][a-z0-9-]*([, ]+[a-z0-9][a-z0-9-]*)*$')][string]$Connectors = "",
@@ -31,6 +31,8 @@ function Write-Log($m) {
     for ($i = 0; $i -lt 5; $i++) { try { Add-Content -Path $logPath -Value $line -ErrorAction Stop; return } catch { Start-Sleep -Milliseconds 500 } }
     try { Add-Content -Path (Join-Path $env:TEMP "cc-scheduled-reauth-fallback.log") -Value $line -ErrorAction Stop } catch { }
 }
+# REQ-D013: a scheduled (daily) run shows no window and takes no focus: its Chrome starts on its own Windows desktop (REQ-D006).
+if (-not $env:CC_CHROME_DESKTOP) { $env:CC_CHROME_DESKTOP = "own" }
 $cli = Join-Path $deploy "bin\cc.mjs"
 if (-not (Test-Path $cli)) { Write-Log "not deployed: $cli missing (run node scripts\deploy.mjs $Environment)"; exit 2 }
 
@@ -47,7 +49,8 @@ try {
     $code = $LASTEXITCODE
 } finally { Pop-Location }
 foreach ($l in $out) { if ($l.Trim()) { Write-Log "  | $l" } }
-Write-Log "=== scheduled cc reauth finished (exit $code) ==="
+$renewCode = $code   # the renewal's own exit code: only this one decides --run-failed (REQ-D013 AC2); the coverage check below may change $code later
+Write-Log "=== scheduled cc reauth finished (exit $renewCode) ==="
 
 # Coverage guard: reads repos through the host's gh (no clones, no secrets); a gh problem is only a note, never a failure of the renewal itself.
 # A second renewer skips it (-SkipCoverage): the guard belongs to the primary and needs gh.
@@ -63,4 +66,16 @@ if (-not $SkipCoverage) {
         if ($code -eq 0) { $code = 3 }
     }
 }
+# REQ-D013 REQ-D014: after EVERY run, report the hours left on every sign-in and raise the alert (alert file, ALERT lines, CC_ALERT_COMMAND hook)
+# when the renewal failed or a sign-in is low, expired or unreadable. A failed run is therefore never silent, and the daily schedule retries it.
+# --run-failed is sent only when the RENEWAL itself failed ($renewCode), never because only the coverage check failed ($code 3).
+$statusArgs = @(); if ($renewCode -ne 0) { $statusArgs += "--run-failed" }
+Push-Location $deploy
+try {
+    $status = & node bin\cc.mjs reauth --all --status @statusArgs 2>&1 | ForEach-Object { "$_" }
+    $statusCode = $LASTEXITCODE
+} finally { Pop-Location }
+foreach ($l in $status) { if ($l.Trim()) { Write-Log "  | status: $l" } }
+if ($statusCode -ne 0 -and $code -eq 0) { $code = 4 }
+Write-Log "=== sign-in status check finished (exit $statusCode); scheduled run exit $code ==="
 exit $code

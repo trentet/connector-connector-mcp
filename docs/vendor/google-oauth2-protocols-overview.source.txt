@@ -1,0 +1,4 @@
+address: https://developers.google.com/identity/protocols/oauth2
+read: 2026-11-18 02:30:43 PM CST (live, on the W540, Invoke-WebRequest)
+sha256 of the saved page: 5D9E1B054C27D10FA61EDA055DD3C99354467B5F29E3563EA7B07FD3305ED1E1
+saved for: REQ-D014 (RULE-268 R-268.2); the sentence on the 7-day refresh token of an app in Testing status is in the section 'Refresh token expiration'.

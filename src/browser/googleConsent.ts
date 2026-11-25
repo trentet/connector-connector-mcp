@@ -98,15 +98,19 @@ export async function clickAccountChooserEntry(page: Page, spec: ConsentSpec, ow
 }
 
 /**
- * Every account a Google page shows as signed in: [data-email] values and the account chip's aria-label
- * (spec.accountSwitcherChipAria). Email text elsewhere on the page is not identity. ACCT-C06; not yet checked against
- * live Google, so a screen without these markers is refused (fail-closed).
+ * Every account a Google page shows as signed in: [data-email] values, [data-third-party-email] values (the unverified-app warning page, REQ-D012) and the account chip's aria-label
+ * (spec.accountSwitcherChipAria). Email text elsewhere on the page is not identity. ACCT-C06; the warning page's marker and the
+ * consent page's [data-email] were read on live Google on 18 Nov 2026 (read-only probe, REQ-D012); other Google pages are not known,
+ * so a screen without these markers is refused (fail-closed).
  */
 export async function googleIdentity(page: Page, spec: ConsentSpec): Promise<string[]> {
   const raw = await page.evaluate((chip) => {
     const re = new RegExp(chip, "i");
     const out: string[] = [];
     document.querySelectorAll("[data-email]").forEach((e) => { out.push(e.getAttribute("data-email") ?? ""); });
+    // REQ-D012: Google's unverified-app warning page (/signin/oauth/warning) has no [data-email] and no chip; it names the signed-in
+    // account only in data-third-party-email on its Continue button (read live 18 Nov 2026). The account is still compared exactly.
+    document.querySelectorAll("[data-third-party-email]").forEach((e) => { out.push(e.getAttribute("data-third-party-email") ?? ""); });
     document.querySelectorAll("[aria-label]").forEach((e) => { const a = e.getAttribute("aria-label") ?? ""; if (re.test(a)) out.push(a); });
     return out;
   }, spec.accountSwitcherChipAria).catch(() => [] as string[]);

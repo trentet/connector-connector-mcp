@@ -774,3 +774,22 @@ describe("googleOAuth.renewers: per-entry renewer host filter (#45)", () => {
     expect(robot.googleOAuth && robot.repo).toBeTruthy(); // the coverage guard matches by googleOAuth + repo, independent of renewers
   });
 });
+
+describe("renewal attempts before the 168-hour limit (REQ-D013)", () => {
+  const HOUR = 3_600_000, DAY = 86_400_000, RECORD = "/s/token.renewed.json", THRESHOLD_DAYS = 3, EXPECTED_ATTEMPTS = 4;
+  // A renewal that keeps failing never rewrites the record, so each daily 02:30 run reads the same renewedAt and renews
+  // (a dry run says "would renew") once that record is THRESHOLD_DAYS old; a run after the 168 hours have ended is not counted.
+  async function attempts(renewedAt: number): Promise<number> {
+    let n = 0;
+    for (let run = Date.UTC(2026, 10, 1, 2, 30) + DAY * Math.ceil((renewedAt - Date.UTC(2026, 10, 1, 2, 30)) / DAY); run < renewedAt + 168 * HOUR; run += DAY) {
+      const h = fakeHost({ "/s/credentials.json": CREDS, "/s/token.json": "OLD", [RECORD]: JSON.stringify({ renewedAt: new Date(renewedAt).toISOString(), byHost: "host-a" }) });
+      const { value: res } = await captured(() => reauth(registry(connector("a", def())), { connectors: ["a"], dryRun: true, onlyIfOlderThanDays: THRESHOLD_DAYS }, Object.assign(deps(h.t), { now: () => run })));
+      if (res.items[0].detail?.startsWith("would renew")) n++;
+    }
+    return n;
+  }
+  it("TC-D013-13 a daily 02:30 run with a 3-day threshold makes four attempts before a 168-hour token ends, for a renewal at 14:22 and at 02:20", async () => {
+    expect(await attempts(Date.UTC(2026, 10, 1, 14, 22))).toBe(EXPECTED_ATTEMPTS); // attempts on days 4, 5, 6, 7 after it
+    expect(await attempts(Date.UTC(2026, 10, 1, 2, 20))).toBe(EXPECTED_ATTEMPTS); // attempts on days 3, 4, 5, 6 after it
+  });
+});
