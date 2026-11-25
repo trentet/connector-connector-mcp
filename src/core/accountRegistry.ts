@@ -35,7 +35,7 @@ const SIG_RE = /(?:^|\n)auth_sig=([A-Za-z0-9_-]+)/;
 const SVC_RE = /(?:^|\n)service=(\S+)/;
 const METHOD_RE = /(?:^|\n)sign_in_method=(\S+)/;
 /** ACCT-C11: the sign-in methods the vault records (the same values the identity readers report). */
-export const SIGN_IN_METHODS = ["email", "google", "x", "apple", "github", "sso", "phone", "cursor", "android"] as const;
+export const SIGN_IN_METHODS = ["email", "username", "google", "x", "apple", "github", "sso", "phone", "cursor", "android"] as const;
 
 export const normService = (s: string) => String(s ?? "").trim().toLowerCase().replace(/^www\./, "");
 export const normAccount = (a: string | null | undefined) => String(a ?? "").trim().toLowerCase();

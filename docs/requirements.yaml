@@ -753,3 +753,22 @@ requirements:
   files: [registry/connectors.json, test/desktop-control-registry.test.ts]
   tools: [cc_run]
   decision: {quote: if production was never created and deployed for the remote connector, then that needs to be done and fixed, at: '2026-11-15', source: main thread 15 Nov 2026 about 8:14 PM CST via the worker brief A3-AUD-DEPLOY2 START, from: REQ-U014}
+
+- id: REQ-U018
+  kind: user
+  status: decided
+  scope: universal
+  date: '2026-11-25'
+  source: Owner correction in conversation; issues vault-mcp 28 and connector-connector-mcp 110
+  quotes:
+  - "Do it all"
+  implemented_by: [ACCT-C15]
+- id: ACCT-C15
+  kind: derived
+  status: decided
+  title: Recognize the native username/password method in signed Vault records
+  text: >-
+    Recognize username as a distinct supported method. Existing signatures and account and provider checks are unchanged.
+    A platform flow that performs email or Google login must still refuse a username method that does not match.
+  files: [src/core/accountRegistry.ts]
+  decision: {quote: "Do it all", at: '2026-11-25', source: owner correction issue 110, from: REQ-U018}
