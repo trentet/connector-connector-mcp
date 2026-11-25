@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildConsentUrl, fileLock, reauth, renewalAge, selectGoogleConnectors, withPort, type ReauthDeps, type TokenResponse } from "../src/core/reauth.js";
 import { loadRegistry, validateRegistry } from "../src/core/registry.js";
-import { expandEnv, GateTransport, LocalTransport, SshTransport, transportFor, type ExecResult, type Transport } from "../src/core/transport.js";
+import { expandEnv, GateTransport, LocalTransport, restartEnv, SshTransport, transportFor, type ExecResult, type Transport } from "../src/core/transport.js";
 import type { ConnectorDef, GoogleOAuthDef, Registry } from "../src/core/types.js";
 
 const SECRET = "client-SECRET-abc123", CODE = "4/0AUTHCODE-xyz789", REFRESH = "1//refresh-TOKEN-qwe456", ACCESS = "ya29.access-TOKEN-asd", PASSWORD = "pw-GOOGLE-7777";
@@ -791,5 +791,72 @@ describe("renewal attempts before the 168-hour limit (REQ-D013)", () => {
   it("TC-D013-13 a daily 02:30 run with a 3-day threshold makes four attempts before a 168-hour token ends, for a renewal at 14:22 and at 02:20", async () => {
     expect(await attempts(Date.UTC(2026, 10, 1, 14, 22))).toBe(EXPECTED_ATTEMPTS); // attempts on days 4, 5, 6, 7 after it
     expect(await attempts(Date.UTC(2026, 10, 1, 2, 20))).toBe(EXPECTED_ATTEMPTS); // attempts on days 3, 4, 5, 6 after it
+  });
+});
+// @reqs REQ-D018
+describe("REQ-D018 the restart does not inherit cc's own server settings, and the public address must answer", () => {
+  const pubDef = (waitSeconds = 3) => def({ health: { url: "http://127.0.0.1:1/h", contains: "ok", waitSeconds, publicUrl: "https://drive.example/health" } });
+  const base = (g: unknown) => ({ version: 1, connectors: [{ ...connector("a"), repo: "o/a", googleOAuth: g }] });
+  const withPublic = (d: ReauthDeps & { run: Run }, answer: () => { status: number; body: string } | undefined, seen: string[] = []) =>
+    Object.assign(d, { fetchPublic: async (u: string) => { seen.push(u); return answer(); } });
+
+  it("TC-D018-01 the restart environment drops cc's own server variables in any case and keeps the rest", () => {
+    const out = restartEnv({ HOST: "127.0.0.1", PORT: "8099", CC_ALLOWED_HOSTS: "cc.example", host: "x", Port: "1", LOCALAPPDATA: "C:/L", PATH: "/bin", HELM_PORT: "8787" });
+    expect(out).toEqual({ LOCALAPPDATA: "C:/L", PATH: "/bin", HELM_PORT: "8787" });
+  });
+
+  it("TC-D018-02 a command run by LocalTransport does not see HOST or PORT from cc's environment", async () => {
+    const saved = { HOST: process.env.HOST, PORT: process.env.PORT, CC_D018_KEEP: process.env.CC_D018_KEEP };
+    process.env.HOST = "127.0.0.1"; process.env.PORT = "8099"; process.env.CC_D018_KEEP = "kept";
+    try {
+      const cmd = `"${process.execPath}" -e "process.stdout.write(JSON.stringify([process.env.HOST ?? null, process.env.PORT ?? null, process.env.CC_D018_KEEP ?? null]))"`;
+      const r = await new LocalTransport().exec(cmd, 20_000);
+      expect(r.code).toBe(0);
+      expect(JSON.parse(r.stdout)).toEqual([null, null, "kept"]);
+    } finally {
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    }
+  });
+
+  it("TC-D018-03 host check and public address both ok: renewed, the detail says the public address was checked", async () => {
+    const h = fakeHost({ "/s/credentials.json": CREDS, "/s/token.json": "OLD" });
+    const seen: string[] = [];
+    const { value: res } = await captured(() => reauth(registry(connector("a", pubDef())), { connectors: ["a"] }, withPublic(deps(h.t), () => ({ status: 200, body: '{"status":"ok"}' }), seen)));
+    expect(res).toMatchObject({ ok: true, items: [{ status: "ok" }] });
+    expect(res.items[0].detail).toMatch(/health ok, also at the public address/);
+    expect(seen).toEqual(["https://drive.example/health"]);
+    expect(h.commands).toEqual(["restart-it"]);
+  });
+
+  it("TC-D018-04 host check ok but the public address refuses: the renewal fails, names the address, restores the old token", async () => {
+    let restarts = 0;
+    const h = fakeHost({ "/s/credentials.json": CREDS, "/s/token.json": "OLD-TOKEN-CONTENT" });
+    const origExec = h.t.exec;
+    h.t.exec = async (c) => { restarts++; return origExec(c); };
+    // The public address works again only after the second restart (the old token back in place).
+    const { value: res, stderr } = await captured(() => reauth(registry(connector("a", pubDef())), { connectors: ["a"] }, withPublic(deps(h.t), () => (restarts >= 2 ? { status: 200, body: "ok" } : { status: 403, body: "Invalid Host" }))));
+    expect(res.ok).toBe(false);
+    expect(res.items[0].detail).toMatch(/the check on fake-host passed, but the public address https:\/\/drive\.example\/health answered HTTP 403.*previous token was restored and the server is running again/);
+    expect(h.files["/s/token.json"]).toBe("OLD-TOKEN-CONTENT");
+    expect(h.commands).toEqual(["restart-it", "restart-it"]);
+    noSecrets(JSON.stringify(res) + stderr);
+  });
+
+  it("TC-D018-05 the public address that never answers fails the renewal with did not answer", async () => {
+    const h = fakeHost({ "/s/credentials.json": CREDS, "/s/token.json": "OLD" });
+    const { value: res } = await captured(() => reauth(registry(connector("a", pubDef())), { connectors: ["a"] }, withPublic(deps(h.t), () => undefined)));
+    expect(res.ok).toBe(false);
+    expect(res.items[0].detail).toMatch(/public address https:\/\/drive\.example\/health did not answer/);
+    expect(h.files["/s/token.json"]).toBe("OLD");
+  });
+
+  it("TC-D018-06 publicUrl must be https with no query; the shipped registry names the Drive public health address", () => {
+    const errs = (publicUrl: string) => validateRegistry(base(def({ health: { url: "http://127.0.0.1:9/health", publicUrl } }))).errors.join("\n");
+    expect(errs("http://drive.example/health")).toMatch(/publicUrl: must be an https URL/);
+    expect(errs("https://drive.example/mcp?token=abc")).toMatch(/publicUrl: must be an https URL/);
+    expect(errs("https://drive.example/health")).toBe("");
+    const shipped = loadRegistry(path.join(process.cwd(), "registry", "connectors.json"));
+    const drive = shipped.connectors.find((c) => c.id === "helm-drive");
+    expect(drive?.googleOAuth?.health?.publicUrl).toBe("https://mcp.trentt.me/health");
   });
 });
