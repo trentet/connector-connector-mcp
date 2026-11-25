@@ -870,6 +870,7 @@ requirements:
   - {id: TC-D014-04, ac: REQ-D014.AC3, kind: positive, test: "test/signin-health.test.ts > TC-D014-04 status reads every googleOAuth connector's record and starts no consent"}
   - {id: TC-D014-05, ac: REQ-D014.AC4, kind: negative, test: "test/signin-health.test.ts > TC-D014-05 --status and --warn-hours parse, and a bad warn limit is refused"}
   - {id: TC-D014-06, ac: REQ-D014.AC5, kind: edge, test: "test/signin-health.test.ts > TC-D014-06 the renewing host is in the status data and the alert file, not in the printed lines"}
+  - {id: TC-D014-07, ac: REQ-D014.AC3, kind: positive, test: "test/signin-health.test.ts > TC-D014-07 cc reauth --status prints one line per connector with its hours left and writes nothing but the alert folder"}
   files: [src/core/signinHealth.ts, src/core/reauth.ts, src/cli.ts, test/signin-health.test.ts]
   tools: [cc_reauth]
   decision: {quote: it all needs to be fixed, at: '2026-11-18', source: "the owner's order of 18 Nov 2026 as relayed in the worker start text A1-DV-M1-CCFIX1 START; the 168-hour limit is Google's documented Testing-status limit as the owner thread read it (token.json carried refresh_token_expires_in), the rest is NOT FROM HIS WORDS: FOR HIS REVIEW", from: REQ-U015}

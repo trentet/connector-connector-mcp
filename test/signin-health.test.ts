@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseFlags } from "../src/cli.js";
+import { main, parseFlags } from "../src/cli.js";
 import { signInStatuses } from "../src/core/reauth.js";
 import { applyAlert, classifyHours, evaluateAlert, hoursLeftFromRecord, type SignInStatus } from "../src/core/signinHealth.js";
 import type { Transport } from "../src/core/transport.js";
@@ -59,6 +59,33 @@ describe("REQ-D014 hours left on a Google sign-in", () => {
     const alert = evaluateAlert(out, { warnHours: 72, nowIso: "2026-11-18T20:00:00.000Z" });
     expect(alert.file.connectors[0]).toMatchObject({ connector: "a", byHost: "W540" });
     expect(alert.lines.join("\n")).not.toMatch(/W540/);
+  });
+  it("TC-D014-07 cc reauth --status prints one line per connector with its hours left and writes nothing but the alert folder", async () => {
+    const dir = tmp();
+    const secrets = path.join(dir, "secrets");
+    fs.mkdirSync(secrets);
+    fs.writeFileSync(path.join(secrets, "token.renewed.json"), JSON.stringify({ renewedAt: new Date(Date.now() - 24 * 3_600_000).toISOString(), byHost: "W540" }));
+    const regPath = path.join(dir, "registry.json");
+    const entry = { id: "a", name: "a", repo: "o/a", url: { type: "literal", value: "https://x.example/mcp" }, auth: { mode: "none" }, platforms: ["claude"], googleOAuth: { secretsDir: secrets, scopes: ["https://www.googleapis.com/auth/drive"], account: { vaultLabel: "L" } } };
+    fs.writeFileSync(regPath, JSON.stringify({ version: 1, connectors: [entry] }));
+    const before = fs.readdirSync(secrets);
+    const saved = { log: process.env.CC_LOG_DIR, hook: process.env.CC_ALERT_COMMAND };
+    process.env.CC_LOG_DIR = path.join(dir, "logs");
+    delete process.env.CC_ALERT_COMMAND;
+    const lines: string[] = [];
+    const orig = console.log;
+    console.log = (...a: unknown[]) => { lines.push(a.join(" ")); };
+    let code: number;
+    try { code = await main(["reauth", "--status", "--registry", regPath]); }
+    finally {
+      console.log = orig;
+      if (saved.log === undefined) delete process.env.CC_LOG_DIR; else process.env.CC_LOG_DIR = saved.log;
+      if (saved.hook !== undefined) process.env.CC_ALERT_COMMAND = saved.hook;
+    }
+    expect(code).toBe(0);
+    expect(lines.join("\n")).toMatch(/^ok\s+a: Google sign-in 14\d(\.\d+)? hours left$/m);
+    expect(fs.readdirSync(secrets)).toEqual(before);
+    expect(fs.existsSync(path.join(dir, "alerts", "reauth-ALERT.json"))).toBe(false);
   });
 });
 
