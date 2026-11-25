@@ -43,7 +43,8 @@
         "health": {
           "url": "http://127.0.0.1:8787/health",
           "contains": "\"status\":\"ok\"",
-          "waitSeconds": 60
+          "waitSeconds": 60,
+          "publicUrl": "https://mcp.trentt.me/health"
         }
       }
     },

@@ -875,6 +875,48 @@ requirements:
   tools: [cc_reauth]
   decision: {quote: it all needs to be fixed, at: '2026-11-18', source: "the owner's order of 18 Nov 2026 as relayed in the worker start text A1-DV-M1-CCFIX1 START; the 168-hour limit is Google's documented Testing-status limit as the owner thread read it (token.json carried refresh_token_expires_in), the rest is NOT FROM HIS WORDS: FOR HIS REVIEW", from: REQ-U015}
 
+- id: REQ-U019
+  kind: user
+  status: decided
+  scope: connector-connector-mcp
+  date: '2026-11-25'
+  source: >
+    The owner's messages of 25 Nov 2026 in the bank-export project (21:55 and 22:05 UTC), about the HELM Drive connector,
+    which refused every outside request after its Google sign-in was renewed by cc reauth the same evening.
+  quotes:
+  - Fucking fix it
+  - That is a goddamn fucking random break in my eyes because it fucking broke when it was working before.
+  implemented_by: [REQ-D018]
+- id: REQ-D018
+  kind: derived
+  status: decided
+  title: A connector restarted by cc reauth does not inherit cc's own server settings, and its public address must answer before a renewal counts
+  text: >
+    Derived from REQ-U019 (25 Nov 2026). scripts/start.mjs sets HOST=127.0.0.1, PORT and CC_ALLOWED_HOSTS for cc's own
+    http server, and the restart command cc reauth ran on this machine inherited them. helm-drive's restart.mjs then started
+    the Drive server bound to 127.0.0.1 with a localhost-only Host check, so every request through its tunnel was refused
+    ("Invalid Host"), while its health check on 127.0.0.1 passed and cc reported the renewal as ok. Now (1) a restart command
+    run on this machine gets cc's environment without HOST, PORT and CC_ALLOWED_HOSTS (compared case-insensitively); commands
+    run over ssh or the gate are unchanged (they start in a fresh remote shell); (2) a health block may name `publicUrl`, an
+    https address with no query (never a secret), that cc fetches from this machine after the check on the host passes; it
+    must answer HTTP 200 with the `contains` text, inside the same `waitSeconds`, or the renewal fails and the previous token
+    is restored and the server restarted, as for any failed health check; (3) helm-drive's registry entry names
+    https://mcp.trentt.me/health. The choice of fix is NOT FROM HIS WORDS: FOR HIS REVIEW.
+  acceptance:
+  - {id: REQ-D018.AC1, text: "LocalTransport.exec runs the command with an environment that has no HOST, PORT or CC_ALLOWED_HOSTS in any letter case, and keeps every other variable."}
+  - {id: REQ-D018.AC2, text: "With health.publicUrl set, a renewal is ok only when the host check passes and the public address answers HTTP 200 containing the contains text; the detail says the public address was checked."}
+  - {id: REQ-D018.AC3, text: "When the host check passes but the public address does not answer, or answers another status, until waitSeconds ends, the renewal fails, the error names the public address and what it answered, and the previous token is restored with a second restart."}
+  - {id: REQ-D018.AC4, text: "The registry accepts publicUrl only as an https URL with no query or fragment; helm-drive's entry names https://mcp.trentt.me/health."}
+  test_cases:
+  - {id: TC-D018-01, ac: REQ-D018.AC1, kind: positive, test: "test/reauth.test.ts > TC-D018-01 the restart environment drops cc's own server variables in any case and keeps the rest"}
+  - {id: TC-D018-02, ac: REQ-D018.AC1, kind: positive, test: "test/reauth.test.ts > TC-D018-02 a command run by LocalTransport does not see HOST or PORT from cc's environment"}
+  - {id: TC-D018-03, ac: REQ-D018.AC2, kind: positive, test: "test/reauth.test.ts > TC-D018-03 host check and public address both ok: renewed, the detail says the public address was checked"}
+  - {id: TC-D018-04, ac: REQ-D018.AC3, kind: negative, test: "test/reauth.test.ts > TC-D018-04 host check ok but the public address refuses: the renewal fails, names the address, restores the old token"}
+  - {id: TC-D018-05, ac: REQ-D018.AC3, kind: edge, test: "test/reauth.test.ts > TC-D018-05 the public address that never answers fails the renewal with did not answer"}
+  - {id: TC-D018-06, ac: REQ-D018.AC4, kind: negative, test: "test/reauth.test.ts > TC-D018-06 publicUrl must be https with no query; the shipped registry names the Drive public health address"}
+  files: [src/core/transport.ts, src/core/reauth.ts, src/core/types.ts, src/core/registry.ts, registry/connectors.json, test/reauth.test.ts]
+  tools: [cc_reauth]
+  decision: {quote: fix it, at: '2026-11-25 21:55 UTC', source: "the owner's message in the bank-export project; the design (stripping cc's server variables, the public check) is NOT FROM HIS WORDS: FOR HIS REVIEW", from: REQ-U019}
 - id: REQ-U018
   kind: user
   status: decided

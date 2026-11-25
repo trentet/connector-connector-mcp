@@ -28,10 +28,26 @@ export function expandEnv(s: string, env: NodeJS.ProcessEnv = process.env): stri
   return s.replace(/%([A-Za-z_][A-Za-z0-9_]*)%/g, (m, n: string) => env[n] ?? m);
 }
 
-const run = (file: string, args: string[], opts: { shell?: boolean; timeoutMs?: number; input?: string } = {}): Promise<ExecResult> =>
+/**
+ * REQ-D015: the variables scripts/start.mjs sets for cc's OWN http server (its port, its bind address, its allowed Host
+ * names). A connector's restart command launched by `cc reauth` must not inherit them: on 25 Nov 2026 one connector's restart
+ * inherited HOST=127.0.0.1 from cc, bound loopback-only with a localhost Host check, and refused every request through its
+ * public tunnel while its local health check still passed.
+ */
+export const CC_SERVER_ENV = ["HOST", "PORT", "CC_ALLOWED_HOSTS"] as const;
+
+/** A copy of `env` without cc's own server variables (REQ-D015). Names are compared case-insensitively (Windows env). */
+export function restartEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const drop = new Set<string>(CC_SERVER_ENV.map((n) => n.toUpperCase()));
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(env)) if (!drop.has(k.toUpperCase())) out[k] = v;
+  return out;
+}
+
+const run = (file: string, args: string[], opts: { shell?: boolean; timeoutMs?: number; input?: string; env?: NodeJS.ProcessEnv } = {}): Promise<ExecResult> =>
   new Promise((resolve) => {
     let stdout = "", stderr = "", done = false;
-    const child = spawn(file, args, { shell: opts.shell ?? false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(file, args, { shell: opts.shell ?? false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"], ...(opts.env ? { env: opts.env } : {}) });
     const finish = (r: ExecResult) => { if (!done) { done = true; clearTimeout(timer); resolve(r); } };
     const timer = setTimeout(() => { try { child.kill(); } catch { /* gone */ } finish({ code: -1, stdout, stderr: stderr + "\n(timed out)" }); }, opts.timeoutMs ?? 120_000);
     child.stdout.on("data", (d) => { stdout += d; });
@@ -51,7 +67,7 @@ export class LocalTransport implements Transport {
     fs.writeFileSync(tmp, content, { encoding: "utf8", mode: 0o600 });
     fs.renameSync(tmp, file); // atomic replace on the same volume
   }
-  exec(command: string, timeoutMs?: number): Promise<ExecResult> { return run(command, [], { shell: true, timeoutMs }); }
+  exec(command: string, timeoutMs?: number): Promise<ExecResult> { return run(command, [], { shell: true, timeoutMs, env: restartEnv() }); }
   async fetchText(url: string): Promise<string | undefined> {
     try { const r = await fetch(url, { signal: AbortSignal.timeout(8000) }); return r.ok ? await r.text() : undefined; } catch { return undefined; }
   }

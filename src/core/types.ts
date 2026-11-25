@@ -48,7 +48,12 @@ export interface GoogleOAuthDef {
    * Without `restart` the server re-reads the file itself. A page that already says ok on the OLD token would then pass at once, so `expectRenewedAt`
    * makes cc write the renewal record first and require the health body to contain that record's `renewedAt`: proof the server loaded the NEW token.
    */
-  health?: { url: string; contains?: string; waitSeconds?: number; expectRenewedAt?: boolean };
+  /**
+   * REQ-D015 `publicUrl`: the connector's public health address (for example its tunnel address). After the check on the host passes,
+   * cc also fetches this address from the renewer machine itself and requires HTTP 200 and `contains`: a server that answers on 127.0.0.1
+   * but refuses outside requests fails the renewal and the previous token is restored.
+   */
+  health?: { url: string; contains?: string; waitSeconds?: number; expectRenewedAt?: boolean; publicUrl?: string };
 }
 
 export interface ConnectorDef {

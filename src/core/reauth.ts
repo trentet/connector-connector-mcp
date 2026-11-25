@@ -50,6 +50,13 @@ export interface ReauthDeps {
   logFile: string | null;
   /** Cross-process lock per connector so two renewals (CLI, a scheduled task, the MCP tool) never run at once. Returns a release function, or undefined when another renewal holds it. Absent = no locking. */
   lock?: (connectorId: string) => (() => void) | undefined;
+  /** REQ-D015: GET a public health address from THIS machine. Returns status and body, or undefined if nothing answered. Absent = the global fetch. */
+  fetchPublic?: (url: string) => Promise<{ status: number; body: string } | undefined>;
+}
+
+/** REQ-D015 default: a plain GET from this machine, 15 s limit, no redirects followed. */
+export async function fetchPublicDefault(url: string): Promise<{ status: number; body: string } | undefined> {
+  try { const r = await fetch(url, { signal: AbortSignal.timeout(15_000), redirect: "manual" }); return { status: r.status, body: await r.text() }; } catch { return undefined; }
 }
 
 /** Exclusive lock file per connector; a lock older than 20 minutes, or whose owner process is gone, is stale and taken over. */
@@ -145,6 +152,7 @@ export function defaultReauthDeps(): ReauthDeps {
     state: () => crypto.randomBytes(16).toString("hex"),
     logFile: defaultLogFile(),
     lock: fileLock(),
+    fetchPublic: fetchPublicDefault,
   };
 }
 
@@ -354,10 +362,18 @@ async function reauthOne(c: ConnectorDef, g: GoogleOAuthDef, req: ReauthRequest,
     }
     if (!g.health) return undefined;
     const end = deps.now() + (g.health.waitSeconds ?? 60) * 1000;
+    const pub = g.health.publicUrl, fetchPublic = deps.fetchPublic ?? fetchPublicDefault;
+    let publicProblem: string | undefined;
     for (;;) {
       const body = await t.fetchText(g.health.url);
-      if (body !== undefined && (!g.health.contains || body.includes(g.health.contains)) && (!stamp || body.includes(stamp))) return undefined;
-      if (deps.now() >= end) return `health check did not pass within ${g.health.waitSeconds ?? 60}s${stamp ? " (the health page did not show the new renewal record)" : ""}`;
+      if (body !== undefined && (!g.health.contains || body.includes(g.health.contains)) && (!stamp || body.includes(stamp))) {
+        if (!pub) return undefined;
+        // REQ-D015: the host's own check passed; the public address must answer too, or outside requests are being refused.
+        const r = await fetchPublic(pub);
+        if (r && r.status === 200 && (!g.health.contains || r.body.includes(g.health.contains))) return undefined;
+        publicProblem = r ? `the public address ${pub} answered HTTP ${r.status}${r.status === 200 ? " without the expected text" : ""}` : `the public address ${pub} did not answer`;
+      }
+      if (deps.now() >= end) return `health check did not pass within ${g.health.waitSeconds ?? 60}s${publicProblem ? ` (the check on ${t.where} passed, but ${publicProblem})` : stamp ? " (the health page did not show the new renewal record)" : ""}`;
       await deps.sleep(3000);
     }
   };
@@ -367,7 +383,7 @@ async function reauthOne(c: ConnectorDef, g: GoogleOAuthDef, req: ReauthRequest,
   const problem = await restartAndCheck(expect ? renewedAt : undefined);
   if (!problem) {
     if (!expect) await record();
-    return { status: "ok", detail: `renewed; new token delivered to ${t.where}; ${restartCmd ? "restarted" : "re-read by the server (no restart)"}${g.health ? "; health ok" : ""}${expect ? ", showing the new renewal" : ""}${warning}` };
+    return { status: "ok", detail: `renewed; new token delivered to ${t.where}; ${restartCmd ? "restarted" : "re-read by the server (no restart)"}${g.health ? "; health ok" : ""}${g.health?.publicUrl ? ", also at the public address" : ""}${expect ? ", showing the new renewal" : ""}${warning}` };
   }
   if (expect) { try { await t.replaceFile(renewedFile, previousRecord ?? "{}"); } catch { /* the token restore below still matters most */ } }
 

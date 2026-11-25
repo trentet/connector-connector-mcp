@@ -10,7 +10,7 @@ function checkSource(s: unknown, where: string, errs: string[]): void {
 }
 
 function checkGoogleOAuth(g: unknown, where: string, errs: string[]): void {
-  const o = g as { renewers?: unknown; secretsDir?: unknown; scopes?: unknown; account?: { vaultLabel?: unknown; totp?: unknown }; host?: { ssh?: unknown; keyFile?: unknown; port?: unknown; os?: unknown; transport?: unknown; credentialsFile?: unknown }; restart?: { command?: unknown }; health?: { url?: unknown; waitSeconds?: unknown; expectRenewedAt?: unknown } };
+  const o = g as { renewers?: unknown; secretsDir?: unknown; scopes?: unknown; account?: { vaultLabel?: unknown; totp?: unknown }; host?: { ssh?: unknown; keyFile?: unknown; port?: unknown; os?: unknown; transport?: unknown; credentialsFile?: unknown }; restart?: { command?: unknown }; health?: { url?: unknown; waitSeconds?: unknown; expectRenewedAt?: unknown; publicUrl?: unknown } };
   if (!o || typeof o !== "object") { errs.push(`${where}: must be an object`); return; }
   if (typeof o.secretsDir !== "string" || !o.secretsDir.trim()) errs.push(`${where}.secretsDir: required`);
   if (!Array.isArray(o.scopes) || o.scopes.length === 0 || o.scopes.some((s) => typeof s !== "string" || !/^https:\/\/www\.googleapis\.com\/auth\/[\w.-]+$/.test(s))) errs.push(`${where}.scopes: a non-empty list of https://www.googleapis.com/auth/... scopes`);
@@ -34,6 +34,7 @@ function checkGoogleOAuth(g: unknown, where: string, errs: string[]): void {
     if (typeof o.health.url !== "string" || !/^https?:\/\//.test(o.health.url)) errs.push(`${where}.health.url: must be an http(s) URL`);
     if (o.health.waitSeconds !== undefined && !(typeof o.health.waitSeconds === "number" && o.health.waitSeconds > 0 && o.health.waitSeconds <= 600)) errs.push(`${where}.health.waitSeconds: 1-600`);
     if (o.health.expectRenewedAt !== undefined && typeof o.health.expectRenewedAt !== "boolean") errs.push(`${where}.health.expectRenewedAt: true or false`);
+    if (o.health.publicUrl !== undefined && (typeof o.health.publicUrl !== "string" || !/^https:\/\/[^\s?#]+$/.test(o.health.publicUrl))) errs.push(`${where}.health.publicUrl: must be an https URL with no query or fragment (never a secret)`);
   }
 }
 
