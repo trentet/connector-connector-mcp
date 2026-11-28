@@ -109,7 +109,7 @@ requirements:
   status: decided
   scope: universal
   date: '2026-11-21'
-  source: main chat, the owner's answer on card t173s1064, 21 Nov 2026 1:40 PM CST (owner, verbatim)
+  source: main chat, the owner's answer on question panel t173s1064, 21 Nov 2026 1:40 PM CST (owner, verbatim)
   quotes:
   - Yes, make connector-connector-mcp public and enforce the gate
   note: >
@@ -202,7 +202,7 @@ requirements:
     The new files are listed here and are measured by this check's own coverage rule; they are added to gate.code once
     the pending v0.2.20 pull request (REQ-D017), which changes the gate.code line, has landed, so the two changes do not
     conflict.
-  decision: {quote: "Yes, make connector-connector-mcp public and enforce the gate", at: '2026-11-21 13:40 CST', source: main chat card t173s1064, from: [REQ-U017, REQ-U002]}
+  decision: {quote: "Yes, make connector-connector-mcp public and enforce the gate", at: '2026-11-21 13:40 CST', source: main chat question panel t173s1064, from: [REQ-U017, REQ-U002]}
 - id: ACCT-001
   kind: derived
   status: decided

@@ -52,7 +52,7 @@ export function planProject(found: { name: string; href: string; lines?: string[
   const near = found.filter((p) => loose(p.name) === loose(name));
   if (near.length) return { kind: "refuse", why: `no project is named exactly "${name}", but ${near.map((p) => `"${p.name}"`).join(", ")} is close; cc does not rename and will not create a look-alike (fix the name in registry/accounts.json or on claude.ai)` };
   const elsewhere = found.filter((p) => p.lines?.some((l) => l === name || loose(l) === loose(name)));
-  if (elsewhere.length) return { kind: "refuse", why: `no card is named "${name}", but ${elsewhere.length} card(s) show that text on another line; the card layout may have changed (data/selectors/claude-settings.json projectName), so cc will not create a possible duplicate` };
+  if (elsewhere.length) return { kind: "refuse", why: `no project tile is named "${name}", but ${elsewhere.length} project tile(s) show that text on another line; the project tile layout may have changed (data/selectors/claude-settings.json projectName), so cc will not create a possible duplicate` };
   return { kind: "create" };
 }
 

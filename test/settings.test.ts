@@ -104,7 +104,7 @@ describe("req 4: exact project names only", () => {
   it("claude.ai's starter project is never touched, even when declared", () => {
     expect(planProject([{ name: "How to use Claude", href: "s" }], "How to use Claude", ["How to use Claude"])).toMatchObject({ kind: "refuse", why: expect.stringMatching(/protected/) });
   });
-  it("a name shown on another line of a card (layout drift) is refused, not created", () => {
+  it("a name shown on another line of a project tile (layout drift) is refused, not created", () => {
     expect(planProject([{ name: "Updated 2 days ago", href: "h", lines: ["Updated 2 days ago", "Fixture Project"] }], "Fixture Project")).toMatchObject({ kind: "refuse", why: expect.stringMatching(/another line/) });
   });
   it("the whole run refuses on a near match and creates nothing", async () => {
