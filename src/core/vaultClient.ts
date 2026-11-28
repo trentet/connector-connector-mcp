@@ -73,7 +73,7 @@ export async function getTotp(label: string): Promise<string | undefined> {
   return code && /^\d{6,8}$/.test(code) ? code : undefined;
 }
 
-/** Poll the vault until an entry with this label appears (operator submits it via a vault_request_secret link). */
+/** Poll the vault until an entry with this label appears (the operator adds it). */
 export async function waitForCredential(label: string, timeoutMs: number, pollMs = 3000): Promise<VaultCredential | undefined> {
   const end = Date.now() + timeoutMs;
   while (Date.now() < end) {

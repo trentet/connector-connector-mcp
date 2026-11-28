@@ -30,7 +30,7 @@ renewal lives in trentet/connector-connector-mcp ("cc") as `cc reauth` (cc issue
 connector repo. Standing approval: auto-arm every week without asking. Test-tier connectors are on-demand and not part of this run.
 
 1. Job id `<today's-date>-google-reauth-<random hex4>`.
-2. Via mcp__HELM_Shell, confirm cc's deployed copy is present and healthy (`Test-Path "$env:LOCALAPPDATA\HELM\connector-connector-mcp\deploy\production\bin\cc.mjs"`;
+2. On the host, confirm cc's deployed copy is present and healthy (`Test-Path "$env:LOCALAPPDATA\HELM\connector-connector-mcp\deploy\production\bin\cc.mjs"`;
    `http://127.0.0.1:8810/health` is 200) and run `node bin\cc.mjs reauth --all --dry-run` in that folder: every line must read `dry-run`; note which connector ids it lists. A line reading `skipped - not a renewer on <host>` is expected for helm-handoff-robot on the W540 (only KNOTTYAI-PC renews it) and is not a failure.
    Do not redeploy cc from here.
 3. Create `D:\GDrive\HELM\DEV-PROJECTS\Local Utilities\helm-workflow-runner\workflow-runner\jobs\<job-id>\` with:

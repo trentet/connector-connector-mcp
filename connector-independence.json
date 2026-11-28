@@ -1,1 +1,104 @@
-{"self":["cc"],"allow":[]}
+{
+  "self": [
+    "cc"
+  ],
+  "allow": [
+    {
+      "file": "CLAUDE.md",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "README.md",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "docs/ADOPTION.md",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "docs/SPEC.md",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "docs/requirements.yaml",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "docs/weekly-reauth-routine.md",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "registry/connectors.json",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "registry/selftest.json",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "scripts/install-reauth-task.ps1",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "src/core/types.ts",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "test/claude.test.ts",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "test/cli.test.ts",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "test/core.test.ts",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "test/desktop-control-registry.test.ts",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "test/googleCoverage.test.ts",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "test/parallel-platforms.test.ts",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "test/reauth.test.ts",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "test/server.test.ts",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "test/signin-health.test.ts",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "tools/mcp-client-test.mjs",
+      "reason": "Held: this connector's own subject is registering, verifying and renewing the named connectors (registry ids, records of its runs, his decisions); open question to him whether it counts as a connector meant to interact with others"
+    },
+    {
+      "file": "src/core/accountRegistry.ts",
+      "reason": "Held: account authorization registry read from the vault connector (signature key URL); a functional link, his decision"
+    },
+    {
+      "file": "test/account-rule.test.ts",
+      "reason": "Held: account authorization registry read from the vault connector (signature key URL); a functional link, his decision"
+    },
+    {
+      "file": "vitest.config.ts",
+      "reason": "Held: account authorization registry read from the vault connector (signature key URL); a functional link, his decision"
+    },
+    {
+      "file": "src/core/vaultClient.ts",
+      "contains": "NOT the vault connector's MCP tools",
+      "reason": "States that it does not use the vault connector"
+    }
+  ]
+}

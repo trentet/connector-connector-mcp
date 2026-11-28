@@ -19,7 +19,7 @@ async function signedIn(page: Page): Promise<boolean> {
 /**
  * Login: "Continue with Google" (Google is already signed in in the profile; password only if asked), then OpenAI's SMS
  * code. The code is never typed by a human into this process: the operator submits it to a one-time vault entry
- * (vault_request_secret) which is read here, entered, and deleted.
+ * which is read here, entered, and deleted.
  */
 async function login(ctx: AdapterContext): Promise<void> {
   const s = await ctx.session();
@@ -55,7 +55,7 @@ async function login(ctx: AdapterContext): Promise<void> {
     cur = s.context.pages().find((p) => /auth\.openai\.com|chatgpt\.com/.test(p.url())) ?? cur;
     if (/mfa-challenge/.test(cur.url()) || (await cur.locator(sel.login.mfaCodeInput).count())) {
       const c = await waitForCredential(sel.smsCodeVaultLabel, sel.smsWaitMinutes * 60 * 1000);
-      if (!c) throw new Error(`OpenAI is waiting for an SMS code; timed out after ${sel.smsWaitMinutes} min waiting for vault entry "${sel.smsCodeVaultLabel}" (operator: vault_request_secret with that label)`);
+      if (!c) throw new Error(`OpenAI is waiting for an SMS code; timed out after ${sel.smsWaitMinutes} min waiting for vault entry "${sel.smsCodeVaultLabel}" (operator: add a vault entry with that label)`);
       const code = (c.password || c.username || "").replace(/\D/g, "");
       await cur.locator(sel.login.mfaCodeInput).fill(code);
       await cur.getByRole("button", { name: rx(sel.login.mfaContinue) }).click();
