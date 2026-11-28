@@ -10,7 +10,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run check:hidden-launch && vitest run",
+    "test": "npm run check:connector-independence && npm run check:hidden-launch && vitest run",
+    "check:connector-independence": "node scripts/check-connector-independence.mjs",
     "check:hidden-launch": "node scripts/check-hidden-launch.mjs --pinned scripts/check-hidden-launch.sha256 .",
     "start:http": "node dist/server/http.js"
   },
